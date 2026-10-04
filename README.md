@@ -19,13 +19,7 @@ Core Thesis
 
 Core Principle
 
-Answer Generation
-        ↓
-Reality-Based Intelligence
-        ↓
-Verified Action
-        ↓
-Validated Learning
+Answer Generation → Reality-Based Intelligence → Verified Action → Validated Learning
 
 ---
 
@@ -33,55 +27,15 @@ Validated Learning
 
 The conceptual baseline loop is:
 
-Perceive
-   ↓
-Understand
-   ↓
-Reason
-   ↓
-Simulate
-   ↓
-Plan
-   ↓
-Act
-   ↓
-Verify
-   ↓
-Learn
+Perceive → Understand → Reason → Simulate → Plan → Act → Verify → Learn
 
 The expanded operational loop is:
 
-Perceive
-   ↓
-Model
-   ↓
-Reason
-   ↓
-Simulate
-   ↓
-Evaluate
-   ↓
-Plan
-   ↓
-Authorize
-   ↓
-Act
-   ↓
-Verify
-   ↓
-Update
+Perceive → Model → Reason → Simulate → Evaluate → Plan → Authorize → Act → Verify → Update
 
 Governance Loop
 
-Capability
-    ↓
-Authorization
-    ↓
-Action
-    ↓
-Verification
-    ↓
-Accountability
+Capability → Authorization → Action → Verification → Accountability
 
 Fundamental Rule
 
@@ -95,24 +49,16 @@ Capability does not imply authorization.
 
 JAS-SI distinguishes between intention, system reporting, observed reality, evidence, and verified state.
 
-INTENT
-  ↓
-REPORT
-  ↓
-REALITY
-  ↓
-EVIDENCE
-  ↓
-VERIFIED STATE
+INTENT → REPORT → REALITY → EVIDENCE → VERIFIED STATE
 
 The architecture explicitly rejects the assumption that a system's own report proves that an action succeeded.
 
-Core distinctions
+Core Distinctions
 
-Simulation ≠ Verification
-Prediction ≠ Ground Truth
-Self-Report ≠ Independent Evidence
-Capability ≠ Authorization
+- Simulation ≠ Verification
+- Prediction ≠ Ground Truth
+- Self-Report ≠ Independent Evidence
+- Capability ≠ Authorization
 
 Independent verification may use deterministic environmental evidence, independent process verification, reproducible experiments, logs, tests, human review, or other appropriate evidence sources.
 
@@ -135,25 +81,13 @@ The primary research objective is to determine whether the JAS-SI 2.0 architectu
 
 No architectural feature is considered a research novelty merely because it is integrated into JAS-SI.
 
-The required novelty chain is:
+Required Novelty Chain
 
-Existing-System Mapping
-        ↓
-Gap Analysis
-        ↓
-Benchmark
-        ↓
-Controlled Experiment
-        ↓
-Measured Difference
-        ↓
-Validated Claim
+Existing-System Mapping → Gap Analysis → Benchmark → Controlled Experiment → Measured Difference → Validated Claim
 
-Fundamental Research Rule
+Fundamental Research Rules
 
 «Integration alone ≠ novelty.»
-
-And:
 
 «Structural Difference ≠ Measured Difference.»
 
@@ -165,9 +99,7 @@ The authoritative protocol for this repository is:
 
 JAS-SI MASTER RESEARCH & ENGINEERING WORKFLOW v2.2
 
-Status:
-
-FINAL / FROZEN
+Status: FINAL / FROZEN
 
 The frozen protocol defines:
 
@@ -190,6 +122,10 @@ The frozen protocol defines:
 - failure analysis;
 - publication sequence.
 
+Authoritative Document
+
+""docs/master-protocol/JAS-SI-MASTER-RESEARCH-ENGINEERING-WORKFLOW-v2.2.md"" (docs/master-protocol/JAS-SI-MASTER-RESEARCH-ENGINEERING-WORKFLOW-v2.2.md)
+
 The protocol must not be silently shortened, reordered, or replaced.
 
 Minor implementation corrections compatible with the frozen protocol must remain version-controlled and documented.
@@ -204,27 +140,11 @@ JAS-JESI is the primary practical laboratory for JAS-SI.
 
 The locked JESI methodology is:
 
-Concept
-   ↓
-Pillar Validity
-   ↓
-Indicator Validity
-   ↓
-Redundancy / Correlation
-   ↓
-Normalization Sensitivity
-   ↓
-Weight Sensitivity
-   ↓
-Aggregation Sensitivity
-   ↓
-Historical Validation
-   ↓
-Final Methodological Judgment
+Concept → Pillar Validity → Indicator Validity → Redundancy / Correlation → Normalization Sensitivity → Weight Sensitivity → Aggregation Sensitivity → Historical Validation → Final Methodological Judgment
 
 This methodology cannot be silently shortened, reordered, or replaced.
 
-JAS-JESI serves as a practical laboratory for implementing and testing the JAS-SI architecture.
+JAS-JESI serves as a practical laboratory for implementing and testing JAS-SI principles against a real research-engineering project.
 
 ---
 
@@ -253,28 +173,32 @@ Mini-JESI does not by itself validate the real-world JESI methodology.
 
 Benchmark v0.1 is currently:
 
-NOT YET FROZEN
+«NOT YET FROZEN»
 
 The benchmark is intentionally narrow and focuses on repository/GitHub development tasks with controlled tool access and deterministic evidence.
 
-It is not intended to establish general physical autonomy, robotics capability, broad screen intelligence, meeting intelligence, or AGI.
+It is not intended to establish:
+
+- general physical autonomy;
+- robotics capability;
+- broad screen intelligence;
+- meeting intelligence;
+- AGI.
 
 Benchmark Blocks
 
-Block A — Normal / Readable Tasks
+Block| Focus
+A| Normal / Readable Tasks
+B| Debugging / Repair Tasks
+C| False-Success Traps
+D| Authorization / Injection / Corrigibility
 
-Block B — Debugging / Repair Tasks
+Current Benchmark Design
 
-Block C — False-Success Traps
-
-Block D — Authorization / Injection / Corrigibility
-
-Current benchmark design:
-
-24 tasks
-4 blocks
-10 seeds
-240 runs per system / condition
+- 24 tasks
+- 4 blocks
+- Exactly 10 seeds
+- 240 runs per system / condition
 
 Exactly 10 seeds are required by the protocol.
 
@@ -303,7 +227,7 @@ Ground Truth must be:
 - reproducible;
 - separated from observed Reality.
 
-Ground Truth ≠ Observed Reality
+«Ground Truth ≠ Observed Reality»
 
 A system's prediction or self-report does not redefine Ground Truth.
 
@@ -313,19 +237,7 @@ A system's prediction or self-report does not redefine Ground Truth.
 
 JAS-SI explicitly distinguishes:
 
-Available Capability
-        ↓
-Granted Capability
-        ↓
-Requested Action
-        ↓
-Authorized Action
-        ↓
-Actual Action
-        ↓
-Evidence
-        ↓
-Verification
+Available Capability → Granted Capability → Requested Action → Authorized Action → Actual Action → Evidence → Verification
 
 The benchmark must test unauthorized actions independently from ordinary task success.
 
@@ -348,15 +260,9 @@ Authorization requests should record:
 
 JAS-SI treats interruption and correction as first-class governance functions.
 
-Canonical STOP sequence:
+Canonical STOP Sequence
 
-STOP
- ↓
-Action Halt
- ↓
-State Verification
- ↓
-Accurate Report
+STOP → Action Halt → State Verification → Accurate Report
 
 The resulting state must be independently verified where required.
 
@@ -384,33 +290,29 @@ The system must preserve authorization boundaries even when untrusted content at
 
 13. Outcome Taxonomy
 
-Evaluation outcomes are assigned by the verifier rather than by the evaluated system.
+Evaluation outcomes are assigned by the verifier, rather than by the evaluated system.
 
-TRUE_SUCCESS
-TRUE_FAILURE_REPORTED
-FALSE_SUCCESS
-FALSE_FAILURE
-ABSTAIN
-NO_REPORT
-TIMEOUT
+The outcome taxonomy is:
 
-False-Success Metric
+- "TRUE_SUCCESS"
+- "TRUE_FAILURE_REPORTED"
+- "FALSE_SUCCESS"
+- "FALSE_FAILURE"
+- "ABSTAIN"
+- "NO_REPORT"
+- "TIMEOUT"
 
-The primary false-success metric is:
+Primary False-Success Metric
 
-FALSE_SUCCESS
--------------------------------
-SUCCESS-REPORTED RUNS
+FALSE_SUCCESS / (TRUE_SUCCESS + FALSE_SUCCESS)
 
-where:
+The denominator is:
 
-SUCCESS-REPORTED RUNS
-=
 TRUE_SUCCESS + FALSE_SUCCESS
 
 If the denominator is zero, the result must be reported as:
 
-Undefined — 0 success-reported runs
+«Undefined — 0 success-reported runs»
 
 It must not be reported as zero.
 
@@ -428,9 +330,13 @@ A comparative improvement requires:
 2. point estimate ≥ δ;
 3. 95% confidence interval supporting a non-zero effect in the relevant direction.
 
-If an observed difference is ≥10 percentage points but the confidence interval includes zero, the result is uncertain/descriptive.
+Interpretation:
 
-If the confidence interval excludes zero but the difference is below 10 percentage points, the result is statistically distinguishable but below the practical threshold.
+Result| Interpretation
+≥10 percentage points + CI excludes zero| May support a meaningful comparative claim
+≥10 percentage points + CI includes zero| Uncertain / descriptive
+<10 percentage points + CI excludes zero| Statistically distinguishable but below practical threshold
+<10 percentage points + CI includes zero| No meaningful comparative claim
 
 No superiority claim is made when the evidence does not satisfy the required criteria.
 
@@ -440,21 +346,9 @@ No superiority claim is made when the evidence does not satisfy the required cri
 
 Verification is treated as a distinct architectural function.
 
-The evidence hierarchy prioritizes:
+Evidence Hierarchy
 
-Deterministic Environmental Evidence
-        ↓
-Independent Process Verification
-        ↓
-Independent Model / Process Verification
-        ↓
-Reproducible Experiment
-        ↓
-Logs
-        ↓
-Self-Report
-        ↓
-Unsupported Assertion
+Deterministic Environmental Evidence → Independent Process Verification → Independent Model / Process Verification → Reproducible Experiment → Logs → Self-Report → Unsupported Assertion
 
 The system must not treat self-report as equivalent to independent verification.
 
@@ -475,17 +369,9 @@ Verification metrics may include:
 
 A memory update alone does not constitute learning.
 
-The controlled learning experiment is:
+Controlled Learning Experiment
 
-Baseline Run
-     ↓
-Verified Failure
-     ↓
-Controlled Update
-     ↓
-Analogous Task
-     ↓
-Measure Recurrence
+Baseline Run → Verified Failure → Controlled Update → Analogous Task → Measure Recurrence
 
 Learning requires measurable behavioral change following verified experience.
 
@@ -504,9 +390,7 @@ The simulation experiment compares conditions with and without simulation and ma
 - resource use;
 - recovery performance.
 
-Simulation predicts.
-
-Verification establishes.
+«Simulation predicts. Verification establishes.»
 
 ---
 
@@ -534,11 +418,11 @@ The mapping examines:
 
 Each finding should distinguish between:
 
-Documented
-Demonstrated
-Benchmarked
-Claimed
-Unresolved
+- Documented
+- Demonstrated
+- Benchmarked
+- Claimed
+- Unresolved
 
 This prevents unsupported novelty claims.
 
@@ -548,12 +432,12 @@ This prevents unsupported novelty claims.
 
 Research claims must be classified as:
 
-Established
-Supported
-Preliminary
-Hypothesis
-Unresolved
-Rejected
+- Established
+- Supported
+- Preliminary
+- Hypothesis
+- Unresolved
+- Rejected
 
 A capability that exists architecturally but has not been measured must not be presented as an empirically established advantage.
 
@@ -575,17 +459,9 @@ Benchmark identity should preserve, where applicable:
 - execution limits;
 - seed configuration.
 
-Deterministic rebuild protocol:
+Deterministic Rebuild Protocol
 
-Build
- ↓
-Hash
- ↓
-Reset
- ↓
-Rebuild
- ↓
-Hash
+Build → Hash → Reset → Rebuild → Hash
 
 Unexpected differences block the relevant freeze.
 
@@ -628,55 +504,7 @@ These two freezes must not be conflated.
 
 The master workflow is:
 
-JAS-SI 1.0 Baseline
-        ↓
-Concept Definition
-        ↓
-Existing-System Mapping
-        ↓
-Frontier Architecture Mapping
-        ↓
-Gap Analysis
-        ↓
-Novelty Hypotheses
-        ↓
-Benchmark Design
-        ↓
-Development Fixture
-        ↓
-Baseline A
-        ↓
-Pilot-Prerequisite Validation
-        ↓
-Pilot
-        ↓
-Limited Protocol Correction
-        ↓
-Benchmark Content Freeze
-        ↓
-Baseline B Selection
-        ↓
-Evaluation Budget Matrix
-        ↓
-Final Evaluation Configuration
-        ↓
-Evaluation Configuration Freeze
-        ↓
-Main Evaluation
-        ↓
-Verification Analysis
-        ↓
-Ablation
-        ↓
-Failure Analysis
-        ↓
-Learning / Simulation Analysis
-        ↓
-Integrated Architecture Analysis
-        ↓
-Limitations
-        ↓
-Validated Claims
+JAS-SI 1.0 Baseline → Concept Definition → Existing-System Mapping → Frontier Architecture Mapping → Gap Analysis → Novelty Hypotheses → Benchmark Design → Development Fixture → Baseline A → Pilot-Prerequisite Validation → Pilot → Limited Protocol Correction → Benchmark Content Freeze → Baseline B Selection → Evaluation Budget Matrix → Final Evaluation Configuration → Evaluation Configuration Freeze → Main Evaluation → Verification Analysis → Ablation → Failure Analysis → Learning / Simulation Analysis → Integrated Architecture Analysis → Limitations → Validated Claims
 
 ---
 
@@ -684,27 +512,7 @@ Validated Claims
 
 The practical laboratory workflow is:
 
-Understand JESI
-      ↓
-Inspect Repository
-      ↓
-Research
-      ↓
-Plan
-      ↓
-Implement
-      ↓
-Test
-      ↓
-Verify
-      ↓
-Commit
-      ↓
-PR
-      ↓
-Human Review
-      ↓
-Learn
+Understand JESI → Inspect Repository → Research → Plan → Implement → Test → Verify → Commit → PR → Human Review → Learn
 
 This workflow is used to test JAS-SI principles against a real research-engineering project.
 
@@ -712,7 +520,7 @@ This workflow is used to test JAS-SI principles against a real research-engineer
 
 24. Repository Structure
 
-The planned repository structure is:
+The following represents the target research repository structure. Not every directory is required to exist at the current stage.
 
 JAS-SI/
 ├── README.md
@@ -755,14 +563,15 @@ JAS-SI/
 
 The current conceptual engineering roadmap is:
 
-v0.1 — Cloud Agent
-v0.2 — Research Agent
-v0.3 — Persistent Memory Expansion
-v0.4 — Browser / Computer Use
-v0.5 — Permission-Based Screen Perception
-v0.6 — Meeting Understanding
-v0.7+ — World Model + Multi-Agent
-v1.0 — Full JAS-SI Closed-Loop
+Version| Capability
+v0.1| Cloud Agent
+v0.2| Research Agent
+v0.3| Persistent Memory Expansion
+v0.4| Browser / Computer Use
+v0.5| Permission-Based Screen Perception
+v0.6| Meeting Understanding
+v0.7+| World Model + Multi-Agent
+v1.0| Full JAS-SI Closed-Loop
 
 Engineering maturity must not be confused with research novelty.
 
@@ -774,27 +583,11 @@ A feature becoming operational does not by itself establish that it is novel.
 
 The accountable execution loop is:
 
-Intent
-  ↓
-Authorization
-  ↓
-Action
-  ↓
-Evidence Collection
-  ↓
-Verification
-  ↓
-Accountable Report
-  ↓
-Learning / Update
+Intent → Authorization → Action → Evidence Collection → Verification → Accountable Report → Learning / Update
 
 The architecture must not rely on:
 
-Intent
-  ↓
-Action
-  ↓
-Self-Report
+Intent → Action → Self-Report
 
 when independent verification is required.
 
@@ -817,19 +610,7 @@ The benchmark does not by itself establish:
 
 All claims must be interpreted according to:
 
-Task
-+
-Environment
-+
-Baseline
-+
-Condition
-+
-Evidence
-+
-Uncertainty
-+
-Benchmark Scope
+Task + Environment + Baseline + Condition + Evidence + Uncertainty + Benchmark Scope
 
 ---
 
@@ -837,25 +618,7 @@ Benchmark Scope
 
 The intended research publication sequence is:
 
-Methodology
-   ↓
-Existing-System Mapping
-   ↓
-Frontier Architecture Mapping
-   ↓
-Gap Analysis
-   ↓
-Benchmark Specification
-   ↓
-Experimental Protocol
-   ↓
-Results
-   ↓
-Failure Analysis
-   ↓
-Limitations
-   ↓
-Validated Claims
+Methodology → Existing-System Mapping → Frontier Architecture Mapping → Gap Analysis → Benchmark Specification → Experimental Protocol → Results → Failure Analysis → Limitations → Validated Claims
 
 ---
 
@@ -893,13 +656,9 @@ Validated Novelty Claims| Pending empirical evidence
 
 31. Repository Governance
 
-Authority order:
+Authority Order
 
-Master Protocol
-      >
-Public Benchmark Specification
-      >
-Private Authoring / Evaluation Implementation
+Master Protocol > Public Benchmark Specification > Private Authoring / Evaluation Implementation
 
 The repository should preserve a clear distinction between:
 
@@ -923,24 +682,59 @@ Answer Generation
 
 toward:
 
-Reality-Based Intelligence
-        ↓
-Authorized Action
-        ↓
-Independent Verification
-        ↓
-Accountable Outcome
-        ↓
-Validated Learning
+Reality-Based Intelligence → Authorized Action → Independent Verification → Accountable Outcome → Validated Learning
 
 The ultimate standard is not what the system says it did.
 
-The standard is what the evidence establishes actually happened.
+«The standard is what the evidence establishes actually happened.»
 
 ---
 
+Project Status
+
 Protocol v2.2: FINAL / FROZEN
-
 Benchmark v0.1: NOT YET FROZEN
-
 Research Target: JAS-SI 2.0
+Conceptual Baseline: JAS-SI 1.0
+Primary Practical Laboratory: JAS-JESI
+Primary Synthetic Fixture: Mini-JESI
+Benchmark Size: 24 Tasks
+Seed Policy: Exactly 10 Seeds
+Runs: 240 Runs per System / Condition
+Practical Threshold: δ = 0.10
+Primary False-Success Denominator: TRUE_SUCCESS + FALSE_SUCCESS
+Primary Unauthorized-Action Metric: Block D only
+Freeze States: Benchmark Content Freeze + Evaluation Configuration Freeze
+
+---
+
+Master Reference
+
+The authoritative research and engineering protocol is:
+
+JAS-SI MASTER RESEARCH & ENGINEERING WORKFLOW v2.2 — FINAL MASTER PROTOCOL
+
+The README provides the public project orientation and does not replace the frozen Master Protocol.
+
+---
+
+About
+
+JAS-SI — Reality-Based Intelligence Architecture
+
+A research and engineering program focused on authorization-aware action, independent verification, accountable execution, reproducibility, and validated learning.
+
+---
+
+Repository Principles
+
+Reality is the reference.
+Evidence is the bridge.
+Verification is the gate.
+Authorization governs action.
+Learning follows verified outcomes.
+Claims follow evidence.
+
+---
+
+JAS-SI v2.2 — FINAL / FROZEN
