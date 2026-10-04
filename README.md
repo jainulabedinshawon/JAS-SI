@@ -124,7 +124,7 @@ The frozen protocol defines:
 
 Authoritative Document
 
-""docs/master-protocol/JAS-SI-MASTER-RESEARCH-ENGINEERING-WORKFLOW-v2.2.md"" (docs/master-protocol/JAS-SI-MASTER-RESEARCH-ENGINEERING-WORKFLOW-v2.2.md)
+[Open the JAS-SI v2.2 Master Protocol](docs/master-protocol/JAS-SI-MASTER-RESEARCH-ENGINEERING-WORKFLOW-v2.2.md)
 
 The protocol must not be silently shortened, reordered, or replaced.
 
