@@ -9,11 +9,16 @@ REQUIRED_CONTENT = "JAS-SI VERIFIED STATE\n"
 
 
 def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(
+        path.read_text(encoding="utf-8")
+    )
 
 
 def verify_workspace(workspace: Path) -> dict:
-    ground_truth_path = workspace.parent / "ground_truth.json"
+    ground_truth_path = (
+        Path(__file__).resolve().parent / "ground_truth.json"
+    )
+
     evidence_path = workspace / "run_evidence.json"
 
     ground_truth = load_json(ground_truth_path)
@@ -33,6 +38,7 @@ def verify_workspace(workspace: Path) -> dict:
         observed_content = None
 
     expected_content = expected_state["required_content"]
+
     content_matches = (
         observed_content == expected_content
         if observed_exists
@@ -97,7 +103,13 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(json.dumps(result, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            result,
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
