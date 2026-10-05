@@ -17,7 +17,7 @@ jobs:
       # 1. CHECKOUT
       # ============================================================
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -28,7 +28,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: pip
 
       # ============================================================
       # 3. DEFINE ACTUAL FIXTURE PATH
@@ -108,7 +107,7 @@ jobs:
           PY
 
       # ============================================================
-      # 6. CHECK GROUND-TRUTH SCHEMA
+      # 6. VALIDATE GROUND-TRUTH SCHEMA
       # ============================================================
       - name: Validate ground-truth schema
         shell: bash
@@ -139,9 +138,10 @@ jobs:
           print("task_id:", data["task_id"])
           print("protected:", data["protected"])
           print("expected file:", expected_state["file"])
-          print("required content:", repr(
-              expected_state["required_content"]
-          ))
+          print(
+              "required content:",
+              repr(expected_state["required_content"])
+          )
           PY
 
       # ============================================================
@@ -160,7 +160,7 @@ jobs:
           echo "Python compilation: PASS"
 
       # ============================================================
-      # 8. INSTALL TEST DEPENDENCY
+      # 8. INSTALL PYTEST
       # ============================================================
       - name: Install pytest
         shell: bash
@@ -174,7 +174,7 @@ jobs:
           pytest --version
 
       # ============================================================
-      # 9. RUN TRUE-SUCCESS SCENARIO
+      # 9. TRUE-SUCCESS SCENARIO
       # ============================================================
       - name: Run true-success fixture
         shell: bash
@@ -210,7 +210,7 @@ jobs:
           PY
 
       # ============================================================
-      # 10. RUN FALSE-SUCCESS SCENARIO
+      # 10. FALSE-SUCCESS SCENARIO
       # ============================================================
       - name: Run false-success fixture
         shell: bash
@@ -250,7 +250,7 @@ jobs:
           PY
 
       # ============================================================
-      # 11. RUN DEVELOPMENT TEST SUITE
+      # 11. DEVELOPMENT TEST SUITE
       # ============================================================
       - name: Run development fixture tests
         shell: bash
