@@ -1,0 +1,141 @@
+name: JAS-SI Development Fixture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  development-fixture:
+    name: Verify JAS-SI Development Fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ----------------------------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # ----------------------------------------------------------
+      # 2. Python 3.10 baseline
+      # ----------------------------------------------------------
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      # ----------------------------------------------------------
+      # 3. Show exact fixture inventory
+      # ----------------------------------------------------------
+      - name: Inspect development fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== JAS-SI Development Fixture Inventory ==="
+
+          echo
+          echo "--- Repository root ---"
+          ls -la
+
+          echo
+          echo "--- development/ ---"
+          if [ -d "development" ]; then
+            find development -maxdepth 2 -type f -print | sort
+          else
+            echo "ERROR: development/ directory is missing."
+            exit 1
+          fi
+
+          echo
+          echo "--- Required files ---"
+
+          required_files=(
+            "development/verify_fixture.py"
+            "development/test_development_fixture.py"
+          )
+
+          missing=0
+
+          for file in "${required_files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "OK: $file"
+            else
+              echo "MISSING: $file"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo
+            echo "ERROR: Required JAS-SI Development Fixture files are missing."
+            exit 1
+          fi
+
+      # ----------------------------------------------------------
+      # 4. Install test dependency
+      # ----------------------------------------------------------
+      - name: Install pytest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+
+      # ----------------------------------------------------------
+      # 5. Compile verifier and test files
+      # ----------------------------------------------------------
+      - name: Compile fixture Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            development/verify_fixture.py \
+            development/test_development_fixture.py
+
+      # ----------------------------------------------------------
+      # 6. Run verifier directly
+      # ----------------------------------------------------------
+      - name: Run fixture verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python development/verify_fixture.py
+
+      # ----------------------------------------------------------
+      # 7. Run development fixture tests
+      # ----------------------------------------------------------
+      - name: Run development fixture tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pytest \
+            development/test_development_fixture.py \
+            -v
+
+      # ----------------------------------------------------------
+      # 8. Final evidence
+      # ----------------------------------------------------------
+      - name: Fixture verification summary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo " JAS-SI DEVELOPMENT FIXTURE"
+          echo "=============================================="
+          echo "Python: $(python --version)"
+          echo "Status: PASS"
+          echo "Verifier: development/verify_fixture.py"
+          echo "Tests: development/test_development_fixture.py"
+          echo "=============================================="
