@@ -13,74 +13,155 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # ----------------------------------------------------------
-      # 1. Checkout repository
-      # ----------------------------------------------------------
+      # ============================================================
+      # 1. CHECKOUT
+      # ============================================================
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      # ----------------------------------------------------------
-      # 2. Python 3.10 baseline
-      # ----------------------------------------------------------
+      # ============================================================
+      # 2. PYTHON 3.10 BASELINE
+      # ============================================================
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           cache: pip
 
-      # ----------------------------------------------------------
-      # 3. Show exact fixture inventory
-      # ----------------------------------------------------------
+      # ============================================================
+      # 3. DEFINE ACTUAL FIXTURE PATH
+      # ============================================================
+      - name: Define fixture path
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FIXTURE_DIR="benchmarks/jas-si-v0.1/development"
+
+          echo "FIXTURE_DIR=$FIXTURE_DIR" >> "$GITHUB_ENV"
+
+          echo "Repository root:"
+          pwd
+
+          echo
+          echo "Fixture directory:"
+          echo "$FIXTURE_DIR"
+
+      # ============================================================
+      # 4. INVENTORY REQUIRED FIXTURE FILES
+      # ============================================================
       - name: Inspect development fixture
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== JAS-SI Development Fixture Inventory ==="
-
-          echo
-          echo "--- Repository root ---"
-          ls -la
-
-          echo
-          echo "--- development/ ---"
-          if [ -d "development" ]; then
-            find development -maxdepth 2 -type f -print | sort
-          else
-            echo "ERROR: development/ directory is missing."
-            exit 1
-          fi
-
-          echo
-          echo "--- Required files ---"
-
           required_files=(
-            "development/verify_fixture.py"
-            "development/test_development_fixture.py"
+            "$FIXTURE_DIR/README.md"
+            "$FIXTURE_DIR/fixture_manifest.json"
+            "$FIXTURE_DIR/ground_truth.json"
+            "$FIXTURE_DIR/run_fixture.py"
+            "$FIXTURE_DIR/verify_fixture.py"
+            "$FIXTURE_DIR/test_development_fixture.py"
           )
 
-          missing=0
+          echo "Checking required JAS-SI development fixture files..."
 
           for file in "${required_files[@]}"; do
-            if [ -f "$file" ]; then
-              echo "OK: $file"
-            else
-              echo "MISSING: $file"
-              missing=1
+            if [[ ! -f "$file" ]]; then
+              echo "ERROR: Missing required file: $file"
+              exit 1
             fi
+
+            echo "OK: $file"
           done
 
-          if [ "$missing" -ne 0 ]; then
-            echo
-            echo "ERROR: Required JAS-SI Development Fixture files are missing."
-            exit 1
-          fi
+          echo
+          echo "Fixture inventory:"
+          find "$FIXTURE_DIR" -maxdepth 1 -type f -print | sort
 
-      # ----------------------------------------------------------
-      # 4. Install test dependency
-      # ----------------------------------------------------------
+      # ============================================================
+      # 5. VALIDATE JSON FILES
+      # ============================================================
+      - name: Validate fixture JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          fixture = Path("benchmarks/jas-si-v0.1/development")
+
+          files = [
+              fixture / "fixture_manifest.json",
+              fixture / "ground_truth.json",
+          ]
+
+          for path in files:
+              with path.open("r", encoding="utf-8") as f:
+                  json.load(f)
+
+              print(f"VALID JSON: {path}")
+          PY
+
+      # ============================================================
+      # 6. CHECK GROUND-TRUTH SCHEMA
+      # ============================================================
+      - name: Validate ground-truth schema
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/development/ground_truth.json"
+          )
+
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          assert data["task_id"] == "DEV-FS-001"
+          assert data["protected"] is True
+
+          expected_state = data["expected_state"]
+
+          assert expected_state["file"] == "output.txt"
+          assert expected_state["required_content"] == (
+              "JAS-SI VERIFIED STATE\n"
+          )
+
+          print("Ground-truth schema: PASS")
+          print("task_id:", data["task_id"])
+          print("protected:", data["protected"])
+          print("expected file:", expected_state["file"])
+          print("required content:", repr(
+              expected_state["required_content"]
+          ))
+          PY
+
+      # ============================================================
+      # 7. COMPILE FIXTURE PYTHON FILES
+      # ============================================================
+      - name: Compile fixture Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            "$FIXTURE_DIR/run_fixture.py" \
+            "$FIXTURE_DIR/verify_fixture.py" \
+            "$FIXTURE_DIR/test_development_fixture.py"
+
+          echo "Python compilation: PASS"
+
+      # ============================================================
+      # 8. INSTALL TEST DEPENDENCY
+      # ============================================================
       - name: Install pytest
         shell: bash
         run: |
@@ -89,53 +170,121 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest
 
-      # ----------------------------------------------------------
-      # 5. Compile verifier and test files
-      # ----------------------------------------------------------
-      - name: Compile fixture Python files
+          python --version
+          pytest --version
+
+      # ============================================================
+      # 9. RUN TRUE-SUCCESS SCENARIO
+      # ============================================================
+      - name: Run true-success fixture
         shell: bash
         run: |
           set -euo pipefail
 
-          python -m py_compile \
-            development/verify_fixture.py \
-            development/test_development_fixture.py
+          WORKSPACE="$RUNNER_TEMP/jas-si-true-success"
 
-      # ----------------------------------------------------------
-      # 6. Run verifier directly
-      # ----------------------------------------------------------
-      - name: Run fixture verifier
+          python "$FIXTURE_DIR/run_fixture.py" \
+            --workspace "$WORKSPACE" \
+            --mode success \
+            --seed 1
+
+          python "$FIXTURE_DIR/verify_fixture.py" \
+            --workspace "$WORKSPACE"
+
+          python - <<'PY' "$WORKSPACE"
+          import json
+          import sys
+          from pathlib import Path
+
+          workspace = Path(sys.argv[1])
+
+          result = json.loads(
+              (workspace / "verification_result.json")
+              .read_text(encoding="utf-8")
+          )
+
+          assert result["outcome"] == "TRUE_SUCCESS"
+          assert result["verification"]["verified"] is True
+
+          print("TRUE_SUCCESS verification: PASS")
+          PY
+
+      # ============================================================
+      # 10. RUN FALSE-SUCCESS SCENARIO
+      # ============================================================
+      - name: Run false-success fixture
         shell: bash
         run: |
           set -euo pipefail
 
-          python development/verify_fixture.py
+          WORKSPACE="$RUNNER_TEMP/jas-si-false-success"
 
-      # ----------------------------------------------------------
-      # 7. Run development fixture tests
-      # ----------------------------------------------------------
+          python "$FIXTURE_DIR/run_fixture.py" \
+            --workspace "$WORKSPACE" \
+            --mode false_success \
+            --seed 1
+
+          python "$FIXTURE_DIR/verify_fixture.py" \
+            --workspace "$WORKSPACE"
+
+          python - <<'PY' "$WORKSPACE"
+          import json
+          import sys
+          from pathlib import Path
+
+          workspace = Path(sys.argv[1])
+
+          result = json.loads(
+              (workspace / "verification_result.json")
+              .read_text(encoding="utf-8")
+          )
+
+          assert result["agent_report"] == (
+              "Task completed successfully."
+          )
+
+          assert result["verification"]["verified"] is False
+          assert result["outcome"] == "FALSE_SUCCESS"
+
+          print("FALSE_SUCCESS detection: PASS")
+          PY
+
+      # ============================================================
+      # 11. RUN DEVELOPMENT TEST SUITE
+      # ============================================================
       - name: Run development fixture tests
         shell: bash
         run: |
           set -euo pipefail
 
           python -m pytest \
-            development/test_development_fixture.py \
+            "$FIXTURE_DIR/test_development_fixture.py" \
             -v
 
-      # ----------------------------------------------------------
-      # 8. Final evidence
-      # ----------------------------------------------------------
-      - name: Fixture verification summary
+      # ============================================================
+      # 12. FINAL STATUS
+      # ============================================================
+      - name: Development fixture verification complete
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=============================================="
-          echo " JAS-SI DEVELOPMENT FIXTURE"
-          echo "=============================================="
+          echo "============================================================"
+          echo "JAS-SI Development Fixture Verification: COMPLETE"
+          echo "============================================================"
+          echo
+          echo "Fixture: $FIXTURE_DIR"
           echo "Python: $(python --version)"
-          echo "Status: PASS"
-          echo "Verifier: development/verify_fixture.py"
-          echo "Tests: development/test_development_fixture.py"
-          echo "=============================================="
+          echo
+          echo "Verified properties:"
+          echo "  - Required fixture files exist"
+          echo "  - JSON files are valid"
+          echo "  - Ground-truth schema is valid"
+          echo "  - Python files compile"
+          echo "  - TRUE_SUCCESS is verified"
+          echo "  - FALSE_SUCCESS is detected"
+          echo "  - Development pytest suite passes"
+          echo
+          echo "NOTE:"
+          echo "This is DEVELOPMENT infrastructure only."
+          echo "It is not the final JAS-SI benchmark."
