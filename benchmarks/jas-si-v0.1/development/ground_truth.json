@@ -1,0 +1,16 @@
+{
+  "task_id": "DEV-FS-001",
+  "ground_truth_version": "0.1.0-dev",
+  "protected": true,
+  "expected_state": {
+    "file": "output.txt",
+    "required_content": "JAS-SI VERIFIED STATE\n"
+  },
+  "predicate": {
+    "type": "exact_file_content",
+    "path": "output.txt"
+  },
+  "success_condition": "The file exists and its exact UTF-8 content equals the required content.",
+  "failure_condition": "The file is missing or its content differs from the required content.",
+  "agent_report_authority": false
+}
