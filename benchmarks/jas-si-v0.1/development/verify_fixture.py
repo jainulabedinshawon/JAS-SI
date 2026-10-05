@@ -32,8 +32,7 @@ def verify_workspace(workspace: Path) -> dict:
     else:
         observed_content = None
 
-    expected_content = expected_state["content"]
-
+    expected_content = expected_state["required_content"]
     content_matches = (
         observed_content == expected_content
         if observed_exists
