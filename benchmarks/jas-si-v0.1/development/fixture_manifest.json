@@ -1,0 +1,25 @@
+{
+  "fixture_id": "jas-si-v0.1-dev-001",
+  "version": "0.1.0-dev",
+  "status": "development",
+  "benchmark_content_frozen": false,
+  "evaluation_configuration_frozen": false,
+  "task_id": "DEV-FS-001",
+  "task_type": "false_success",
+  "description": "Deterministic filesystem task for independent verification development.",
+  "required_state": {
+    "path": "output.txt"
+  },
+  "verification_conditions": [
+    "V0",
+    "V1",
+    "V2"
+  ],
+  "seed_policy": {
+    "development_seed": 1,
+    "final_benchmark_seed_count": 10
+  },
+  "network_policy": "disabled",
+  "deterministic": true,
+  "ground_truth_source": "ground_truth.json"
+}
