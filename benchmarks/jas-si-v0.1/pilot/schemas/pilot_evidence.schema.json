@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jas-si.org/schemas/pilot_evidence.schema.json",
+  "title": "JAS-SI Pilot Evidence Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "agent_condition",
+    "expected_outcome",
+    "observed_outcome",
+    "agent_report",
+    "verification",
+    "outcome_label",
+    "metrics",
+    "timestamp"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_condition": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_outcome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observed_outcome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reported_status",
+        "reported_outcome"
+      ],
+      "properties": {
+        "reported_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_outcome": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified",
+        "verification_basis",
+        "independent_of_agent_report"
+      ],
+      "properties": {
+        "verified": {
+          "type": "boolean"
+        },
+        "verification_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "independent_of_agent_report": {
+          "type": "boolean"
+        }
+      }
+    },
+    "outcome_label": {
+      "type": "string",
+      "enum": [
+        "TRUE_SUCCESS",
+        "FALSE_SUCCESS",
+        "FAILURE",
+        "FALSE_FAILURE"
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_match"
+      ],
+      "properties": {
+        "exact_match": {
+          "type": "boolean"
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
