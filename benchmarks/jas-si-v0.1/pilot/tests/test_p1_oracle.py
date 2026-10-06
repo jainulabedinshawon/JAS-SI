@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,11 @@ def load_module(name: str, path: Path):
         raise ImportError(f"Unable to load module: {path}")
 
     module = importlib.util.module_from_spec(spec)
+
+    # Required for Python 3.10 dataclass module resolution
+    # when loading modules dynamically from file paths.
+    sys.modules[name] = module
+
     spec.loader.exec_module(module)
     return module
 
@@ -141,7 +147,10 @@ class TestP1Oracle(unittest.TestCase):
         evidence = runner.run(self.tasks)
         result = RUN_P1.build_summary(evidence)
 
-        self.assertEqual(result["task_count"], len(self.tasks))
+        self.assertEqual(
+            result["task_count"],
+            len(self.tasks),
+        )
 
         self.assertEqual(
             result["outcome_counts"]["TRUE_SUCCESS"],
