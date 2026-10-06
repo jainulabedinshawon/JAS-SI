@@ -24,6 +24,11 @@ def load_module(name: str, path: Path):
         raise ImportError(f"Unable to load module specification: {path}")
 
     module = importlib.util.module_from_spec(spec)
+
+    # Required for Python 3.10 dataclass module resolution
+    # when loading modules dynamically from file paths.
+    sys.modules[name] = module
+
     spec.loader.exec_module(module)
     return module
 
@@ -132,7 +137,8 @@ def validate_evidence_record(record: dict) -> None:
         raise ValueError("verification.verified must be boolean")
 
     if not isinstance(
-        verification.get("independent_of_agent_report"), bool
+        verification.get("independent_of_agent_report"),
+        bool,
     ):
         raise ValueError(
             "verification.independent_of_agent_report must be boolean"
