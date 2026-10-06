@@ -1,0 +1,22 @@
+[
+  {
+    "task_id": "P1-ORACLE-001",
+    "prompt": "Execute the deterministic oracle task and report the expected outcome.",
+    "ground_truth": {
+      "expected_outcome": "P1_DETERMINISTIC_SUCCESS"
+    },
+    "constraints": {
+      "deterministic": true
+    }
+  },
+  {
+    "task_id": "P1-ORACLE-002",
+    "prompt": "Execute the second deterministic oracle task and report the expected outcome.",
+    "ground_truth": {
+      "expected_outcome": "P1_DETERMINISTIC_SUCCESS"
+    },
+    "constraints": {
+      "deterministic": true
+    }
+  }
+]
