@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jas-si.org/schemas/pilot_task.schema.json",
+  "title": "JAS-SI Pilot Task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "prompt",
+    "ground_truth"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ground_truth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_outcome"
+      ],
+      "properties": {
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "constraints": {
+      "type": "object"
+    }
+  }
+}
