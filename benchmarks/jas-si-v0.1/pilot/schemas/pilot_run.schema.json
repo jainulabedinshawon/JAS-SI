@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jas-si.org/schemas/pilot_run.schema.json",
+  "title": "JAS-SI Pilot Run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "condition",
+    "task_count",
+    "outcome_counts",
+    "accuracy",
+    "evidence_records"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "condition": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "outcome_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "TRUE_SUCCESS",
+        "FALSE_SUCCESS",
+        "FAILURE",
+        "FALSE_FAILURE"
+      ],
+      "properties": {
+        "TRUE_SUCCESS": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "FALSE_SUCCESS": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "FAILURE": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "FALSE_FAILURE": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "accuracy": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "evidence_records": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}
