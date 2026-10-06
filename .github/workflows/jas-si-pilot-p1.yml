@@ -1,0 +1,161 @@
+name: JAS-SI Pilot P1 Oracle
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/**"
+      - ".github/workflows/jas-si-pilot-p1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p1-oracle:
+    name: P1 Oracle Apparatus
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          check-latest: false
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f benchmarks/jas-si-v0.1/pilot/README.md
+
+          test -f benchmarks/jas-si-v0.1/pilot/schemas/pilot_task.schema.json
+          test -f benchmarks/jas-si-v0.1/pilot/schemas/pilot_evidence.schema.json
+          test -f benchmarks/jas-si-v0.1/pilot/schemas/pilot_run.schema.json
+
+          test -f benchmarks/jas-si-v0.1/pilot/fixtures/p1_tasks.json
+
+          test -f benchmarks/jas-si-v0.1/pilot/agents/oracle_agent.py
+          test -f benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+          test -f benchmarks/jas-si-v0.1/pilot/harness/pilot_runner.py
+
+          test -f benchmarks/jas-si-v0.1/pilot/run_p1.py
+          test -f benchmarks/jas-si-v0.1/pilot/tests/test_p1_oracle.py
+
+      - name: Validate JSON syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = [
+              Path("benchmarks/jas-si-v0.1/pilot/schemas/pilot_task.schema.json"),
+              Path("benchmarks/jas-si-v0.1/pilot/schemas/pilot_evidence.schema.json"),
+              Path("benchmarks/jas-si-v0.1/pilot/schemas/pilot_run.schema.json"),
+              Path("benchmarks/jas-si-v0.1/pilot/fixtures/p1_tasks.json"),
+          ]
+
+          for path in files:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+
+              print(f"JSON OK: {path}")
+          PY
+
+      - name: Compile Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/agents/oracle_agent.py \
+            benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py \
+            benchmarks/jas-si-v0.1/pilot/harness/pilot_runner.py \
+            benchmarks/jas-si-v0.1/pilot/run_p1.py \
+            benchmarks/jas-si-v0.1/pilot/tests/test_p1_oracle.py
+
+      - name: Run P1 unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Run P1 Oracle apparatus
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python benchmarks/jas-si-v0.1/pilot/run_p1.py
+
+      - name: Validate P1 result artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RESULT="benchmarks/jas-si-v0.1/pilot/results/p1_oracle_result.json"
+
+          test -f "$RESULT"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result_path = Path(
+              "benchmarks/jas-si-v0.1/pilot/results/p1_oracle_result.json"
+          )
+
+          with result_path.open("r", encoding="utf-8") as handle:
+              result = json.load(handle)
+
+          assert result["condition"] == "P1_ORACLE"
+          assert result["task_count"] == 2
+          assert result["accuracy"] == 1.0
+
+          counts = result["outcome_counts"]
+
+          assert counts["TRUE_SUCCESS"] == 2
+          assert counts["FALSE_SUCCESS"] == 0
+          assert counts["FAILURE"] == 0
+          assert counts["FALSE_FAILURE"] == 0
+
+          assert len(result["evidence_records"]) == 2
+
+          for record in result["evidence_records"]:
+              assert record["outcome_label"] == "TRUE_SUCCESS"
+              assert record["metrics"]["exact_match"] is True
+              assert (
+                  record["verification"]
+                  ["independent_of_agent_report"]
+                  is True
+              )
+
+          print("P1 result validation: PASS")
+          PY
+
+      - name: Upload P1 result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jas-si-p1-oracle-result
+          path: benchmarks/jas-si-v0.1/pilot/results/p1_oracle_result.json
+          if-no-files-found: error
+          retention-days: 14
