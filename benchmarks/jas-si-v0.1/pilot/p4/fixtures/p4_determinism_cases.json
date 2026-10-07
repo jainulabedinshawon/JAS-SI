@@ -1,0 +1,53 @@
+[
+  {
+    "case_id": "P4-A",
+    "description": "Correct observation with SUCCESS report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "EXPECTED",
+    "reported_status": "SUCCESS",
+    "expected_verified": true,
+    "expected_exact_match": true,
+    "expected_label": "TRUE_SUCCESS"
+  },
+  {
+    "case_id": "P4-B",
+    "description": "Correct observation with FAILURE report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "EXPECTED",
+    "reported_status": "FAILURE",
+    "expected_verified": true,
+    "expected_exact_match": true,
+    "expected_label": "TRUE_SUCCESS"
+  },
+  {
+    "case_id": "P4-C",
+    "description": "Wrong observation with SUCCESS report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "WRONG",
+    "reported_status": "SUCCESS",
+    "expected_verified": false,
+    "expected_exact_match": false,
+    "expected_label": "FALSE_SUCCESS"
+  },
+  {
+    "case_id": "P4-D",
+    "description": "Wrong observation with FAILURE report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "WRONG",
+    "reported_status": "FAILURE",
+    "expected_verified": false,
+    "expected_exact_match": false,
+    "expected_label": "FAILURE"
+  },
+  {
+    "case_id": "P4-E",
+    "description": "Repeated adversarial evaluation.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "WRONG",
+    "reported_status": "SUCCESS",
+    "expected_verified": false,
+    "expected_exact_match": false,
+    "expected_label": "FALSE_SUCCESS",
+    "repetitions": 10
+  }
+]
