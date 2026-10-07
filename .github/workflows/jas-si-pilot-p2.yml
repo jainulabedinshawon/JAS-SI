@@ -1,0 +1,109 @@
+name: JAS-SI Pilot P2 Adversarial Control
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p2/**"
+      - "benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py"
+      - ".github/workflows/jas-si-pilot-p2.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p2-adversarial:
+    name: P2 Oracle Adversarial Control
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          check-latest: false
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f benchmarks/jas-si-v0.1/pilot/p2/README.md
+          test -f benchmarks/jas-si-v0.1/pilot/p2/fixtures/p2_adversarial_cases.json
+          test -f benchmarks/jas-si-v0.1/pilot/p2/run_p2.py
+          test -f benchmarks/jas-si-v0.1/pilot/p2/tests/test_p2_adversarial.py
+          test -f benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+
+      - name: Validate JSON syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m json.tool \
+            benchmarks/jas-si-v0.1/pilot/p2/fixtures/p2_adversarial_cases.json \
+            > /dev/null
+
+      - name: Compile Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/p2/run_p2.py \
+            benchmarks/jas-si-v0.1/pilot/p2/tests/test_p2_adversarial.py \
+            benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+
+      - name: Run P2 unit tests
+        run: |
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/p2/tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Run P2 adversarial apparatus
+        run: |
+          python benchmarks/jas-si-v0.1/pilot/p2/run_p2.py
+
+      - name: Validate P2 result artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f benchmarks/jas-si-v0.1/pilot/results/p2_adversarial_result.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/results/"
+              "p2_adversarial_result.json"
+          )
+
+          with path.open("r", encoding="utf-8") as handle:
+              result = json.load(handle)
+
+          assert result["condition"] == "P2_ADVERSARIAL_CONTROL"
+          assert result["all_cases_passed"] is True
+          assert result["failed_cases"] == 0
+          assert result["pass_rate"] == 1.0
+          PY
+
+      - name: Upload P2 result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jas-si-p2-adversarial-result
+          path: benchmarks/jas-si-v0.1/pilot/results/p2_adversarial_result.json
+          if-no-files-found: error
