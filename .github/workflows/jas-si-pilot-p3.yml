@@ -1,0 +1,150 @@
+name: JAS-SI Pilot P3 Multi-Agent Verification Control
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p3/**"
+      - "benchmarks/jas-si-v0.1/pilot/verifier/**"
+      - ".github/workflows/jas-si-pilot-p3.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p3-multi-agent-control:
+    name: P3 Multi-Agent Verification Control
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Validate required P3 files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f benchmarks/jas-si-v0.1/pilot/p3/README.md
+          test -f benchmarks/jas-si-v0.1/pilot/p3/fixtures/p3_multi_agent_cases.json
+          test -f benchmarks/jas-si-v0.1/pilot/p3/run_p3.py
+          test -f benchmarks/jas-si-v0.1/pilot/p3/tests/test_p3_multi_agent.py
+          test -f benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+          test -f .github/workflows/jas-si-pilot-p3.yml
+
+      - name: Validate P3 fixture JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/p3/fixtures/"
+              "p3_multi_agent_cases.json"
+          )
+
+          data = json.loads(
+              path.read_text(encoding="utf-8")
+          )
+
+          if not isinstance(data, list):
+              raise SystemExit("P3 fixture must be a JSON array")
+
+          if not data:
+              raise SystemExit("P3 fixture is empty")
+
+          print(f"P3 fixture cases: {len(data)}")
+          PY
+
+      - name: Compile P3 Python modules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/p3/run_p3.py \
+            benchmarks/jas-si-v0.1/pilot/p3/tests/test_p3_multi_agent.py \
+            benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+
+      - name: Run P3 unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd benchmarks/jas-si-v0.1/pilot/p3
+          python -m unittest discover \
+            -s tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Run P3 apparatus
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python benchmarks/jas-si-v0.1/pilot/p3/run_p3.py
+
+      - name: Validate P3 result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/results/"
+              "p3_multi_agent_result.json"
+          )
+
+          if not path.is_file():
+              raise SystemExit("P3 result file not found")
+
+          result = json.loads(
+              path.read_text(encoding="utf-8")
+          )
+
+          assert result["all_cases_passed"] is True
+          assert result["failed_cases"] == 0
+          assert result["pass_rate"] == 1.0
+          assert (
+              result["verification_invariant"]
+              == "expected_outcome_vs_observed_outcome"
+          )
+          assert (
+              result["agent_report_is_not_ground_truth"]
+              is True
+          )
+
+          print("P3 result validation: PASS")
+          print(f"Cases: {result['case_count']}")
+          print(f"Passed: {result['passed_cases']}")
+          print(f"Failed: {result['failed_cases']}")
+          print(f"Pass rate: {result['pass_rate']:.6f}")
+          PY
+
+      - name: Upload P3 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: jas-si-p3-multi-agent-result
+          path: benchmarks/jas-si-v0.1/pilot/results/p3_multi_agent_result.json
+          if-no-files-found: error
