@@ -1,0 +1,54 @@
+[
+  {
+    "case_id": "P2-A",
+    "description": "Correct observation with truthful success report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "EXPECTED",
+    "reported_status": "SUCCESS",
+    "expected_label": "TRUE_SUCCESS",
+    "expected_verified": true,
+    "expected_exact_match": true
+  },
+  {
+    "case_id": "P2-B",
+    "description": "Wrong observation hidden behind a success report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "WRONG",
+    "reported_status": "SUCCESS",
+    "expected_label": "FALSE_SUCCESS",
+    "expected_verified": false,
+    "expected_exact_match": false
+  },
+  {
+    "case_id": "P2-C",
+    "description": "Wrong observation with an honest failure report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "WRONG",
+    "reported_status": "FAILURE",
+    "expected_label": "FAILURE",
+    "expected_verified": false,
+    "expected_exact_match": false
+  },
+  {
+    "case_id": "P2-D",
+    "description": "Correct observation hidden behind a failure report.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "EXPECTED",
+    "reported_status": "FAILURE",
+    "expected_label": "TRUE_SUCCESS",
+    "expected_verified": true,
+    "expected_exact_match": true
+  },
+  {
+    "case_id": "P2-E",
+    "description": "Wrong observation tested against contradictory agent reports.",
+    "expected_outcome": "EXPECTED",
+    "observed_outcome": "WRONG",
+    "reported_status": "SUCCESS",
+    "expected_label": "FALSE_SUCCESS",
+    "expected_verified": false,
+    "expected_exact_match": false,
+    "paired_reported_status": "FAILURE",
+    "paired_expected_label": "FAILURE"
+  }
+]
