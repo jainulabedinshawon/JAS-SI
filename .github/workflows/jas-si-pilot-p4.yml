@@ -1,0 +1,179 @@
+name: JAS-SI Pilot P4 Determinism and Report Invariance
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p4/**"
+      - "benchmarks/jas-si-v0.1/pilot/verifier/**"
+      - ".github/workflows/jas-si-pilot-p4.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p4-determinism-control:
+    name: P4 Determinism and Report-Invariance Control
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Validate required P4 files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f benchmarks/jas-si-v0.1/pilot/p4/README.md
+          test -f benchmarks/jas-si-v0.1/pilot/p4/fixtures/p4_determinism_cases.json
+          test -f benchmarks/jas-si-v0.1/pilot/p4/run_p4.py
+          test -f benchmarks/jas-si-v0.1/pilot/p4/tests/test_p4_determinism.py
+          test -f benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+          test -f .github/workflows/jas-si-pilot-p4.yml
+
+      - name: Validate P4 fixture JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/p4/fixtures/"
+              "p4_determinism_cases.json"
+          )
+
+          data = json.loads(
+              path.read_text(encoding="utf-8")
+          )
+
+          if not isinstance(data, list):
+              raise SystemExit(
+                  "P4 fixture must be a JSON array"
+              )
+
+          if not data:
+              raise SystemExit(
+                  "P4 fixture is empty"
+              )
+
+          print(
+              f"P4 fixture cases: {len(data)}"
+          )
+          PY
+
+      - name: Compile P4 Python modules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/p4/run_p4.py \
+            benchmarks/jas-si-v0.1/pilot/p4/tests/test_p4_determinism.py \
+            benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py
+
+      - name: Run P4 unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd benchmarks/jas-si-v0.1/pilot/p4
+
+          python -m unittest discover \
+            -s tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Run P4 apparatus
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python \
+            benchmarks/jas-si-v0.1/pilot/p4/run_p4.py
+
+      - name: Validate P4 result
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/results/"
+              "p4_determinism_result.json"
+          )
+
+          if not path.is_file():
+              raise SystemExit(
+                  "P4 result file not found"
+              )
+
+          result = json.loads(
+              path.read_text(encoding="utf-8")
+          )
+
+          assert result["all_cases_passed"] is True
+          assert result["failed_cases"] == 0
+          assert result["pass_rate"] == 1.0
+
+          assert (
+              result["report_invariance"][
+                  "all_core_invariants_hold"
+              ]
+              is True
+          )
+
+          print(
+              "P4 result validation: PASS"
+          )
+
+          print(
+              f"Cases: {result['case_count']}"
+          )
+
+          print(
+              f"Passed: {result['passed_cases']}"
+          )
+
+          print(
+              f"Failed: {result['failed_cases']}"
+          )
+
+          print(
+              f"Pass rate: "
+              f"{result['pass_rate']:.6f}"
+          )
+
+          print(
+              "Core report-invariance: "
+              f"{result['report_invariance']['all_core_invariants_hold']}"
+          )
+          PY
+
+      - name: Upload P4 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: jas-si-p4-determinism-result
+          path: benchmarks/jas-si-v0.1/pilot/results/p4_determinism_result.json
+          if-no-files-found: error
