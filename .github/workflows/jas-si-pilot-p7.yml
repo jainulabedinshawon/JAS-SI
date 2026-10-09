@@ -1,0 +1,132 @@
+name: JAS-SI Pilot P7 Leakage Check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p7/**"
+      - ".github/workflows/jas-si-pilot-p7.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p7-leakage-check:
+    name: P7 Leakage Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Show Python version
+        run: python --version
+
+      - name: Validate required P7 files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          required = [
+              Path("benchmarks/jas-si-v0.1/pilot/p7/README.md"),
+              Path(
+                  "benchmarks/jas-si-v0.1/pilot/p7/fixtures/"
+                  "p7_leakage_cases.json"
+              ),
+              Path("benchmarks/jas-si-v0.1/pilot/p7/run_p7.py"),
+              Path(
+                  "benchmarks/jas-si-v0.1/pilot/p7/tests/"
+                  "test_p7_leakage_check.py"
+              ),
+          ]
+
+          missing = [str(path) for path in required if not path.is_file()]
+
+          if missing:
+              raise SystemExit(
+                  "Missing required files:\n" + "\n".join(missing)
+              )
+
+          print(f"Validated {len(required)} required files.")
+          PY
+
+      - name: Validate P7 fixture JSON
+        run: |
+          python -m json.tool \
+            benchmarks/jas-si-v0.1/pilot/p7/fixtures/p7_leakage_cases.json \
+            > /dev/null
+
+      - name: Compile P7 Python modules
+        run: |
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/p7/run_p7.py \
+            benchmarks/jas-si-v0.1/pilot/p7/tests/test_p7_leakage_check.py
+
+      - name: Run P7 unit tests
+        run: |
+          PYTHONPATH=benchmarks/jas-si-v0.1/pilot/p7 \
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/p7/tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Run P7 apparatus
+        run: |
+          python benchmarks/jas-si-v0.1/pilot/p7/run_p7.py
+
+      - name: Validate P7 result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/results/"
+              "p7_leakage_check_result.json"
+          )
+
+          if not path.is_file():
+              raise SystemExit("P7 result file was not created.")
+
+          result = json.loads(path.read_text(encoding="utf-8"))
+
+          assert result["condition"] == "P7_LEAKAGE_CHECK"
+          assert result["all_cases_passed"] is True
+          assert result["case_count"] == 6
+          assert result["passed_cases"] == 6
+          assert result["failed_cases"] == 0
+          assert result["pass_rate"] == 1.0
+          assert result["cases_with_detected_leakage"] == 3
+          assert result["cases_without_detected_leakage"] == 3
+
+          print("P7 result validation: PASS")
+          print(f"Cases: {result['case_count']}")
+          print(f"Pass rate: {result['pass_rate']}")
+          print(
+              "Leakage-positive controls: "
+              f"{result['cases_with_detected_leakage']}"
+          )
+          print(
+              "Clean controls: "
+              f"{result['cases_without_detected_leakage']}"
+          )
+          PY
+
+      - name: Upload P7 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: jas-si-p7-leakage-check-result
+          path: benchmarks/jas-si-v0.1/results/p7_leakage_check_result.json
+          if-no-files-found: error
+          retention-days: 30
