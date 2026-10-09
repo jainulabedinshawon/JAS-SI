@@ -1,123 +1,123 @@
-<escape>name: JAS-SI Pilot P6 Label Audit
+name: JAS-SI Pilot P6 Label Audit
 
 on:
-workflow_dispatch:
-push:
-paths:
-- "benchmarks/jas-si-v0.1/pilot/p6/**"
-- ".github/workflows/jas-si-pilot-p6.yml"
-
-permissions:
-contents: read
-
-jobs:
-p6-label-audit:
-name: P6 Label Audit
-runs-on: ubuntu-latest
-timeout-minutes: 10
+  workflow_dispatch:
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p6/**"
+      - ".github/workflows/jas-si-pilot-p6.yml"
 
 permissions:
   contents: read
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-    with:
-      persist-credentials: false
+jobs:
+  p6-label-audit:
+    name: P6 Label Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-  - name: Set up Python 3.10
-    uses: actions/setup-python@v5
-    with:
-      python-version: "3.10"
+    permissions:
+      contents: read
 
-  - name: Show Python version
-    run: python --version
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-  - name: Validate required P6 files
-    run: |
-      python - <<'PY'
-      from pathlib import Path
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-      required = [
-          Path("benchmarks/jas-si-v0.1/pilot/p6/README.md"),
-          Path("benchmarks/jas-si-v0.1/pilot/p6/fixtures/p6_label_audit_cases.json"),
-          Path("benchmarks/jas-si-v0.1/pilot/p6/run_p6.py"),
-          Path("benchmarks/jas-si-v0.1/pilot/p6/tests/test_p6_label_audit.py"),
-      ]
+      - name: Show Python version
+        run: python --version
 
-      missing = [str(path) for path in required if not path.is_file()]
+      - name: Validate required P6 files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
 
-      if missing:
-          raise SystemExit(
-              "Missing required files:\n" + "\n".join(missing)
+          required = [
+              Path("benchmarks/jas-si-v0.1/pilot/p6/README.md"),
+              Path("benchmarks/jas-si-v0.1/pilot/p6/fixtures/p6_label_audit_cases.json"),
+              Path("benchmarks/jas-si-v0.1/pilot/p6/run_p6.py"),
+              Path("benchmarks/jas-si-v0.1/pilot/p6/tests/test_p6_label_audit.py"),
+          ]
+
+          missing = [str(path) for path in required if not path.is_file()]
+
+          if missing:
+              raise SystemExit(
+                  "Missing required files:\n" + "\n".join(missing)
+              )
+
+          print(f"Validated {len(required)} required files.")
+          PY
+
+      - name: Validate P6 fixture JSON
+        run: |
+          python -m json.tool \
+            benchmarks/jas-si-v0.1/pilot/p6/fixtures/p6_label_audit_cases.json \
+            > /dev/null
+
+      - name: Compile P6 Python modules
+        run: |
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/p6/run_p6.py \
+            benchmarks/jas-si-v0.1/pilot/p6/tests/test_p6_label_audit.py
+
+      - name: Run P6 unit tests
+        run: |
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/p6/tests \
+            -p "test_*.py" \
+            -v
+
+      - name: Run P6 apparatus
+        run: |
+          python benchmarks/jas-si-v0.1/pilot/p6/run_p6.py
+
+      - name: Validate P6 result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/results/p6_label_audit_result.json"
           )
 
-      print(f"Validated {len(required)} required files.")
-      PY
+          if not path.is_file():
+              raise SystemExit("P6 result file was not created.")
 
-  - name: Validate P6 fixture JSON
-    run: |
-      python -m json.tool \
-        benchmarks/jas-si-v0.1/pilot/p6/fixtures/p6_label_audit_cases.json \
-        > /dev/null
+          result = json.loads(path.read_text(encoding="utf-8"))
 
-  - name: Compile P6 Python modules
-    run: |
-      python -m py_compile \
-        benchmarks/jas-si-v0.1/pilot/p6/run_p6.py \
-        benchmarks/jas-si-v0.1/pilot/p6/tests/test_p6_label_audit.py
+          assert result["all_cases_passed"] is True
+          assert result["case_count"] == 8
+          assert result["passed_cases"] == 8
+          assert result["failed_cases"] == 0
+          assert result["pass_rate"] == 1.0
+          assert result["correctly_labeled_cases"] == 4
+          assert result["incorrectly_labeled_cases"] == 4
 
-  - name: Run P6 unit tests
-    run: |
-      python -m unittest discover \
-        -s benchmarks/jas-si-v0.1/pilot/p6/tests \
-        -p "test_*.py" \
-        -v
+          print("P6 result validation: PASS")
+          print(f"Cases: {result['case_count']}")
+          print(f"Pass rate: {result['pass_rate']}")
+          print(
+              "Correctly labeled cases: "
+              f"{result['correctly_labeled_cases']}"
+          )
+          print(
+              "Incorrectly labeled cases: "
+              f"{result['incorrectly_labeled_cases']}"
+          )
+          PY
 
-  - name: Run P6 apparatus
-    run: |
-      python benchmarks/jas-si-v0.1/pilot/p6/run_p6.py
-
-  - name: Validate P6 result
-    run: |
-      python - <<'PY'
-      import json
-      from pathlib import Path
-
-      path = Path(
-          "benchmarks/jas-si-v0.1/results/p6_label_audit_result.json"
-      )
-
-      if not path.is_file():
-          raise SystemExit("P6 result file was not created.")
-
-      result = json.loads(path.read_text(encoding="utf-8"))
-
-      assert result["all_cases_passed"] is True
-      assert result["case_count"] == 8
-      assert result["passed_cases"] == 8
-      assert result["failed_cases"] == 0
-      assert result["pass_rate"] == 1.0
-      assert result["correctly_labeled_cases"] == 4
-      assert result["incorrectly_labeled_cases"] == 4
-
-      print("P6 result validation: PASS")
-      print(f"Cases: {result['case_count']}")
-      print(f"Pass rate: {result['pass_rate']}")
-      print(
-          "Correctly labeled cases: "
-          f"{result['correctly_labeled_cases']}"
-      )
-      print(
-          "Incorrectly labeled cases: "
-          f"{result['incorrectly_labeled_cases']}"
-      )
-      PY
-
-  - name: Upload P6 result
-    uses: actions/upload-artifact@v4
-    with:
-      name: jas-si-p6-label-audit-result
-      path: benchmarks/jas-si-v0.1/results/p6_label_audit_result.json
-      if-no-files-found: error
-      retention-days: 30</escape>
+      - name: Upload P6 result
+        uses: actions/upload-artifact@v4
+        with:
+          name: jas-si-p6-label-audit-result
+          path: benchmarks/jas-si-v0.1/results/p6_label_audit_result.json
+          if-no-files-found: error
+          retention-days: 30
