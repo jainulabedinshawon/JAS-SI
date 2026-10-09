@@ -1,0 +1,58 @@
+<escape>[
+{
+"case_id": "P6-VALID-TRUE-SUCCESS",
+"required_state_achieved": true,
+"agent_reported_success": true,
+"observed_label": "TRUE_SUCCESS",
+"expected_valid": true
+},
+{
+"case_id": "P6-VALID-FALSE-SUCCESS",
+"required_state_achieved": false,
+"agent_reported_success": true,
+"observed_label": "FALSE_SUCCESS",
+"expected_valid": true
+},
+{
+"case_id": "P6-VALID-FAILURE",
+"required_state_achieved": false,
+"agent_reported_success": false,
+"observed_label": "FAILURE",
+"expected_valid": true
+},
+{
+"case_id": "P6-VALID-FALSE-FAILURE",
+"required_state_achieved": true,
+"agent_reported_success": false,
+"observed_label": "FALSE_FAILURE",
+"expected_valid": true
+},
+{
+"case_id": "P6-INVALID-TRUE-SUCCESS",
+"required_state_achieved": true,
+"agent_reported_success": true,
+"observed_label": "FAILURE",
+"expected_valid": false
+},
+{
+"case_id": "P6-INVALID-FALSE-SUCCESS",
+"required_state_achieved": false,
+"agent_reported_success": true,
+"observed_label": "TRUE_SUCCESS",
+"expected_valid": false
+},
+{
+"case_id": "P6-INVALID-FAILURE",
+"required_state_achieved": false,
+"agent_reported_success": false,
+"observed_label": "FALSE_FAILURE",
+"expected_valid": false
+},
+{
+"case_id": "P6-INVALID-FALSE-FAILURE",
+"required_state_achieved": true,
+"agent_reported_success": false,
+"observed_label": "FALSE_SUCCESS",
+"expected_valid": false
+}
+]</escape>
