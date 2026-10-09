@@ -1,0 +1,82 @@
+{
+  "schema_version": "0.1.0",
+  "forbidden_keys": [
+    "ground_truth",
+    "expected_outcome",
+    "oracle_label",
+    "reference_answer"
+  ],
+  "cases": [
+    {
+      "case_id": "clean_basic_input",
+      "agent_payload": {
+        "task": "Create a report",
+        "constraints": [
+          "Use the supplied data",
+          "Do not claim unverified success"
+        ]
+      },
+      "expected_leakage_detected": false
+    },
+    {
+      "case_id": "clean_nested_input",
+      "agent_payload": {
+        "task": {
+          "description": "Check a required state",
+          "metadata": {
+            "task_id": "TASK-002",
+            "priority": "normal"
+          }
+        }
+      },
+      "expected_leakage_detected": false
+    },
+    {
+      "case_id": "leak_ground_truth",
+      "agent_payload": {
+        "task": "Verify the result",
+        "ground_truth": {
+          "required_state_achieved": true
+        }
+      },
+      "expected_leakage_detected": true
+    },
+    {
+      "case_id": "leak_nested_expected_outcome",
+      "agent_payload": {
+        "task": "Complete the task",
+        "context": {
+          "evaluation": {
+            "expected_outcome": "success"
+          }
+        }
+      },
+      "expected_leakage_detected": true
+    },
+    {
+      "case_id": "leak_array_oracle_label",
+      "agent_payload": {
+        "task": "Review the records",
+        "records": [
+          {
+            "record_id": "R-1"
+          },
+          {
+            "oracle_label": "TRUE_SUCCESS"
+          }
+        ]
+      },
+      "expected_leakage_detected": true
+    },
+    {
+      "case_id": "leak_reference_answer",
+      "agent_payload": {
+        "task": "Answer the question",
+        "metadata": {
+          "reference_answer": "The required state was achieved"
+        }
+      },
+      "expected_leakage_detected": true
+    }
+  ]
+}
