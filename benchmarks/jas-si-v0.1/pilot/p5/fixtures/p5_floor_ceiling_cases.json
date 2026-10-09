@@ -1,0 +1,83 @@
+[
+  {
+    "case_id": "P5-DISCRIMINATIVE",
+    "description": "Two discriminative conditions with non-saturated metrics.",
+    "conditions": [
+      {
+        "condition_id": "BASELINE_A",
+        "scripted_control": false,
+        "outcomes": {
+          "TRUE_SUCCESS": 6,
+          "FALSE_SUCCESS": 2,
+          "FAILURE": 1,
+          "FALSE_FAILURE": 1
+        }
+      },
+      {
+        "condition_id": "TEST_CONDITION_B",
+        "scripted_control": false,
+        "outcomes": {
+          "TRUE_SUCCESS": 5,
+          "FALSE_SUCCESS": 1,
+          "FAILURE": 3,
+          "FALSE_FAILURE": 1
+        }
+      }
+    ],
+    "expected_pass": true
+  },
+  {
+    "case_id": "P5-SATURATED",
+    "description": "Both conditions have uniformly saturated primary metrics.",
+    "conditions": [
+      {
+        "condition_id": "SATURATED_A",
+        "scripted_control": false,
+        "outcomes": {
+          "TRUE_SUCCESS": 10,
+          "FALSE_SUCCESS": 0,
+          "FAILURE": 0,
+          "FALSE_FAILURE": 0
+        }
+      },
+      {
+        "condition_id": "SATURATED_B",
+        "scripted_control": false,
+        "outcomes": {
+          "TRUE_SUCCESS": 10,
+          "FALSE_SUCCESS": 0,
+          "FAILURE": 0,
+          "FALSE_FAILURE": 0
+        }
+      }
+    ],
+    "expected_pass": false
+  },
+  {
+    "case_id": "P5-SCRIPTED-CONTROL-EXCLUDED",
+    "description": "Scripted controls are excluded from the discriminative check.",
+    "conditions": [
+      {
+        "condition_id": "SCRIPTED_CONTROL_A",
+        "scripted_control": true,
+        "outcomes": {
+          "TRUE_SUCCESS": 10,
+          "FALSE_SUCCESS": 0,
+          "FAILURE": 0,
+          "FALSE_FAILURE": 0
+        }
+      },
+      {
+        "condition_id": "SCRIPTED_CONTROL_B",
+        "scripted_control": true,
+        "outcomes": {
+          "TRUE_SUCCESS": 0,
+          "FALSE_SUCCESS": 10,
+          "FAILURE": 0,
+          "FALSE_FAILURE": 0
+        }
+      }
+    ],
+    "expected_pass": false
+  }
+]
