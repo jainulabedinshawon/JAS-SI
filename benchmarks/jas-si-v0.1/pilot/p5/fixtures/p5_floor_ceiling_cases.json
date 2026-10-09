@@ -28,7 +28,7 @@
   },
   {
     "case_id": "P5-SATURATED",
-    "description": "Both conditions have uniformly saturated primary metrics.",
+    "description": "All primary metrics are defined and uniformly saturated across both conditions.",
     "conditions": [
       {
         "condition_id": "SATURATED_A",
@@ -36,7 +36,7 @@
         "outcomes": {
           "TRUE_SUCCESS": 10,
           "FALSE_SUCCESS": 0,
-          "FAILURE": 0,
+          "FAILURE": 10,
           "FALSE_FAILURE": 0
         }
       },
@@ -46,7 +46,7 @@
         "outcomes": {
           "TRUE_SUCCESS": 10,
           "FALSE_SUCCESS": 0,
-          "FAILURE": 0,
+          "FAILURE": 10,
           "FALSE_FAILURE": 0
         }
       }
