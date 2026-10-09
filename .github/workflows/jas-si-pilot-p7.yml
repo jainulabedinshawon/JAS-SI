@@ -107,8 +107,8 @@ jobs:
           assert result["passed_cases"] == 6
           assert result["failed_cases"] == 0
           assert result["pass_rate"] == 1.0
-          assert result["cases_with_detected_leakage"] == 3
-          assert result["cases_without_detected_leakage"] == 3
+          assert result["cases_with_detected_leakage"] == 4
+          assert result["cases_without_detected_leakage"] == 2
 
           print("P7 result validation: PASS")
           print(f"Cases: {result['case_count']}")
