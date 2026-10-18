@@ -37,6 +37,10 @@ jobs:
         run: |
           python benchmarks/jas-si-v0.1/gates/validate_review_criteria.py
 
+      - name: Validate human evidence review ledger
+        run: |
+          python benchmarks/jas-si-v0.1/gates/validate_review_ledger.py
+
       - name: Audit evidence registry
         run: python benchmarks/jas-si-v0.1/gates/audit_gates.py
 
