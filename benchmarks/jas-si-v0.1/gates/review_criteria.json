@@ -1,0 +1,155 @@
+
+{
+  "protocol": "JAS-SI-V0.1-EVIDENCE-REVIEW",
+  "status": "REVIEW_PLAN_ONLY",
+  "policy": "No gate passes automatically from a successful workflow alone.",
+  "gates": [
+    {
+      "gate_id": "P0",
+      "required_evidence": [
+        "Harness and schema source files",
+        "Automated tests and reproducible execution instructions"
+      ],
+      "review_checks": [
+        "Confirm the harness runs from a clean checkout",
+        "Confirm input and output schemas reject invalid data"
+      ]
+    },
+    {
+      "gate_id": "P1",
+      "required_evidence": [
+        "Oracle pilot workflow run",
+        "Test results and relevant artifacts"
+      ],
+      "review_checks": [
+        "Confirm expected outcomes are independently specified",
+        "Confirm the pilot validates apparatus only, not agent performance"
+      ]
+    },
+    {
+      "gate_id": "P2",
+      "required_evidence": [
+        "Adversarial test source and successful run",
+        "Test output covering declared adversarial cases"
+      ],
+      "review_checks": [
+        "Confirm each declared adversarial case is exercised",
+        "Confirm failures are detected rather than silently accepted"
+      ]
+    },
+    {
+      "gate_id": "P3",
+      "required_evidence": [
+        "Determinism workflow run",
+        "Repeated-run comparison output"
+      ],
+      "review_checks": [
+        "Confirm identical inputs and configurations are compared",
+        "Confirm relevant outputs are invariant across repeated runs"
+      ]
+    },
+    {
+      "gate_id": "P4",
+      "required_evidence": [
+        "Evidence independence test source",
+        "Workflow run and test output"
+      ],
+      "review_checks": [
+        "Confirm verifier evidence is not merely the agent's self-report",
+        "Document any remaining shared dependencies or trust assumptions"
+      ]
+    },
+    {
+      "gate_id": "P5",
+      "required_evidence": [
+        "Floor and ceiling control specifications",
+        "Control test results"
+      ],
+      "review_checks": [
+        "Confirm floor and ceiling cases are distinguishable",
+        "Confirm scoring can detect uninformative or saturated behavior"
+      ]
+    },
+    {
+      "gate_id": "P6",
+      "required_evidence": [
+        "Label audit fixture and test output",
+        "Expected-versus-observed label comparison"
+      ],
+      "review_checks": [
+        "Confirm deliberately incorrect labels are detected",
+        "Confirm passing synthetic cases is not treated as real-world validation"
+      ]
+    },
+    {
+      "gate_id": "P7",
+      "required_evidence": [
+        "Leakage audit source and run output",
+        "Documented leakage threat model"
+      ],
+      "review_checks": [
+        "Confirm checks cover the declared leakage paths",
+        "Document that structural checks do not prove all leakage is absent"
+      ]
+    },
+    {
+      "gate_id": "P8",
+      "required_evidence": [
+        "Metric recalculation and reproducibility workflow runs",
+        "Independent expected-value checks"
+      ],
+      "review_checks": [
+        "Recalculate metrics from raw counts",
+        "Check denominator rules and undefined rates",
+        "Check confidence intervals and effect calculations where applicable"
+      ]
+    },
+    {
+      "gate_id": "P9",
+      "required_evidence": [
+        "Corrigibility intervention test source",
+        "Workflow run and case-level outcomes"
+      ],
+      "review_checks": [
+        "Confirm correction and authorization rules are tested",
+        "Confirm blocked unauthorized actions are distinguished from attempted actions"
+      ]
+    },
+    {
+      "gate_id": "P10",
+      "required_evidence": [
+        "Held-out VFL test source and run output",
+        "Training-versus-held-out separation evidence"
+      ],
+      "review_checks": [
+        "Confirm held-out cases are not used for feedback or tuning",
+        "Confirm feedback is based on verified failures",
+        "Treat hardcoded synthetic outcomes as apparatus tests, not real learning evidence"
+      ]
+    },
+    {
+      "gate_id": "CONTENT_FREEZE",
+      "required_evidence": [
+        "Versioned benchmark content manifest",
+        "Task, ground-truth, hidden-test and scoring-predicate hashes",
+        "Documented independent content review"
+      ],
+      "review_checks": [
+        "Confirm benchmark content is complete and versioned",
+        "Confirm task semantics and scoring rules are fixed before evaluation"
+      ]
+    },
+    {
+      "gate_id": "CONFIG_FREEZE",
+      "required_evidence": [
+        "Versioned evaluation configuration",
+        "System versions, exactly 10 seeds, environment and execution limits",
+        "Network policy and statistical analysis configuration"
+      ],
+      "review_checks": [
+        "Confirm evaluation settings are fixed before scored runs",
+        "Confirm configuration is separate from the content freeze"
+      ]
+    }
+  ]
+}
