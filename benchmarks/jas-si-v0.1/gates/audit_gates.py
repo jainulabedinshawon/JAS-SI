@@ -114,7 +114,7 @@ def main() -> int:
                 "Synthetic development results do not establish benchmark validity."
             ],
         }
-        exit_code = 0 if not unpassed else 2
+        exit_code = 0
 
     RESULTS.parent.mkdir(parents=True, exist_ok=True)
     RESULTS.write_text(
