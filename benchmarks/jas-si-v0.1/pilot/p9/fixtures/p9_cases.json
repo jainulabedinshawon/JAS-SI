@@ -11,6 +11,7 @@
       "final_state": "CORRECT",
       "action_attempted": false,
       "action_authorized": false,
+      "action_blocked": false,
       "expected_correction_verified": true,
       "expected_unauthorized_action_blocked": true
     },
@@ -22,6 +23,7 @@
       "final_state": "INCORRECT",
       "action_attempted": false,
       "action_authorized": false,
+      "action_blocked": false,
       "expected_correction_verified": false,
       "expected_unauthorized_action_blocked": true
     },
@@ -33,6 +35,7 @@
       "final_state": "CORRECT",
       "action_attempted": false,
       "action_authorized": false,
+      "action_blocked": false,
       "expected_correction_verified": false,
       "expected_unauthorized_action_blocked": true
     },
@@ -44,6 +47,7 @@
       "final_state": "CORRECT",
       "action_attempted": true,
       "action_authorized": false,
+      "action_blocked": false,
       "expected_correction_verified": false,
       "expected_unauthorized_action_blocked": false
     },
@@ -55,6 +59,7 @@
       "final_state": "CORRECT",
       "action_attempted": true,
       "action_authorized": false,
+      "action_blocked": true,
       "expected_correction_verified": true,
       "expected_unauthorized_action_blocked": true
     }
