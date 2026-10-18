@@ -1,0 +1,281 @@
+
+name: JAS-SI Fixture Integrity Gate
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/jas-si-fixture-integrity.yml"
+      - "benchmarks/jas-si-v0.1/pilot/fixtures/**"
+      - "benchmarks/jas-si-v0.1/pilot/agents/**"
+      - "benchmarks/jas-si-v0.1/pilot/verifier/**"
+      - "benchmarks/jas-si-v0.1/pilot/harness/**"
+      - "benchmarks/jas-si-v0.1/pilot/run_p1.py"
+      - "benchmarks/jas-si-v0.1/pilot/tests/**"
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-integrity:
+    name: Reset, Rebuild, Golden and Negative Controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Record immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
+
+          git diff --exit-code
+          git diff --cached --exit-code
+
+      - name: Build and reset two clean source copies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p /tmp/jas-si-rebuild-a /tmp/jas-si-rebuild-b
+
+          git archive --format=tar HEAD > /tmp/source-a.tar
+          git archive --format=tar HEAD > /tmp/source-b.tar
+
+          HASH_A="$(sha256sum /tmp/source-a.tar | cut -d ' ' -f 1)"
+          HASH_B="$(sha256sum /tmp/source-b.tar | cut -d ' ' -f 1)"
+
+          echo "Archive A: $HASH_A"
+          echo "Archive B: $HASH_B"
+
+          test "$HASH_A" = "$HASH_B"
+
+          echo "SOURCE_ARCHIVE_SHA256=$HASH_A" >> "$GITHUB_ENV"
+
+          tar -xf /tmp/source-a.tar -C /tmp/jas-si-rebuild-a
+          tar -xf /tmp/source-b.tar -C /tmp/jas-si-rebuild-b
+
+          diff -qr /tmp/jas-si-rebuild-a /tmp/jas-si-rebuild-b
+
+          echo "Two clean source copies: PASS"
+
+      - name: Validate golden and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for COPY in /tmp/jas-si-rebuild-a /tmp/jas-si-rebuild-b; do
+            cd "$COPY"
+
+            python -m unittest discover \
+              -s benchmarks/jas-si-v0.1/pilot/tests \
+              -p 'test_p1_oracle.py' \
+              -v
+
+            python benchmarks/jas-si-v0.1/pilot/run_p1.py
+          done
+
+          cd "$GITHUB_WORKSPACE"
+
+          python - <<'PY'
+          import importlib.util
+          import sys
+          from pathlib import Path
+
+          copies = [
+              Path("/tmp/jas-si-rebuild-a"),
+              Path("/tmp/jas-si-rebuild-b"),
+          ]
+
+          for index, root in enumerate(copies):
+              path = (
+                  root
+                  / "benchmarks/jas-si-v0.1/pilot/verifier/"
+                  / "oracle_verifier.py"
+              )
+
+              name = f"jas_si_verifier_{index}"
+              spec = importlib.util.spec_from_file_location(name, path)
+
+              if spec is None or spec.loader is None:
+                  raise RuntimeError(f"Cannot load verifier: {path}")
+
+              module = importlib.util.module_from_spec(spec)
+              sys.modules[name] = module
+              spec.loader.exec_module(module)
+
+              verifier = module.IndependentVerifier()
+
+              golden = verifier.verify(
+                  expected_outcome="EXPECTED",
+                  observed_outcome="EXPECTED",
+                  reported_status="SUCCESS",
+              )
+
+              negative = verifier.verify(
+                  expected_outcome="EXPECTED",
+                  observed_outcome="WRONG",
+                  reported_status="SUCCESS",
+              )
+
+              if golden.outcome_label != "TRUE_SUCCESS":
+                  raise AssertionError(
+                      f"Golden control failed in copy {index}"
+                  )
+
+              if negative.outcome_label != "FALSE_SUCCESS":
+                  raise AssertionError(
+                      f"Negative control failed in copy {index}"
+                  )
+
+              if not golden.verified or not golden.exact_match:
+                  raise AssertionError("Golden verification incorrect")
+
+              if negative.verified or negative.exact_match:
+                  raise AssertionError("Negative verification incorrect")
+
+              if not golden.independent_of_agent_report:
+                  raise AssertionError("Golden independence flag incorrect")
+
+              if not negative.independent_of_agent_report:
+                  raise AssertionError("Negative independence flag incorrect")
+
+          print("Golden control: PASS")
+          print("False-success negative control: PASS")
+          print("Both clean copies: PASS")
+          PY
+
+      - name: Compare results and generate fixture manifest
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_TREE: ${{ env.SOURCE_TREE }}
+          SOURCE_ARCHIVE_SHA256: ${{ env.SOURCE_ARCHIVE_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          roots = [
+              Path("/tmp/jas-si-rebuild-a"),
+              Path("/tmp/jas-si-rebuild-b"),
+          ]
+
+          result_paths = [
+              root / "benchmarks/jas-si-v0.1/pilot/results/"
+              / "p1_oracle_result.json"
+              for root in roots
+          ]
+
+          results = [
+              json.loads(path.read_text(encoding="utf-8"))
+              for path in result_paths
+          ]
+
+          def stable_projection(result):
+              return {
+                  "schema_version": result["schema_version"],
+                  "condition": result["condition"],
+                  "task_count": result["task_count"],
+                  "outcome_counts": result["outcome_counts"],
+                  "accuracy": result["accuracy"],
+                  "evidence_records": [
+                      {
+                          key: record[key]
+                          for key in (
+                              "task_id",
+                              "agent_condition",
+                              "expected_outcome",
+                              "observed_outcome",
+                              "agent_report",
+                              "verification",
+                              "outcome_label",
+                              "metrics",
+                          )
+                      }
+                      for record in result["evidence_records"]
+                  ],
+              }
+
+          stable_a = stable_projection(results[0])
+          stable_b = stable_projection(results[1])
+
+          if stable_a != stable_b:
+              raise SystemExit(
+                  "FAIL: P1 results differ after clean rebuild."
+              )
+
+          if results[0]["task_count"] != 2:
+              raise SystemExit("Unexpected P1 task count.")
+
+          fixture = (
+              roots[0]
+              / "benchmarks/jas-si-v0.1/pilot/fixtures/p1_tasks.json"
+          )
+
+          fixture_sha = hashlib.sha256(fixture.read_bytes()).hexdigest()
+
+          manifest = {
+              "manifest_schema": "jas-si-fixture-integrity-0.1",
+              "status": "PASS",
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "source_tree_sha": os.environ["SOURCE_TREE"],
+              "source_archive_sha256": (
+                  os.environ["SOURCE_ARCHIVE_SHA256"]
+              ),
+              "fixture_sha256": fixture_sha,
+              "checks": {
+                  "independent_source_archives_match": True,
+                  "clean_extracted_trees_match": True,
+                  "p1_tests_pass_in_both_copies": True,
+                  "golden_control": "TRUE_SUCCESS",
+                  "negative_control": "FALSE_SUCCESS",
+                  "normalized_p1_results_match": True,
+              },
+              "p1_result": stable_a,
+              "scope_note": (
+                  "Development apparatus validation only. "
+                  "Not a frozen benchmark manifest or evidence "
+                  "of real-agent performance."
+              ),
+          }
+
+          output = Path("/tmp/jas-si-fixture-manifest.json")
+          output.write_text(
+              json.dumps(
+                  manifest,
+                  indent=2,
+                  sort_keys=True,
+                  ensure_ascii=False,
+              ) + "\n",
+              encoding="utf-8",
+          )
+
+          print("Fixture integrity: PASS")
+          print(f"Fixture SHA-256: {fixture_sha}")
+          print(f"Manifest: {output}")
+
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as handle:
+              handle.write("## JAS-SI Fixture Integrity Gate\n\n")
+              handle.write("**Result: PASS**\n\n")
+              handle.write("```json\n")
+              handle.write(output.read_text(encoding="utf-8"))
+              handle.write("```\n")
+          PY
