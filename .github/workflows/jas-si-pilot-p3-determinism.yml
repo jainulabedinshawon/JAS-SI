@@ -1,0 +1,63 @@
+
+name: JAS-SI Pilot P3 Determinism
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/jas-si-pilot-p3-determinism.yml"
+      - "benchmarks/jas-si-v0.1/pilot/validate_p3_determinism.py"
+      - "benchmarks/jas-si-v0.1/pilot/tests/test_p3_determinism.py"
+      - "benchmarks/jas-si-v0.1/pilot/run_p1.py"
+      - "benchmarks/jas-si-v0.1/pilot/harness/pilot_runner.py"
+      - "benchmarks/jas-si-v0.1/pilot/agents/oracle_agent.py"
+      - "benchmarks/jas-si-v0.1/pilot/verifier/oracle_verifier.py"
+      - "benchmarks/jas-si-v0.1/pilot/fixtures/p1_tasks.json"
+
+permissions:
+  contents: read
+
+jobs:
+  p3-determinism:
+    name: P3 Repeated-Run Determinism
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Compile P3 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/validate_p3_determinism.py \
+            benchmarks/jas-si-v0.1/pilot/tests/test_p3_determinism.py \
+            benchmarks/jas-si-v0.1/pilot/run_p1.py \
+            benchmarks/jas-si-v0.1/pilot/harness/pilot_runner.py
+
+      - name: Run P3 determinism gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python benchmarks/jas-si-v0.1/pilot/validate_p3_determinism.py
+
+      - name: Run P3 unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/tests \
+            -p "test_p3_determinism.py" \
+            -v
