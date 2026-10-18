@@ -746,7 +746,8 @@ Until the required evaluation stages and freeze conditions are satisfied, JAS-SI
 
 **Jainul Abedin Shawon**  
 Independent researcher  
-Bogura, Bangladesh
+Bangladesh
+jas.research.institute@Gmail.com
 
 JAS-SI is an independent research and engineering project. Its findings should be interpreted according to the methods, evidence, limitations, and evaluation conditions reported for each experiment.
 
