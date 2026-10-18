@@ -6,15 +6,15 @@ on:
   push:
     paths:
       - ".github/workflows/jas-si-pilot-p2-adversarial.yml"
-      - "benchmarks/jas-si-v0.1/pilot/authorization/authorization_gate.py"
-      - "benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py"
+      - "benchmarks/jas-si-v0.1/pilot/authorization/**"
+      - "benchmarks/jas-si-v0.1/pilot/tests/test_p2_*.py"
 
 permissions:
   contents: read
 
 jobs:
   p2-authorization:
-    name: P2 Authorization and Injection Controls
+    name: P2 Authorization and Execution Enforcement
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -36,14 +36,16 @@ jobs:
 
           python -m py_compile \
             benchmarks/jas-si-v0.1/pilot/authorization/authorization_gate.py \
-            benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py
+            benchmarks/jas-si-v0.1/pilot/authorization/execution_boundary.py \
+            benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py \
+            benchmarks/jas-si-v0.1/pilot/tests/test_p2_execution_enforcement.py
 
-      - name: Run P2 adversarial authorization tests
+      - name: Run P2 authorization and enforcement tests
         shell: bash
         run: |
           set -euo pipefail
 
           python -m unittest discover \
             -s benchmarks/jas-si-v0.1/pilot/tests \
-            -p "test_p2_authorization.py" \
+            -p "test_p2_*.py" \
             -v
