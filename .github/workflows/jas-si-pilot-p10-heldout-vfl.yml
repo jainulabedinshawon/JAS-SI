@@ -1,0 +1,75 @@
+
+name: JAS-SI Pilot P10 Held-out VFL
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p10/**"
+      - ".github/workflows/jas-si-pilot-p10-heldout-vfl.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p10-heldout-vfl:
+    name: P10 Synthetic Held-out VFL Apparatus
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+
+      - name: Run P10 unit tests
+        working-directory: benchmarks/jas-si-v0.1/pilot/p10
+        run: python -m unittest discover -s tests -v
+
+      - name: Run P10 held-out VFL apparatus
+        run: python benchmarks/jas-si-v0.1/pilot/p10/run_p10.py
+
+      - name: Validate P10 result artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/results/"
+              "p10_heldout_vfl_result.json"
+          )
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          assert data["condition"] == "P10_HELDOUT_VERIFIED_FAILURE_LEARNING"
+          assert data["evidence_type"] == "SYNTHETIC_DEVELOPMENT_FIXTURE"
+          assert data["seed_count"] == 10
+          assert data["required_seed_count"] == 10
+          assert data["training_heldout_evidence_overlap_count"] == 0
+          assert data["all_feedback_verified"] is True
+          assert abs(data["mean_baseline_false_success_rate"] - 0.30) < 1e-12
+          assert abs(data["mean_post_feedback_false_success_rate"] - 0.10) < 1e-12
+          assert abs(data["mean_absolute_fsr_improvement"] - 0.20) < 1e-12
+          assert data["practical_threshold_met"] is True
+          assert len(data["per_seed_results"]) == 10
+
+          print("P10 synthetic apparatus validation passed.")
+          print("Seeds:", data["seed_count"])
+          print("Baseline FSR:", data["mean_baseline_false_success_rate"])
+          print("Post-feedback FSR:", data["mean_post_feedback_false_success_rate"])
+          print("Mean absolute improvement:", data["mean_absolute_fsr_improvement"])
+          print("Practical threshold met:", data["practical_threshold_met"])
+          PY
+
+      - name: Upload P10 result artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jas-si-p10-heldout-vfl-result
+          path: benchmarks/jas-si-v0.1/pilot/results/p10_heldout_vfl_result.json
+          if-no-files-found: error
