@@ -1,3 +1,4 @@
+
 name: JAS-SI Fixture Contract Gate
 
 on:
@@ -8,13 +9,14 @@ on:
       - "benchmarks/jas-si-v0.1/pilot/fixtures/p1_tasks.json"
       - "benchmarks/jas-si-v0.1/pilot/fixtures/fixture_manifest.json"
       - "benchmarks/jas-si-v0.1/pilot/validate_fixture_contract.py"
+      - "benchmarks/jas-si-v0.1/pilot/tests/test_fixture_contract.py"
 
 permissions:
   contents: read
 
 jobs:
   validate-fixture-contract:
-    name: Validate Fixture Identity and Expected Outcomes
+    name: Fixture Contract and Mutation Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -29,8 +31,19 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Validate fixture contract
+      - name: Test fixture contract and tamper detection
         shell: bash
         run: |
           set -euo pipefail
+
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/tests \
+            -p 'test_fixture_contract.py' \
+            -v
+
+      - name: Validate committed fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+
           python benchmarks/jas-si-v0.1/pilot/validate_fixture_contract.py
