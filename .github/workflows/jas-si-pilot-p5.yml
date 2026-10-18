@@ -1,7 +1,9 @@
+
 name: JAS-SI Pilot P5 Floor Ceiling Check
 
 on:
   workflow_dispatch:
+
   push:
     paths:
       - "benchmarks/jas-si-v0.1/pilot/p5/**"
@@ -21,87 +23,229 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.10"
 
       - name: Show Python version
-        run: python --version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python --version
 
       - name: Validate required P5 files
+        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
+          set -euo pipefail
 
-          required = [
-              Path("benchmarks/jas-si-v0.1/pilot/p5/README.md"),
-              Path("benchmarks/jas-si-v0.1/pilot/p5/fixtures/p5_floor_ceiling_cases.json"),
-              Path("benchmarks/jas-si-v0.1/pilot/p5/run_p5.py"),
-              Path("benchmarks/jas-si-v0.1/pilot/p5/tests/test_p5_floor_ceiling.py"),
-          ]
+          required=(
+            "benchmarks/jas-si-v0.1/pilot/p5/README.md"
+            "benchmarks/jas-si-v0.1/pilot/p5/fixtures/p5_floor_ceiling_cases.json"
+            "benchmarks/jas-si-v0.1/pilot/p5/run_p5.py"
+            "benchmarks/jas-si-v0.1/pilot/p5/tests/test_p5_floor_ceiling.py"
+            ".github/workflows/jas-si-pilot-p5.yml"
+          )
 
-          missing = [str(path) for path in required if not path.is_file()]
-
-          if missing:
-              raise SystemExit("Missing required files:\n" + "\n".join(missing))
-
-          print(f"Validated {len(required)} required files.")
-          PY
+          for file in "${required[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Required file missing: $file"
+              exit 1
+            fi
+            echo "Validated: $file"
+          done
 
       - name: Validate P5 fixture JSON
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m json.tool \
             benchmarks/jas-si-v0.1/pilot/p5/fixtures/p5_floor_ceiling_cases.json \
             > /dev/null
 
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/p5/fixtures/"
+              "p5_floor_ceiling_cases.json"
+          )
+
+          cases = json.loads(path.read_text(encoding="utf-8"))
+
+          if not isinstance(cases, list) or not cases:
+              raise SystemExit(
+                  "P5 fixture must be a non-empty JSON array"
+              )
+
+          print(f"P5 fixture cases: {len(cases)}")
+          PY
+
       - name: Compile P5 Python modules
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m py_compile \
             benchmarks/jas-si-v0.1/pilot/p5/run_p5.py \
             benchmarks/jas-si-v0.1/pilot/p5/tests/test_p5_floor_ceiling.py
 
       - name: Run P5 unit tests
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m unittest discover \
             -s benchmarks/jas-si-v0.1/pilot/p5/tests \
             -p "test_*.py" \
             -v
 
       - name: Run P5 apparatus
+        shell: bash
         run: |
+          set -euo pipefail
+
           python benchmarks/jas-si-v0.1/pilot/p5/run_p5.py
 
       - name: Validate P5 result
+        shell: bash
         run: |
+          set -euo pipefail
+
           python - <<'PY'
           import json
+          import math
           from pathlib import Path
 
           path = Path(
-              "benchmarks/jas-si-v0.1/results/p5_floor_ceiling_result.json"
+              "benchmarks/jas-si-v0.1/results/"
+              "p5_floor_ceiling_result.json"
           )
 
           if not path.is_file():
-              raise SystemExit("P5 result file was not created.")
+              raise SystemExit(
+                  "P5 result file was not created"
+              )
 
-          result = json.loads(path.read_text(encoding="utf-8"))
+          result = json.loads(
+              path.read_text(encoding="utf-8")
+          )
 
-          assert result["all_cases_passed"] is True
-          assert result["failed_cases"] == 0
-          assert result["pass_rate"] == 1.0
+          required_keys = {
+              "schema_version",
+              "condition",
+              "case_count",
+              "passed_cases",
+              "failed_cases",
+              "pass_rate",
+              "all_cases_passed",
+              "metric_definitions",
+              "results",
+          }
+
+          missing = required_keys - result.keys()
+
+          if missing:
+              raise SystemExit(
+                  f"Missing result keys: {sorted(missing)}"
+              )
+
+          if result["condition"] != "P5_FLOOR_CEILING_CHECK":
+              raise SystemExit("Unexpected P5 result condition")
+
+          case_count = result["case_count"]
+          passed_cases = result["passed_cases"]
+          failed_cases = result["failed_cases"]
+          pass_rate = result["pass_rate"]
+
+          if (
+              isinstance(case_count, bool)
+              or not isinstance(case_count, int)
+              or case_count <= 0
+          ):
+              raise SystemExit("Invalid P5 case_count")
+
+          if (
+              isinstance(passed_cases, bool)
+              or not isinstance(passed_cases, int)
+              or passed_cases < 0
+          ):
+              raise SystemExit("Invalid P5 passed_cases")
+
+          if (
+              isinstance(failed_cases, bool)
+              or not isinstance(failed_cases, int)
+              or failed_cases < 0
+          ):
+              raise SystemExit("Invalid P5 failed_cases")
+
+          if passed_cases + failed_cases != case_count:
+              raise SystemExit(
+                  "P5 case counts are inconsistent"
+              )
+
+          if (
+              isinstance(pass_rate, bool)
+              or not isinstance(pass_rate, (int, float))
+              or not math.isfinite(pass_rate)
+              or not 0.0 <= pass_rate <= 1.0
+          ):
+              raise SystemExit("Invalid P5 pass_rate")
+
+          expected_rate = passed_cases / case_count
+
+          if not math.isclose(
+              pass_rate,
+              expected_rate,
+              rel_tol=0.0,
+              abs_tol=1e-12,
+          ):
+              raise SystemExit(
+                  "P5 pass_rate does not match case counts"
+              )
+
+          if result["all_cases_passed"] is not True:
+              raise SystemExit("Not all P5 fixture cases passed")
+
+          if failed_cases != 0 or pass_rate != 1.0:
+              raise SystemExit("P5 fixture validation failed")
+
+          results = result["results"]
+
+          if not isinstance(results, list) or len(results) != case_count:
+              raise SystemExit(
+                  "P5 results list does not match case_count"
+              )
+
+          if not all(
+              isinstance(item, dict)
+              and item.get("passed") is True
+              and item.get("expectation_match") is True
+              for item in results
+          ):
+              raise SystemExit(
+                  "One or more P5 fixture expectations failed"
+              )
 
           print("P5 result validation: PASS")
-          print(f"Cases: {result['case_count']}")
-          print(f"Pass rate: {result['pass_rate']}")
+          print(f"Cases: {case_count}")
+          print(f"Passed: {passed_cases}")
+          print(f"Failed: {failed_cases}")
+          print(f"Pass rate: {pass_rate:.6f}")
+          print(
+              "Scope: apparatus fixture validation only; "
+              "not evidence of real agent performance."
+          )
           PY
 
       - name: Upload P5 result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: jas-si-p5-floor-ceiling-result
           path: benchmarks/jas-si-v0.1/results/p5_floor_ceiling_result.json
