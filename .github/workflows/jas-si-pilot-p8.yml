@@ -1,0 +1,98 @@
+
+name: JAS-SI Pilot P8 Source Reproducibility
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/jas-si-pilot-p8.yml"
+      - "benchmarks/jas-si-v0.1/**"
+      - "docs/master-protocol/**"
+      - "README.md"
+
+permissions:
+  contents: read
+
+jobs:
+  source-reproducibility:
+    name: P8 Source Snapshot Reproducibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Validate Git source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$(git rev-parse HEAD)"
+          git diff --quiet
+          git diff --cached --quiet
+
+          echo "Commit: $(git rev-parse HEAD)"
+          echo "Tree: $(git rev-parse HEAD^{tree})"
+
+      - name: Build source archive twice
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git archive --format=tar HEAD > /tmp/source-a.tar
+          git archive --format=tar HEAD > /tmp/source-b.tar
+
+          HASH_A="$(sha256sum /tmp/source-a.tar | cut -d ' ' -f 1)"
+          HASH_B="$(sha256sum /tmp/source-b.tar | cut -d ' ' -f 1)"
+
+          echo "First SHA-256:  $HASH_A"
+          echo "Second SHA-256: $HASH_B"
+
+          if [ "$HASH_A" != "$HASH_B" ]; then
+            echo "::error::Source archive hashes differ."
+            exit 1
+          fi
+
+          echo "P8 source snapshot reproducibility: PASS"
+
+      - name: Validate archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import subprocess
+          import tarfile
+
+          archive = "/tmp/source-a.tar"
+
+          with tarfile.open(archive, "r:") as tar:
+              names = set(tar.getnames())
+
+          required = {
+              "README.md",
+              "docs/master-protocol/"
+              "JAS-SI-MASTER-RESEARCH-ENGINEERING-WORKFLOW-v2.2.md",
+              "benchmarks/jas-si-v0.1/README.md",
+              "benchmarks/jas-si-v0.1/pilot/README.md",
+          }
+
+          missing = sorted(required - names)
+
+          if missing:
+              raise SystemExit(
+                  "Required source files missing from archive:\n"
+                  + "\n".join(missing)
+              )
+
+          print(f"Archive entries: {len(names)}")
+          print("Required source files: PASS")
+          PY
