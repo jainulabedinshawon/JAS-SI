@@ -1,7 +1,9 @@
+
 name: JAS-SI Pilot P7 Leakage Check
 
 on:
   workflow_dispatch:
+
   push:
     paths:
       - "benchmarks/jas-si-v0.1/pilot/p7/**"
@@ -21,17 +23,14 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.10"
-
-      - name: Show Python version
-        run: python --version
 
       - name: Validate required P7 files
         run: |
@@ -40,25 +39,16 @@ jobs:
 
           required = [
               Path("benchmarks/jas-si-v0.1/pilot/p7/README.md"),
-              Path(
-                  "benchmarks/jas-si-v0.1/pilot/p7/fixtures/"
-                  "p7_leakage_cases.json"
-              ),
+              Path("benchmarks/jas-si-v0.1/pilot/p7/fixtures/p7_leakage_cases.json"),
               Path("benchmarks/jas-si-v0.1/pilot/p7/run_p7.py"),
-              Path(
-                  "benchmarks/jas-si-v0.1/pilot/p7/tests/"
-                  "test_p7_leakage_check.py"
-              ),
+              Path("benchmarks/jas-si-v0.1/pilot/p7/tests/test_p7_leakage_check.py"),
           ]
 
           missing = [str(path) for path in required if not path.is_file()]
-
           if missing:
-              raise SystemExit(
-                  "Missing required files:\n" + "\n".join(missing)
-              )
+              raise SystemExit("Missing files:\n" + "\n".join(missing))
 
-          print(f"Validated {len(required)} required files.")
+          print(f"Validated {len(required)} required P7 files.")
           PY
 
       - name: Validate P7 fixture JSON
@@ -81,7 +71,7 @@ jobs:
             -p "test_*.py" \
             -v
 
-      - name: Run P7 apparatus
+      - name: Run P7 leakage apparatus
         run: |
           python benchmarks/jas-si-v0.1/pilot/p7/run_p7.py
 
@@ -92,8 +82,7 @@ jobs:
           from pathlib import Path
 
           path = Path(
-              "benchmarks/jas-si-v0.1/results/"
-              "p7_leakage_check_result.json"
+              "benchmarks/jas-si-v0.1/results/p7_leakage_check_result.json"
           )
 
           if not path.is_file():
@@ -101,30 +90,44 @@ jobs:
 
           result = json.loads(path.read_text(encoding="utf-8"))
 
-          assert result["condition"] == "P7_LEAKAGE_CHECK"
-          assert result["all_cases_passed"] is True
-          assert result["case_count"] == 6
-          assert result["passed_cases"] == 6
-          assert result["failed_cases"] == 0
-          assert result["pass_rate"] == 1.0
-          assert result["cases_with_detected_leakage"] == 4
-          assert result["cases_without_detected_leakage"] == 2
+          expected = {
+              "condition": "P7_LEAKAGE_CHECK",
+              "case_count": 6,
+              "passed_cases": 6,
+              "failed_cases": 0,
+              "pass_rate": 1.0,
+              "all_cases_passed": True,
+              "cases_with_detected_leakage": 4,
+              "cases_without_detected_leakage": 2,
+          }
+
+          for key, value in expected.items():
+              if result.get(key) != value:
+                  raise SystemExit(
+                      f"P7 result mismatch for {key}: "
+                      f"expected {value!r}, got {result.get(key)!r}"
+                  )
+
+          cases = result.get("results")
+          if not isinstance(cases, list) or len(cases) != 6:
+              raise SystemExit("P7 must return exactly 6 case results.")
+
+          if any(case.get("passed") is not True for case in cases):
+              raise SystemExit("One or more P7 fixture cases failed.")
+
+          ids = [case.get("case_id") for case in cases]
+          if len(set(ids)) != 6 or any(not item for item in ids):
+              raise SystemExit("P7 case IDs must be present and unique.")
 
           print("P7 result validation: PASS")
           print(f"Cases: {result['case_count']}")
-          print(f"Pass rate: {result['pass_rate']}")
-          print(
-              "Leakage-positive controls: "
-              f"{result['cases_with_detected_leakage']}"
-          )
-          print(
-              "Clean controls: "
-              f"{result['cases_without_detected_leakage']}"
-          )
+          print(f"Passed: {result['passed_cases']}")
+          print(f"Detected-leakage controls: {result['cases_with_detected_leakage']}")
+          print(f"Clean controls: {result['cases_without_detected_leakage']}")
           PY
 
-      - name: Upload P7 result
-        uses: actions/upload-artifact@v4
+      - name: Upload P7 result artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: jas-si-p7-leakage-check-result
           path: benchmarks/jas-si-v0.1/results/p7_leakage_check_result.json
