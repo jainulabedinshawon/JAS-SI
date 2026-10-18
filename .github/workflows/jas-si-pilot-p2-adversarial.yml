@@ -43,6 +43,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          python -m unittest \
-            benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py \
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/pilot/tests \
+            -p "test_p2_authorization.py" \
             -v
