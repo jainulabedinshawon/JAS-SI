@@ -1,0 +1,36 @@
+name: JAS-SI Fixture Contract Gate
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/jas-si-fixture-contract.yml"
+      - "benchmarks/jas-si-v0.1/pilot/fixtures/p1_tasks.json"
+      - "benchmarks/jas-si-v0.1/pilot/fixtures/fixture_manifest.json"
+      - "benchmarks/jas-si-v0.1/pilot/validate_fixture_contract.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-fixture-contract:
+    name: Validate Fixture Identity and Expected Outcomes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Validate fixture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python benchmarks/jas-si-v0.1/pilot/validate_fixture_contract.py
