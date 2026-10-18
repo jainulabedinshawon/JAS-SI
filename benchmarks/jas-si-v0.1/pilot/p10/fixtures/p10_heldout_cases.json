@@ -1,0 +1,18 @@
+
+{
+  "protocol": "JAS-SI-P10-HELDOUT-VFL-DEVELOPMENT-v0.1",
+  "evidence_type": "SYNTHETIC_DEVELOPMENT_FIXTURE",
+  "practical_threshold_delta": 0.10,
+  "seeds": [
+    {"seed": 1, "training_evidence_id": "train-failure-01", "heldout_evidence_id": "heldout-01", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 2, "training_evidence_id": "train-failure-02", "heldout_evidence_id": "heldout-02", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 3, "training_evidence_id": "train-failure-03", "heldout_evidence_id": "heldout-03", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 4, "training_evidence_id": "train-failure-04", "heldout_evidence_id": "heldout-04", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 5, "training_evidence_id": "train-failure-05", "heldout_evidence_id": "heldout-05", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 6, "training_evidence_id": "train-failure-06", "heldout_evidence_id": "heldout-06", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 7, "training_evidence_id": "train-failure-07", "heldout_evidence_id": "heldout-07", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 8, "training_evidence_id": "train-failure-08", "heldout_evidence_id": "heldout-08", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 9, "training_evidence_id": "train-failure-09", "heldout_evidence_id": "heldout-09", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1},
+    {"seed": 10, "training_evidence_id": "train-failure-10", "heldout_evidence_id": "heldout-10", "verified_failure_feedback": true, "baseline_true_success": 7, "baseline_false_success": 3, "post_feedback_true_success": 9, "post_feedback_false_success": 1}
+  ]
+}
