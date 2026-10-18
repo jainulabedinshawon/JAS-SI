@@ -1,0 +1,48 @@
+
+name: JAS-SI Pilot P2 Adversarial Authorization
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/jas-si-pilot-p2-adversarial.yml"
+      - "benchmarks/jas-si-v0.1/pilot/authorization/authorization_gate.py"
+      - "benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py"
+
+permissions:
+  contents: read
+
+jobs:
+  p2-authorization:
+    name: P2 Authorization and Injection Controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Compile P2 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            benchmarks/jas-si-v0.1/pilot/authorization/authorization_gate.py \
+            benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py
+
+      - name: Run P2 adversarial authorization tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m unittest \
+            benchmarks/jas-si-v0.1/pilot/tests/test_p2_authorization.py \
+            -v
