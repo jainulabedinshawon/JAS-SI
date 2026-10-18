@@ -1,0 +1,22 @@
+
+{
+  "protocol": "JAS-SI-V0.1-REVIEW-LEDGER",
+  "status": "REVIEW_IN_PROGRESS",
+  "benchmark_status": "DEVELOPMENT_NOT_FROZEN",
+  "policy": "No automatic PASS. Every PASS requires traceable evidence and a documented human review.",
+  "records": [
+    {"gate_id": "P0", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P1", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P2", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P3", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P4", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P5", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P6", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P7", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P8", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P9", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "P10", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "CONTENT_FREEZE", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""},
+    {"gate_id": "CONFIG_FREEZE", "status": "NOT_REVIEWED", "evidence_refs": [], "commit_sha": null, "reviewer": null, "reviewed_at": null, "decision_notes": ""}
+  ]
+}
