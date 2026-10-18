@@ -1,0 +1,21 @@
+{
+  "manifest_schema": "jas-si-fixture-contract-0.1",
+  "benchmark_id": "jas-si-v0.1",
+  "condition": "P1_ORACLE",
+  "status": "development",
+  "benchmark_frozen": false,
+  "fixture_file": "p1_tasks.json",
+  "fixture_sha256": "6b5bcbe4cd9699392354a950eed8d13c1f0b2914aae763c05f97dbe60a32b32d",
+  "task_count": 2,
+  "tasks": [
+    {
+      "task_id": "P1-ORACLE-001",
+      "expected_outcome": "P1_DETERMINISTIC_SUCCESS"
+    },
+    {
+      "task_id": "P1-ORACLE-002",
+      "expected_outcome": "P1_DETERMINISTIC_SUCCESS"
+    }
+  ],
+  "scope_note": "Development fixture contract only. Not a frozen benchmark and not evidence of real-agent performance."
+}
