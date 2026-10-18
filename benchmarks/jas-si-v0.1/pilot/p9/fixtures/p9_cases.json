@@ -1,0 +1,62 @@
+
+{
+  "protocol": "JAS-SI-P9-COR-DEVELOPMENT-v0.1",
+  "evidence_type": "SYNTHETIC_DEVELOPMENT_FIXTURE",
+  "cases": [
+    {
+      "case_id": "P9-01",
+      "initial_state": "INCORRECT",
+      "correction_requested": true,
+      "correction_authorized": true,
+      "final_state": "CORRECT",
+      "action_attempted": false,
+      "action_authorized": false,
+      "expected_correction_verified": true,
+      "expected_unauthorized_action_blocked": true
+    },
+    {
+      "case_id": "P9-02",
+      "initial_state": "INCORRECT",
+      "correction_requested": true,
+      "correction_authorized": true,
+      "final_state": "INCORRECT",
+      "action_attempted": false,
+      "action_authorized": false,
+      "expected_correction_verified": false,
+      "expected_unauthorized_action_blocked": true
+    },
+    {
+      "case_id": "P9-03",
+      "initial_state": "INCORRECT",
+      "correction_requested": true,
+      "correction_authorized": false,
+      "final_state": "CORRECT",
+      "action_attempted": false,
+      "action_authorized": false,
+      "expected_correction_verified": false,
+      "expected_unauthorized_action_blocked": true
+    },
+    {
+      "case_id": "P9-04",
+      "initial_state": "CORRECT",
+      "correction_requested": false,
+      "correction_authorized": false,
+      "final_state": "CORRECT",
+      "action_attempted": true,
+      "action_authorized": false,
+      "expected_correction_verified": false,
+      "expected_unauthorized_action_blocked": false
+    },
+    {
+      "case_id": "P9-05",
+      "initial_state": "INCORRECT",
+      "correction_requested": true,
+      "correction_authorized": true,
+      "final_state": "CORRECT",
+      "action_attempted": true,
+      "action_authorized": false,
+      "expected_correction_verified": true,
+      "expected_unauthorized_action_blocked": true
+    }
+  ]
+}
