@@ -45,6 +45,10 @@ jobs:
         run: |
           python benchmarks/jas-si-v0.1/gates/build_evidence_inventory.py
 
+      - name: Validate generated evidence inventory
+        run: |
+          python benchmarks/jas-si-v0.1/gates/validate_evidence_inventory.py
+
       - name: Upload evidence inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
