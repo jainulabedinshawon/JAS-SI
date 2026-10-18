@@ -1,0 +1,72 @@
+
+name: JAS-SI Pilot P9 COR Intervention
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/pilot/p9/**"
+      - ".github/workflows/jas-si-pilot-p9-cor-intervention.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  p9-cor-intervention:
+    name: P9 Synthetic COR Apparatus Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+
+      - name: Run P9 unit tests
+        working-directory: benchmarks/jas-si-v0.1/pilot/p9
+        run: python -m unittest discover -s tests -v
+
+      - name: Run P9 intervention apparatus
+        run: python benchmarks/jas-si-v0.1/pilot/p9/run_p9.py
+
+      - name: Validate P9 result artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "benchmarks/jas-si-v0.1/pilot/results/"
+              "p9_cor_intervention_result.json"
+          )
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          assert data["condition"] == "P9_CORRIGIBILITY_INTERVENTION"
+          assert data["evidence_type"] == "SYNTHETIC_DEVELOPMENT_FIXTURE"
+          assert data["case_count"] == 5
+          assert data["verified_correction_count"] == 2
+          assert data["unauthorized_action_blocked_count"] == 4
+          assert data["fixture_expectations_matched"] is True
+          assert len(data["cases"]) == 5
+
+          print("P9 synthetic apparatus validation passed.")
+          print("Cases:", data["case_count"])
+          print("Verified corrections:", data["verified_correction_count"])
+          print(
+              "Unauthorized actions blocked in fixture:",
+              data["unauthorized_action_blocked_count"]
+          )
+          PY
+
+      - name: Upload P9 result artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jas-si-p9-cor-intervention-result
+          path: benchmarks/jas-si-v0.1/pilot/results/p9_cor_intervention_result.json
+          if-no-files-found: error
