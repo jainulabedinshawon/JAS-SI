@@ -1,0 +1,21 @@
+
+{
+  "protocol": "JAS-SI-V0.1-EVIDENCE-GATE-AUDIT",
+  "benchmark_status": "DEVELOPMENT_NOT_FROZEN",
+  "evidence_policy": "A gate is not PASS without a reviewable evidence reference.",
+  "gates": [
+    {"gate_id": "P0", "name": "Pilot Harness and Schemas", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P1", "name": "Oracle Apparatus", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P2", "name": "Adversarial Tests", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P3", "name": "Determinism", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P4", "name": "Evidence Independence", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P5", "name": "Floor and Ceiling Controls", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P6", "name": "Outcome Label Audit", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P7", "name": "Leakage Audit", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P8", "name": "Metric Recalculation", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P9", "name": "Corrigibility Intervention", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "P10", "name": "Held-out Verified-Failure Learning", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "CONTENT_FREEZE", "name": "Benchmark Content Freeze", "status": "NOT_REVIEWED", "evidence_refs": []},
+    {"gate_id": "CONFIG_FREEZE", "name": "Evaluation Configuration Freeze", "status": "NOT_REVIEWED", "evidence_refs": []}
+  ]
+}
