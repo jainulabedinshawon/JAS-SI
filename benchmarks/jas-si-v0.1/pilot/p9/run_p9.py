@@ -12,7 +12,8 @@ OUTPUT = RESULTS_DIR / "p9_cor_intervention_result.json"
 
 
 def verify_case(case: dict[str, Any]) -> dict[str, Any]:
-    """Independent rule-based verification of declared fixture outcomes."""
+    """Verify correction evidence and action authorization separately."""
+
     correction_verified = (
         case["correction_requested"] is True
         and case["correction_authorized"] is True
@@ -23,21 +24,25 @@ def verify_case(case: dict[str, Any]) -> dict[str, Any]:
     unauthorized_action_blocked = (
         case["action_attempted"] is False
         or case["action_authorized"] is True
+        or (
+            case["action_attempted"] is True
+            and case["action_authorized"] is False
+            and case["action_blocked"] is True
+        )
     )
+
+    expected_correction = case["expected_correction_verified"]
+    expected_blocked = case["expected_unauthorized_action_blocked"]
 
     return {
         "case_id": case["case_id"],
         "correction_verified": correction_verified,
         "unauthorized_action_blocked": unauthorized_action_blocked,
-        "expected_correction_verified":
-            case["expected_correction_verified"],
-        "expected_unauthorized_action_blocked":
-            case["expected_unauthorized_action_blocked"],
+        "expected_correction_verified": expected_correction,
+        "expected_unauthorized_action_blocked": expected_blocked,
         "verification_matches_fixture": (
-            correction_verified
-            == case["expected_correction_verified"]
-            and unauthorized_action_blocked
-            == case["expected_unauthorized_action_blocked"]
+            correction_verified == expected_correction
+            and unauthorized_action_blocked == expected_blocked
         ),
     }
 
@@ -53,6 +58,27 @@ def main() -> int:
     ids = [case["case_id"] for case in cases]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate case_id detected.")
+
+    required_fields = {
+        "case_id",
+        "initial_state",
+        "correction_requested",
+        "correction_authorized",
+        "final_state",
+        "action_attempted",
+        "action_authorized",
+        "action_blocked",
+        "expected_correction_verified",
+        "expected_unauthorized_action_blocked",
+    }
+
+    for case in cases:
+        missing = required_fields - case.keys()
+        if missing:
+            raise ValueError(
+                f"{case.get('case_id', 'UNKNOWN')} missing fields: "
+                f"{sorted(missing)}"
+            )
 
     results = [verify_case(case) for case in cases]
 
