@@ -1,0 +1,63 @@
+
+name: JAS-SI Evidence Gate Audit
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "benchmarks/jas-si-v0.1/gates/**"
+      - ".github/workflows/jas-si-evidence-gate-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-gate-audit:
+    name: Validate Evidence Registry and Freeze Readiness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+
+      - name: Run gate registry tests
+        run: |
+          python -m unittest discover \
+            -s benchmarks/jas-si-v0.1/gates/tests -v
+
+      - name: Audit evidence registry
+        run: python benchmarks/jas-si-v0.1/gates/audit_gates.py
+
+      - name: Validate audit report
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("benchmarks/jas-si-v0.1/gates/audit_result.json")
+          report = json.loads(path.read_text(encoding="utf-8"))
+
+          assert report["audit"] == "JAS-SI_V0.1_EVIDENCE_GATE_AUDIT"
+          assert report["registry_valid"] is True
+          assert report["total_gates"] == 13
+
+          print("Evidence registry structure is valid.")
+          print("Passed gates:", report["passed_gates"])
+          print("Freeze ready:", report["freeze_ready"])
+          print("Decision:", report["decision"])
+          PY
+
+      - name: Upload evidence audit report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jas-si-evidence-gate-audit
+          path: benchmarks/jas-si-v0.1/gates/audit_result.json
+          if-no-files-found: error
