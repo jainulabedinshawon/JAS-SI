@@ -49,6 +49,17 @@ jobs:
         run: |
           python benchmarks/jas-si-v0.1/gates/validate_evidence_inventory.py
 
+      - name: Build human evidence review packets
+        run: |
+          python benchmarks/jas-si-v0.1/gates/build_review_packets.py
+
+      - name: Upload human evidence review packets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jas-si-human-evidence-review-packets
+          path: benchmarks/jas-si-v0.1/gates/evidence_review_packets.json
+          if-no-files-found: error
+
       - name: Upload evidence inventory
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
