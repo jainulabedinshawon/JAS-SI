@@ -57,6 +57,17 @@ jobs:
         run: |
           python benchmarks/jas-si-v0.1/gates/validate_review_packets.py
 
+      - name: Build human review checklist
+        run: |
+          python benchmarks/jas-si-v0.1/gates/build_human_review_checklist.py
+
+      - name: Upload human review checklist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jas-si-human-review-checklist
+          path: benchmarks/jas-si-v0.1/gates/human_review_checklist.md
+          if-no-files-found: error
+          
       - name: Upload human evidence review packets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
