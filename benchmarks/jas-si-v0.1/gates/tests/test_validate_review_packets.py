@@ -8,12 +8,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "validate_review_packets.py"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "validate_review_packets.py"
+)
 
 SPEC = importlib.util.spec_from_file_location(
     "validate_review_packets", SCRIPT_PATH
 )
-assert SPEC is not None and SPEC.loader is not None
+assert SPEC is not None
+assert SPEC.loader is not None
 
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -23,15 +27,24 @@ class ReviewPacketValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
+
         self.criteria_path = self.root / "review_criteria.json"
         self.packets_path = self.root / "evidence_review_packets.json"
 
-        criteria = {"gates": [{"gate_id": f"G{i}"} for i in range(13)]}
-        records = []
+        criteria_records = []
+        packet_records = []
 
         for i in range(13):
-            records.append({
-                "gate_id": f"G{i}",
+            gate_id = f"G{i}"
+
+            criteria_records.append({
+                "gate_id": gate_id,
+                "required_evidence": ["Example evidence"],
+                "review_checks": ["Example check"],
+            })
+
+            packet_records.append({
+                "gate_id": gate_id,
                 "review_status": "NOT_REVIEWED",
                 "gate_approval": "NOT_GRANTED",
                 "human_review_required": True,
@@ -57,6 +70,8 @@ class ReviewPacketValidationTests(unittest.TestCase):
                 },
             })
 
+        criteria = {"gates": criteria_records}
+
         packets = {
             "protocol": "JAS-SI-V0.1-EVIDENCE-REVIEW-PACKETS",
             "status": "REVIEW_PACKET_PREPARED",
@@ -64,33 +79,43 @@ class ReviewPacketValidationTests(unittest.TestCase):
             "automatic_approval": False,
             "freeze_authorized": False,
             "gate_count": 13,
-            "records": records,
+            "records": packet_records,
         }
 
         self.criteria_path.write_text(
-            json.dumps(criteria), encoding="utf-8"
+            json.dumps(criteria),
+            encoding="utf-8",
         )
         self.packets_path.write_text(
-            json.dumps(packets), encoding="utf-8"
+            json.dumps(packets),
+            encoding="utf-8",
         )
 
-        self.patches = [
-            patch.object(MODULE, "CRITERIA_PATH", self.criteria_path),
-            patch.object(MODULE, "PACKETS_PATH", self.packets_path),
-        ]
-        for item in self.patches:
-            item.start()
-            self.addCleanup(item.stop)
+        patcher_criteria = patch.object(
+            MODULE, "CRITERIA_PATH", self.criteria_path
+        )
+        patcher_packets = patch.object(
+            MODULE, "PACKETS_PATH", self.packets_path
+        )
+
+        patcher_criteria.start()
+        patcher_packets.start()
+
+        self.addCleanup(patcher_criteria.stop)
+        self.addCleanup(patcher_packets.stop)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
     def read_packets(self) -> dict:
-        return json.loads(self.packets_path.read_text(encoding="utf-8"))
+        return json.loads(
+            self.packets_path.read_text(encoding="utf-8")
+        )
 
     def write_packets(self, data: dict) -> None:
         self.packets_path.write_text(
-            json.dumps(data), encoding="utf-8"
+            json.dumps(data),
+            encoding="utf-8",
         )
 
     def test_valid_packets_pass(self) -> None:
@@ -98,11 +123,13 @@ class ReviewPacketValidationTests(unittest.TestCase):
 
     def test_duplicate_gate_ids_fail(self) -> None:
         data = self.read_packets()
-        data["records"][1]["gate_id"] = data["records"][0]["gate_id"]
+        data["records"][1]["gate_id"] = (
+            data["records"][0]["gate_id"]
+        )
         self.write_packets(data)
 
         self.assertTrue(any(
-            "Duplicate gate IDs" in error
+            "Duplicate packet gate ID" in error
             for error in MODULE.validate()
         ))
 
@@ -112,7 +139,7 @@ class ReviewPacketValidationTests(unittest.TestCase):
         self.write_packets(data)
 
         self.assertTrue(any(
-            "automatic_approval must be false" in error
+            "Automatic approval must remain disabled" in error
             for error in MODULE.validate()
         ))
 
@@ -122,7 +149,7 @@ class ReviewPacketValidationTests(unittest.TestCase):
         self.write_packets(data)
 
         self.assertTrue(any(
-            "freeze_authorized must be false" in error
+            "Freeze authorization must remain disabled" in error
             for error in MODULE.validate()
         ))
 
@@ -159,6 +186,7 @@ class ReviewPacketValidationTests(unittest.TestCase):
             "packet review checks differ from criteria" in error
             for error in MODULE.validate()
         ))
+
 
 if __name__ == "__main__":
     unittest.main()
