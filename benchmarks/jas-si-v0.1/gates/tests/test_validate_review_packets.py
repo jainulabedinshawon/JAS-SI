@@ -136,6 +136,29 @@ class ReviewPacketValidationTests(unittest.TestCase):
             for error in MODULE.validate()
         ))
 
+    def test_modified_evidence_requirement_is_rejected(self) -> None:
+        data = self.read_packets()
+        data["records"][0]["required_evidence"][0]["requirement"] = (
+            "Requirement changed without criteria approval"
+        )
+        self.write_packets(data)
+
+        self.assertTrue(any(
+            "packet evidence requirements differ from criteria" in error
+            for error in MODULE.validate()
+        ))
+
+    def test_modified_review_check_is_rejected(self) -> None:
+        data = self.read_packets()
+        data["records"][0]["review_checks"][0]["check"] = (
+            "Unapproved review check"
+        )
+        self.write_packets(data)
+
+        self.assertTrue(any(
+            "packet review checks differ from criteria" in error
+            for error in MODULE.validate()
+        ))
 
 if __name__ == "__main__":
     unittest.main()
