@@ -41,6 +41,19 @@ jobs:
         run: |
           python benchmarks/jas-si-v0.1/gates/validate_review_ledger.py
 
+      - name: Build evidence reference coverage report
+        run: |
+          python benchmarks/jas-si-v0.1/gates/build_evidence_reference_coverage.py
+
+      - name: Upload evidence reference coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jas-si-evidence-reference-coverage
+          path: |
+            benchmarks/jas-si-v0.1/gates/evidence_reference_coverage.json
+            benchmarks/jas-si-v0.1/gates/evidence_reference_coverage.md
+          if-no-files-found: error
+
       - name: Build evidence inventory
         run: |
           python benchmarks/jas-si-v0.1/gates/build_evidence_inventory.py
