@@ -78,13 +78,17 @@ def build_report() -> dict[str, Any]:
 
     for name, data in (
         ("registry", registry),
-        ("review criteria", criteria_data),
         ("review ledger", ledger),
     ):
         if data.get("benchmark_status") != EXPECTED_STATUS:
             raise ValueError(
                 f"{name} must remain {EXPECTED_STATUS}."
             )
+
+    if criteria_data.get("status") != "REVIEW_PLAN_ONLY":
+        raise ValueError(
+            "Review criteria must remain REVIEW_PLAN_ONLY."
+        )
 
     if registry.get("protocol") != "JAS-SI-V0.1-EVIDENCE-GATE-AUDIT":
         raise ValueError("Unexpected evidence registry protocol.")
