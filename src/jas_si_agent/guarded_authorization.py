@@ -1,11 +1,8 @@
 
 """Fail-closed authorization service guarded by audit integrity.
 
-This service checks persisted audit integrity before asking the
-authorization policy to evaluate a request.
-
-It never executes actions or changes external state.
-A local checkpoint is not an independent trust anchor.
+This module evaluates policy only. It never executes actions.
+The local checkpoint is not an independent trust anchor.
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ from jas_si_agent.integrity_guard import (
 
 
 class IntegrityGuardedAuthorizationService:
-    """Require valid local audit integrity before authorization."""
+    """Require valid audit integrity before evaluating authorization."""
 
     def __init__(
         self,
@@ -48,12 +45,21 @@ class IntegrityGuardedAuthorizationService:
         grant: Optional[AuthorizationGrant] = None,
         now: Optional[datetime] = None,
     ) -> tuple[IntegrityCheckResult, AuthorizationDecision]:
-        """Return integrity status and a fail-closed policy decision."""
+        """Return an integrity result and a fail-closed decision."""
 
-        integrity = verify_startup_integrity(
-            self._audit_store,
-            self._checkpoint_store,
-        )
+        try:
+            integrity = verify_startup_integrity(
+                self._audit_store,
+                self._checkpoint_store,
+            )
+        except Exception:
+            # Unexpected integrity-check errors must not permit access.
+            integrity = IntegrityCheckResult(
+                valid=False,
+                reason="UNEXPECTED_INTEGRITY_CHECK_ERROR",
+                record_count=0,
+                checkpoint_sequence=None,
+            )
 
         action_id = (
             request.action_id
@@ -63,7 +69,7 @@ class IntegrityGuardedAuthorizationService:
         )
 
         if not integrity.valid:
-            decision = AuthorizationDecision(
+            return integrity, AuthorizationDecision(
                 allowed=False,
                 reason=(
                     "STARTUP_INTEGRITY_CHECK_FAILED:"
@@ -71,11 +77,26 @@ class IntegrityGuardedAuthorizationService:
                 ),
                 action_id=action_id,
             )
-            return integrity, decision
 
-        decision = self._authorization_gate.evaluate(
-            request,
-            grant=grant,
-            now=now,
-        )
+        if not isinstance(request, ActionRequest):
+            return integrity, AuthorizationDecision(
+                allowed=False,
+                reason="INVALID_ACTION_REQUEST",
+                action_id="",
+            )
+
+        try:
+            decision = self._authorization_gate.evaluate(
+                request,
+                grant=grant,
+                now=now,
+            )
+        except Exception:
+            # Malformed input or an unexpected policy error denies access.
+            decision = AuthorizationDecision(
+                allowed=False,
+                reason="AUTHORIZATION_EVALUATION_ERROR",
+                action_id=action_id,
+            )
+
         return integrity, decision
