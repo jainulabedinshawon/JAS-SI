@@ -143,6 +143,78 @@ class TestGuardedAuthorizationAdversarial(unittest.TestCase):
             "ACTION_DISABLED_IN_MVP",
         )
 
+    def test_corrupted_audit_log_denies_request(self) -> None:
+        self.audit.path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        self.audit.path.write_text(
+            "this is not valid JSON\n",
+            encoding="utf-8",
+        )
+
+        integrity, decision = self.service.authorize(
+            self.request()
+        )
+
+        self.assertFalse(integrity.valid)
+        self.assertEqual(
+            integrity.reason,
+            "AUDIT_LOG_INVALID_OR_UNREADABLE",
+        )
+        self.assertFalse(decision.allowed)
+        self.assertTrue(
+            decision.reason.startswith(
+                "STARTUP_INTEGRITY_CHECK_FAILED:"
+            )
+        )
+
+    def test_authorization_evaluator_error_denies_request(
+        self,
+    ) -> None:
+        with patch.object(
+            self.service._authorization_gate,
+            "evaluate",
+            side_effect=RuntimeError(
+                "simulated authorization failure"
+            ),
+        ):
+            integrity, decision = self.service.authorize(
+                self.request()
+            )
+
+        self.assertTrue(integrity.valid)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(
+            decision.reason,
+            "AUTHORIZATION_EVALUATION_ERROR",
+        )
+        self.assertEqual(
+            decision.action_id,
+            "adversarial-001",
+        )
+
+    def test_malformed_action_type_is_denied(self) -> None:
+        malformed_request = ActionRequest(
+            action_id="adversarial-002",
+            action_type=None,  # type: ignore[arg-type]
+            resource="README.md",
+        )
+
+        integrity, decision = self.service.authorize(
+            malformed_request
+        )
+
+        self.assertTrue(integrity.valid)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(
+            decision.reason,
+            "INVALID_ACTION_TYPE",
+        )
+        self.assertEqual(
+            decision.action_id,
+            "adversarial-002",
+        )
 
 if __name__ == "__main__":
     unittest.main()
