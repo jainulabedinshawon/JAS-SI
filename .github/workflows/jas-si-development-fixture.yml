@@ -63,6 +63,8 @@ jobs:
             "$FIXTURE_DIR/run_fixture.py"
             "$FIXTURE_DIR/verify_fixture.py"
             "$FIXTURE_DIR/test_development_fixture.py"
+            "$FIXTURE_DIR/validate_fixture_contract.py"
+            "$FIXTURE_DIR/test_fixture_contract.py"
           )
 
           echo "Checking required JAS-SI development fixture files..."
@@ -105,6 +107,23 @@ jobs:
 
               print(f"VALID JSON: {path}")
           PY
+
+      - name: Validate fixture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python "$FIXTURE_DIR/validate_fixture_contract.py"
+
+      - name: Test fixture contract validation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m unittest discover \
+            -s "$FIXTURE_DIR" \
+            -p "test_fixture_contract.py" \
+            -v
 
       # ============================================================
       # 6. VALIDATE GROUND-TRUTH SCHEMA
