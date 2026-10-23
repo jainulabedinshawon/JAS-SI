@@ -9,7 +9,7 @@ on:
       - feat/jas-si-agent-authorization-tests
     paths:
       - "src/jas_si_agent/**"
-      - "tests/test_authorization.py"
+      - "tests/test_*.py"
       - ".github/workflows/jas-si-agent-tests.yml"
 
   pull_request:
@@ -18,7 +18,7 @@ on:
       - feat/jas-si-agent-mvp-safety-core
     paths:
       - "src/jas_si_agent/**"
-      - "tests/test_authorization.py"
+      - "tests/test_*.py"
       - ".github/workflows/jas-si-agent-tests.yml"
 
   workflow_dispatch:
@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   authorization-tests:
-    name: Authorization Unit Tests (Python 3.10)
+    name: Agent Unit Tests (Python 3.10)
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -53,11 +53,11 @@ jobs:
 
       - name: Compile source and tests
         run: |
-          python -m compileall -q src/jas_si_agent tests/test_authorization.py
+          python -m compileall -q src/jas_si_agent tests
 
-      - name: Run authorization unit tests
+      - name: Run all discovered unit tests
         run: |
           python -m unittest discover \
             -s tests \
-            -p "test_authorization.py" \
+            -p "test_*.py" \
             -v
