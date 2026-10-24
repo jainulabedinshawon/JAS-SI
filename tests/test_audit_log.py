@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -12,7 +11,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from jas_si_agent.audit_log import AuditLog, GENESIS_HASH  # noqa: E402
+from jas_si_agent.audit_log import (  # noqa: E402
+    AuditLog,
+    GENESIS_HASH,
+)
 from jas_si_agent.authorization import (  # noqa: E402
     ActionRequest,
     AuthorizationDecision,
@@ -26,16 +28,19 @@ from jas_si_agent.verification import (  # noqa: E402
 class TestAuditLog(unittest.TestCase):
     def setUp(self) -> None:
         self.log = AuditLog()
+
         self.request = ActionRequest(
             action_id="action-001",
             action_type="read_repository",
             resource="README.md",
         )
+
         self.decision = AuthorizationDecision(
             allowed=True,
             reason="SAFE_ACTION_POLICY_ALLOWED",
             action_id="action-001",
         )
+
         self.verification = VerificationResult(
             status=VerificationStatus.VERIFIED_SUCCESS,
             reason="REPORT_MATCHES_SUCCESS_EVIDENCE",
@@ -114,6 +119,7 @@ class TestAuditLog(unittest.TestCase):
             reason="HUMAN_APPROVAL_REQUIRED",
             action_id="action-001",
         )
+
         inconclusive = VerificationResult(
             status=VerificationStatus.INCONCLUSIVE,
             reason="ACTION_NOT_AUTHORIZED",
@@ -131,6 +137,102 @@ class TestAuditLog(unittest.TestCase):
             record.verification_status,
             "INCONCLUSIVE",
         )
+        self.assertTrue(self.log.verify_integrity())
+
+    def test_boolean_record_sequence_is_rejected(self) -> None:
+        original = self.append_one()
+
+        # bool is a subclass of int in Python.
+        self.log._records[0] = replace(
+            original,
+            sequence=True,
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_negative_record_sequence_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            sequence=-1,
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_string_record_sequence_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            sequence="1",
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_malformed_previous_hash_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            previous_hash="not-a-valid-sha256-hash",
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_non_string_previous_hash_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            previous_hash=None,
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_malformed_record_hash_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            record_hash="invalid-hash",
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_non_string_record_hash_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            record_hash=None,
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_uppercase_record_hash_is_rejected(self) -> None:
+        original = self.append_one()
+
+        self.log._records[0] = replace(
+            original,
+            record_hash=original.record_hash.upper(),
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_record_sequence_gap_is_detected(self) -> None:
+        self.append_one()
+        second = self.append_one()
+
+        self.log._records[1] = replace(
+            second,
+            sequence=3,
+        )
+
+        self.assertFalse(self.log.verify_integrity())
+
+    def test_empty_log_has_valid_integrity(self) -> None:
+        self.assertEqual(self.log.records, ())
         self.assertTrue(self.log.verify_integrity())
 
 
