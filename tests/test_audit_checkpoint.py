@@ -19,7 +19,11 @@ from jas_si_agent.audit_checkpoint import (  # noqa: E402
     create_checkpoint,
     verify_checkpoint,
 )
-from jas_si_agent.audit_log import AuditLog, GENESIS_HASH  # noqa: E402
+from jas_si_agent.audit_log import (  # noqa: E402
+    AuditLog,
+    GENESIS_HASH,
+    _calculate_hash,
+)
 from jas_si_agent.authorization import (  # noqa: E402
     ActionRequest,
     AuthorizationDecision,
@@ -63,7 +67,9 @@ class TestAuditCheckpoint(unittest.TestCase):
 
         self.assertEqual(checkpoint.sequence, 0)
         self.assertEqual(checkpoint.head_hash, GENESIS_HASH)
-        self.assertTrue(verify_checkpoint(self.log.records, checkpoint))
+        self.assertTrue(
+            verify_checkpoint(self.log.records, checkpoint)
+        )
 
     def test_checkpoint_round_trip_json(self) -> None:
         self.append_record()
@@ -72,7 +78,9 @@ class TestAuditCheckpoint(unittest.TestCase):
         restored = AuditCheckpoint.from_json(checkpoint.to_json())
 
         self.assertEqual(restored, checkpoint)
-        self.assertTrue(verify_checkpoint(self.log.records, restored))
+        self.assertTrue(
+            verify_checkpoint(self.log.records, restored)
+        )
 
     def test_appended_records_preserve_old_checkpoint(self) -> None:
         self.append_record()
@@ -80,7 +88,9 @@ class TestAuditCheckpoint(unittest.TestCase):
 
         self.append_record()
 
-        self.assertTrue(verify_checkpoint(self.log.records, checkpoint))
+        self.assertTrue(
+            verify_checkpoint(self.log.records, checkpoint)
+        )
 
     def test_truncation_before_checkpoint_is_detected(self) -> None:
         self.append_record()
@@ -89,7 +99,9 @@ class TestAuditCheckpoint(unittest.TestCase):
 
         truncated = self.log.records[:1]
 
-        self.assertFalse(verify_checkpoint(truncated, checkpoint))
+        self.assertFalse(
+            verify_checkpoint(truncated, checkpoint)
+        )
 
     def test_modified_anchored_record_is_detected(self) -> None:
         self.append_record()
@@ -102,7 +114,9 @@ class TestAuditCheckpoint(unittest.TestCase):
             ),
         )
 
-        self.assertFalse(verify_checkpoint(altered, checkpoint))
+        self.assertFalse(
+            verify_checkpoint(altered, checkpoint)
+        )
 
     def test_invalid_chain_cannot_be_checkpointed(self) -> None:
         self.append_record()
@@ -130,6 +144,42 @@ class TestAuditCheckpoint(unittest.TestCase):
         self.assertEqual(
             checkpoint_fingerprint(checkpoint),
             checkpoint_fingerprint(checkpoint),
+        )
+
+    def test_boolean_record_sequence_is_rejected(self) -> None:
+        self.append_record()
+        original = self.log.records[0]
+
+        malformed = replace(
+            original,
+            sequence=True,
+            record_hash="",
+        )
+        malformed = replace(
+            malformed,
+            record_hash=_calculate_hash(malformed),
+        )
+
+        with self.assertRaises(CheckpointError):
+            create_checkpoint((malformed,))
+
+    def test_malformed_record_hash_is_rejected(self) -> None:
+        self.append_record()
+        original = self.log.records[0]
+
+        malformed = replace(
+            original,
+            record_hash="NOT_A_SHA256_HASH",
+        )
+
+        self.assertFalse(
+            verify_checkpoint(
+                (malformed,),
+                AuditCheckpoint(
+                    sequence=1,
+                    head_hash=original.record_hash,
+                ),
+            )
         )
 
 
