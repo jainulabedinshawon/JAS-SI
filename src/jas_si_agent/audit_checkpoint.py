@@ -80,21 +80,44 @@ class AuditCheckpoint:
         )
 
 
+
 def _validate_chain(records: Sequence[AuditRecord]) -> bool:
-    """Validate every record before trusting a checkpoint comparison."""
+    """Validate record types, strict sequence numbers, and hash links."""
     previous_hash = GENESIS_HASH
 
     for expected_sequence, record in enumerate(records, start=1):
         if not isinstance(record, AuditRecord):
             return False
 
-        if record.sequence != expected_sequence:
+        # bool is a subclass of int, so reject it explicitly.
+        if (
+            not isinstance(record.sequence, int)
+            or isinstance(record.sequence, bool)
+            or record.sequence != expected_sequence
+        ):
+            return False
+
+        if not isinstance(record.previous_hash, str):
+            return False
+
+        if not _HASH_PATTERN.fullmatch(record.previous_hash):
             return False
 
         if record.previous_hash != previous_hash:
             return False
 
-        if record.record_hash != _calculate_hash(record):
+        if not isinstance(record.record_hash, str):
+            return False
+
+        if not _HASH_PATTERN.fullmatch(record.record_hash):
+            return False
+
+        try:
+            calculated_hash = _calculate_hash(record)
+        except (TypeError, ValueError):
+            return False
+
+        if record.record_hash != calculated_hash:
             return False
 
         previous_hash = record.record_hash
