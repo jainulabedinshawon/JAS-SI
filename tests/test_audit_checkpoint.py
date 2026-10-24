@@ -182,6 +182,48 @@ class TestAuditCheckpoint(unittest.TestCase):
             )
         )
 
+    def test_boolean_checkpoint_sequence_is_rejected(self) -> None:
+        with self.assertRaises(CheckpointError):
+            AuditCheckpoint(
+                sequence=True,
+                head_hash=GENESIS_HASH,
+            )
+
+    def test_negative_checkpoint_sequence_is_rejected(self) -> None:
+        with self.assertRaises(CheckpointError):
+            AuditCheckpoint(
+                sequence=-1,
+                head_hash=GENESIS_HASH,
+            )
+
+    def test_malformed_checkpoint_hash_is_rejected(self) -> None:
+        with self.assertRaises(CheckpointError):
+            AuditCheckpoint(
+                sequence=1,
+                head_hash="NOT_A_SHA256_HASH",
+            )
+
+    def test_checkpoint_with_unmatched_hash_is_rejected(self) -> None:
+        self.append_record()
+
+        checkpoint = AuditCheckpoint(
+            sequence=1,
+            head_hash="a" * 64,
+        )
+
+        self.assertFalse(
+            verify_checkpoint(self.log.records, checkpoint)
+        )
+
+    def test_checkpoint_beyond_log_length_is_rejected(self) -> None:
+        checkpoint = AuditCheckpoint(
+            sequence=1,
+            head_hash="a" * 64,
+        )
+
+        self.assertFalse(
+            verify_checkpoint(self.log.records, checkpoint)
+        )
 
 if __name__ == "__main__":
     unittest.main()
