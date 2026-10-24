@@ -14,21 +14,19 @@ from datetime import datetime, timezone
 from typing import Optional
 
 
-# Safe here means eligible for policy approval, not inherently harmless.
-# The eventual executor must still enforce resource and tool restrictions.
+# Eligible for policy approval does not mean inherently harmless.
 SAFE_ACTIONS = frozenset({
     "read_repository",
     "run_tests",
     "propose_patch",
 })
 
-# These actions require a separate, explicit human authorization grant.
 GRANT_REQUIRED_ACTIONS = frozenset({
     "write_file",
     "create_pull_request",
 })
 
-# Not supported by this MVP. A grant cannot override this restriction.
+# A grant cannot override these MVP restrictions.
 NEVER_ALLOWED_ACTIONS = frozenset({
     "execute_shell",
     "merge_pull_request",
@@ -84,7 +82,8 @@ class AuthorizationGate:
     ) -> AuthorizationDecision:
         action_id = (
             request.action_id
-            if isinstance(request.action_id, str)
+            if isinstance(request, ActionRequest)
+            and isinstance(request.action_id, str)
             else ""
         )
 
@@ -99,7 +98,10 @@ class AuthorizationGate:
                 grant_id=grant_id,
             )
 
-        # Fail closed on malformed requests.
+        # Validate the request object and its fields first.
+        if not isinstance(request, ActionRequest):
+            return deny("INVALID_ACTION_REQUEST")
+
         if not action_id.strip():
             return deny("INVALID_ACTION_ID")
 
@@ -123,8 +125,8 @@ class AuthorizationGate:
         if action_type in NEVER_ALLOWED_ACTIONS:
             return deny("ACTION_DISABLED_IN_MVP")
 
-        # Limited, non-mutating operations are eligible by policy.
-        # This is not proof that the eventual executor is safe.
+        # These actions are eligible by policy only.
+        # This module does not execute them.
         if action_type in SAFE_ACTIONS:
             return AuthorizationDecision(
                 allowed=True,
@@ -132,7 +134,6 @@ class AuthorizationGate:
                 action_id=action_id,
             )
 
-        # All other supported actions require explicit human approval.
         if action_type not in GRANT_REQUIRED_ACTIONS:
             return deny("NO_ALLOW_RULE")
 
@@ -142,18 +143,53 @@ class AuthorizationGate:
         if not isinstance(grant, AuthorizationGrant):
             return deny("INVALID_GRANT")
 
-        if not grant.human_approved:
+        # Require an actual Boolean True, not an integer such as 1.
+        if grant.human_approved is not True:
             return deny("HUMAN_APPROVAL_NOT_CONFIRMED")
 
-        if not grant.grant_id.strip():
+        # Validate identifiers before calling string methods.
+        if (
+            not isinstance(grant.grant_id, str)
+            or not grant.grant_id.strip()
+        ):
             return deny("INVALID_GRANT_ID")
 
-        if not grant.approved_by.strip():
+        if (
+            not isinstance(grant.approved_by, str)
+            or not grant.approved_by.strip()
+        ):
             return deny("MISSING_APPROVER")
 
-        current_time = now or datetime.now(timezone.utc)
+        # Grant scope must be explicit and structurally valid.
+        if (
+            not isinstance(grant.allowed_actions, tuple)
+            or not grant.allowed_actions
+            or any(
+                not isinstance(item, str) or not item.strip()
+                for item in grant.allowed_actions
+            )
+        ):
+            return deny("INVALID_GRANT_ACTIONS", grant.grant_id)
 
-        # Require timezone-aware timestamps.
+        if (
+            not isinstance(grant.allowed_resources, tuple)
+            or not grant.allowed_resources
+            or any(
+                not isinstance(item, str) or not item.strip()
+                for item in grant.allowed_resources
+            )
+        ):
+            return deny("INVALID_GRANT_RESOURCES", grant.grant_id)
+
+        if not isinstance(grant.expires_at, datetime):
+            return deny("INVALID_GRANT_EXPIRY", grant.grant_id)
+
+        if now is not None and not isinstance(now, datetime):
+            return deny("INVALID_CURRENT_TIME", grant.grant_id)
+
+        current_time = now if now is not None else datetime.now(timezone.utc)
+
+        # Both timestamps must be timezone-aware.
         if (
             current_time.tzinfo is None
             or current_time.utcoffset() is None
@@ -162,13 +198,17 @@ class AuthorizationGate:
         ):
             return deny("TIMEZONE_REQUIRED", grant.grant_id)
 
-        if current_time >= grant.expires_at:
-            return deny("GRANT_EXPIRED", grant.grant_id)
+        # An expiry at the current instant is already expired.
+        try:
+            if current_time >= grant.expires_at:
+                return deny("GRANT_EXPIRED", grant.grant_id)
+        except (TypeError, ValueError, OverflowError):
+            return deny("INVALID_GRANT_EXPIRY", grant.grant_id)
 
         if action_type not in grant.allowed_actions:
             return deny("ACTION_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
-        # Exact resource matching only. No implicit wildcard permissions.
+        # Exact resource matching only; no wildcard permissions.
         if request.resource not in grant.allowed_resources:
             return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
