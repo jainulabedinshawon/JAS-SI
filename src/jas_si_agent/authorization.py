@@ -190,25 +190,31 @@ class AuthorizationGate:
         current_time = now if now is not None else datetime.now(timezone.utc)
 
         # Both timestamps must be timezone-aware.
-        if (
-            current_time.tzinfo is None
-            or current_time.utcoffset() is None
-            or grant.expires_at.tzinfo is None
-            or grant.expires_at.utcoffset() is None
-        ):
+        # Malformed timezone implementations must fail closed.
+        try:
+            current_offset = current_time.utcoffset()
+        except Exception:
+            return deny("INVALID_CURRENT_TIME", grant.grant_id)
+
+        try:
+            expiry_offset = grant.expires_at.utcoffset()
+        except Exception:
+            return deny("INVALID_GRANT_EXPIRY", grant.grant_id)
+
+        if current_offset is None or expiry_offset is None:
             return deny("TIMEZONE_REQUIRED", grant.grant_id)
 
         # An expiry at the current instant is already expired.
         try:
             if current_time >= grant.expires_at:
                 return deny("GRANT_EXPIRED", grant.grant_id)
-        except (TypeError, ValueError, OverflowError):
+        except Exception:
             return deny("INVALID_GRANT_EXPIRY", grant.grant_id)
 
+        # Both action and resource must match the explicit grant.
         if action_type not in grant.allowed_actions:
             return deny("ACTION_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
-        # Exact resource matching only; no wildcard permissions.
         if request.resource not in grant.allowed_resources:
             return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
