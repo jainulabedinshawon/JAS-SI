@@ -1,10 +1,11 @@
 
 """Tamper-evident, in-memory audit records for the JAS-SI MVP.
 
-This module records decisions and verification outcomes.
+This module records authorization decisions and verification outcomes.
 It does not execute actions or provide durable storage.
-A hash chain can reveal modifications when checked against a
-trusted, independently retained checkpoint.
+
+A hash chain detects record modifications when verified against a
+trusted checkpoint retained independently of this in-memory log.
 """
 
 from __future__ import annotations
@@ -39,6 +40,14 @@ class AuditRecord:
     record_hash: str
 
 
+@dataclass(frozen=True)
+class AuditCheckpoint:
+    """A checkpoint that should be retained independently."""
+
+    sequence: int
+    record_hash: str
+
+
 def _record_payload(record: AuditRecord) -> dict[str, object]:
     """Return the exact fields covered by the record hash."""
     payload = asdict(record)
@@ -58,7 +67,7 @@ def _calculate_hash(record: AuditRecord) -> str:
 
 
 class AuditLog:
-    """Append-only interface with hash-chain integrity checks."""
+    """In-memory audit log with hash-chain integrity checks."""
 
     def __init__(self) -> None:
         self._records: list[AuditRecord] = []
@@ -90,7 +99,9 @@ class AuditLog:
             raise ValueError("request and decision action IDs must match")
 
         if request.action_id != verification.action_id:
-            raise ValueError("request and verification action IDs must match")
+            raise ValueError(
+                "request and verification action IDs must match"
+            )
 
         if evidence_ref is not None and not isinstance(evidence_ref, str):
             raise TypeError("evidence_ref must be a string or None")
@@ -123,12 +134,18 @@ class AuditLog:
         self._records.append(record)
         return record
 
-    def verify_integrity(self) -> bool:
-        """Check sequence, hash values, and links between records."""
+    def verify_integrity(
+        self,
+        checkpoint: Optional[AuditCheckpoint] = None,
+    ) -> bool:
+        """Verify the complete chain and an optional trusted checkpoint."""
 
         expected_previous_hash = GENESIS_HASH
 
-        for expected_sequence, record in enumerate(self._records, start=1):
+        for expected_sequence, record in enumerate(
+            self._records,
+            start=1,
+        ):
             if record.sequence != expected_sequence:
                 return False
 
@@ -140,4 +157,49 @@ class AuditLog:
 
             expected_previous_hash = record.record_hash
 
-        return True
+        if checkpoint is None:
+            return True
+
+        if not isinstance(checkpoint, AuditCheckpoint):
+            return False
+
+        if (
+            not isinstance(checkpoint.sequence, int)
+            or isinstance(checkpoint.sequence, bool)
+            or checkpoint.sequence < 0
+        ):
+            return False
+
+        if not isinstance(checkpoint.record_hash, str):
+            return False
+
+        if checkpoint.sequence == 0:
+            return checkpoint.record_hash == GENESIS_HASH
+
+        if checkpoint.sequence > len(self._records):
+            return False
+
+        anchored_record = self._records[checkpoint.sequence - 1]
+
+        return anchored_record.record_hash == checkpoint.record_hash
+
+    def create_checkpoint(self) -> AuditCheckpoint:
+        """Create a checkpoint to retain outside this in-memory log."""
+
+        if not self.verify_integrity():
+            raise ValueError(
+                "cannot create checkpoint for an invalid audit log"
+            )
+
+        if not self._records:
+            return AuditCheckpoint(
+                sequence=0,
+                record_hash=GENESIS_HASH,
+            )
+
+        last_record = self._records[-1]
+
+        return AuditCheckpoint(
+            sequence=last_record.sequence,
+            record_hash=last_record.record_hash,
+        )
