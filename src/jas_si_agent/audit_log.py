@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, replace
 from typing import Optional
 
@@ -23,6 +24,7 @@ from jas_si_agent.verification import VerificationResult
 
 
 GENESIS_HASH = "0" * 64
+_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ def _record_payload(record: AuditRecord) -> dict[str, object]:
 
 
 def _calculate_hash(record: AuditRecord) -> str:
+    """Calculate the SHA-256 hash of a canonical record payload."""
     canonical = json.dumps(
         _record_payload(record),
         sort_keys=True,
@@ -64,6 +67,11 @@ def _calculate_hash(record: AuditRecord) -> str:
     ).encode("utf-8")
 
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _is_valid_hash(value: object) -> bool:
+    """Return whether value is a lowercase, 64-character SHA-256 hex hash."""
+    return isinstance(value, str) and _HASH_PATTERN.fullmatch(value) is not None
 
 
 class AuditLog:
@@ -138,7 +146,7 @@ class AuditLog:
         self,
         checkpoint: Optional[AuditCheckpoint] = None,
     ) -> bool:
-        """Verify the complete chain and an optional trusted checkpoint."""
+        """Verify the record chain and an optional trusted checkpoint."""
 
         expected_previous_hash = GENESIS_HASH
 
@@ -146,13 +154,32 @@ class AuditLog:
             self._records,
             start=1,
         ):
-            if record.sequence != expected_sequence:
+            if not isinstance(record, AuditRecord):
+                return False
+
+            # bool is a subclass of int, so reject it explicitly.
+            if (
+                not isinstance(record.sequence, int)
+                or isinstance(record.sequence, bool)
+                or record.sequence != expected_sequence
+            ):
+                return False
+
+            if not _is_valid_hash(record.previous_hash):
                 return False
 
             if record.previous_hash != expected_previous_hash:
                 return False
 
-            if record.record_hash != _calculate_hash(record):
+            if not _is_valid_hash(record.record_hash):
+                return False
+
+            try:
+                calculated_hash = _calculate_hash(record)
+            except (TypeError, ValueError, AttributeError):
+                return False
+
+            if record.record_hash != calculated_hash:
                 return False
 
             expected_previous_hash = record.record_hash
@@ -170,7 +197,7 @@ class AuditLog:
         ):
             return False
 
-        if not isinstance(checkpoint.record_hash, str):
+        if not _is_valid_hash(checkpoint.record_hash):
             return False
 
         if checkpoint.sequence == 0:
