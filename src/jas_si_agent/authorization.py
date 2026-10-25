@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
 
-
 SAFE_ACTIONS = frozenset(
     {
         "read_repository",
@@ -75,13 +74,16 @@ class AuthorizationDecision:
 
 
 def _resource_is_safe(resource: str) -> bool:
-    """Perform lexical validation of a repository-relative identifier.
+    """Validate a repository-relative resource identifier lexically.
 
-    Exact string matching is preserved. This function does not resolve
-    symlinks or guarantee filesystem containment. Filesystem callers must
-    independently enforce canonical repository-root containment.
+    This does not resolve symlinks or guarantee filesystem containment.
+    Filesystem callers must independently enforce repository-root containment.
     """
     if not isinstance(resource, str) or not resource:
+        return False
+
+    # Reject whitespace padding; never silently normalize resource paths.
+    if resource != resource.strip():
         return False
 
     if "\x00" in resource or "\\" in resource:
@@ -94,17 +96,15 @@ def _resource_is_safe(resource: str) -> bool:
     if windows_path.is_absolute() or windows_path.drive:
         return False
 
-    # Do not trim whitespace. Resource identifiers are matched exactly.
     parts = resource.split("/")
 
-    # Permit one trailing slash for directory identifiers such as tests/.
+    # Permit a trailing slash for directory identifiers such as tests/.
     if resource.endswith("/"):
         parts = parts[:-1]
 
     if not parts or any(part in ("", ".", "..") for part in parts):
         return False
 
-    # Wildcards are not valid request paths.
     if any("*" in part for part in parts):
         return False
 
@@ -165,21 +165,35 @@ class AuthorizationGate:
         if action_type in NEVER_ALLOWED_ACTIONS:
             return deny("ACTION_DISABLED_IN_MVP")
 
-        # Safe-policy actions are independent of any supplied grant.
-        # A grant cannot change their authorization reason or grant_id.
-        if action_type in SAFE_ACTIONS:
-            if not _resource_is_safe(request.resource):
-                return deny("UNSAFE_RESOURCE_PATH")
+        # Preserve the established scope-boundary reason when a whitespace-padded
+        # request does not exactly match a clean, valid grant scope.
+        if (
+            action_type in GRANT_REQUIRED_ACTIONS
+            and request.resource != request.resource.strip()
+            and isinstance(grant, AuthorizationGrant)
+            and isinstance(grant.allowed_resources, tuple)
+            and request.resource not in grant.allowed_resources
+            and any(
+                isinstance(item, str)
+                and item
+                and item == item.strip()
+                for item in grant.allowed_resources
+            )
+        ):
+            return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
+        # All other unsafe request paths are rejected.
+        if not _resource_is_safe(request.resource):
+            return deny("UNSAFE_RESOURCE_PATH")
+
+        # Safe-policy actions are independent of any supplied grant.
+        if action_type in SAFE_ACTIONS:
             return AuthorizationDecision(
                 allowed=True,
                 reason="SAFE_ACTION_POLICY_ALLOWED",
                 action_id=action_id,
                 grant_id=None,
             )
-
-        if not _resource_is_safe(request.resource):
-            return deny("UNSAFE_RESOURCE_PATH")
 
         if action_type not in GRANT_REQUIRED_ACTIONS:
             return deny("NO_ALLOW_RULE")
@@ -215,8 +229,6 @@ class AuthorizationGate:
         ):
             return deny("INVALID_GRANT_ACTIONS", grant.grant_id)
 
-        # A wildcard is structurally recognized as a scope entry but never
-        # authorizes a named resource. Preserve exact, non-normalized strings.
         if (
             not isinstance(grant.allowed_resources, tuple)
             or not grant.allowed_resources
@@ -226,8 +238,6 @@ class AuthorizationGate:
                 or (
                     item != "*"
                     and not _resource_is_safe(item)
-                    and not item.startswith(" ")
-                    and not item.endswith(" ")
                 )
                 for item in grant.allowed_resources
             )
@@ -266,11 +276,9 @@ class AuthorizationGate:
         if action_type not in grant.allowed_actions:
             return deny("ACTION_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
-        # Exact match only. No wildcard expansion, trimming or prefix match.
         if request.resource not in grant.allowed_resources:
             return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
-        # Defense in depth: even an exact literal wildcard never grants access.
         if "*" in grant.allowed_resources:
             return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
