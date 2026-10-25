@@ -1,4 +1,3 @@
-
 """Local persistent storage for JAS-SI audit checkpoints.
 
 This module stores checkpoint anchors separately from the JSONL audit log.
@@ -157,6 +156,20 @@ class JsonCheckpointStore:
             raise CheckpointStoreError(
                 "Cannot checkpoint an invalid audit chain"
             ) from exc
+
+        # Ensure the new records properly extend any existing checkpoint anchor.
+        if self.path.exists():
+            try:
+                current = self.load()
+            except CheckpointStoreError as exc:
+                raise CheckpointStoreError(
+                    "Existing checkpoint is invalid; refusing to extend"
+                ) from exc
+            
+            if not verify_checkpoint(records, current):
+                raise CheckpointStoreError(
+                    "Records do not extend the saved checkpoint"
+                )
 
         self.save(checkpoint)
         return checkpoint
