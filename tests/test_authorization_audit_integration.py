@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import sys
@@ -50,12 +51,13 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
     def grant(
         self,
         *,
+        grant_id: str = "integration-grant-001",
         action_type: str = "write_file",
         resource: str = "README.md",
         expires_at: datetime | None = None,
     ) -> AuthorizationGrant:
         return AuthorizationGrant(
-            grant_id="integration-grant-001",
+            grant_id=grant_id,
             approved_by="human-reviewer",
             human_approved=True,
             allowed_actions=(action_type,),
@@ -83,7 +85,7 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
         self,
         request: ActionRequest,
         grant: AuthorizationGrant | None = None,
-    ):
+    ) -> tuple[AuthorizationDecision, object]:
         decision = self.gate.evaluate(
             request,
             grant=grant,
@@ -115,10 +117,24 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
             record.action_id,
             request.action_id,
         )
+        self.assertIsNone(decision.grant_id)
+        self.assertIsNone(record.grant_id)
         self.assertEqual(
             record.verification_status,
             "INCONCLUSIVE",
         )
+        self.assertTrue(self.audit_log.verify_integrity())
+
+    def test_policy_allowed_action_has_no_grant_id(self) -> None:
+        request = self.request(
+            action_type="read_repository",
+        )
+
+        decision, record = self.evaluate_and_audit(request)
+
+        self.assertTrue(decision.allowed)
+        self.assertIsNone(decision.grant_id)
+        self.assertIsNone(record.grant_id)
         self.assertTrue(self.audit_log.verify_integrity())
 
     def test_missing_human_grant_is_audited_as_denied(self) -> None:
@@ -132,6 +148,8 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
             record.authorization_reason,
             "HUMAN_APPROVAL_REQUIRED",
         )
+        self.assertIsNone(decision.grant_id)
+        self.assertIsNone(record.grant_id)
         self.assertEqual(
             record.verification_status,
             "INCONCLUSIVE",
@@ -152,10 +170,28 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
             decision.reason,
             "EXPLICIT_HUMAN_GRANT_ACCEPTED",
         )
+        self.assertEqual(decision.grant_id, grant.grant_id)
         self.assertTrue(record.authorized)
         self.assertEqual(
             record.authorization_reason,
             "EXPLICIT_HUMAN_GRANT_ACCEPTED",
+        )
+        self.assertEqual(record.grant_id, grant.grant_id)
+        self.assertTrue(self.audit_log.verify_integrity())
+
+    def test_distinct_grant_id_is_preserved_in_audit(self) -> None:
+        request = self.request()
+        grant = self.grant(grant_id="human-approval-2026-002")
+
+        decision, record = self.evaluate_and_audit(
+            request,
+            grant=grant,
+        )
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(
+            record.grant_id,
+            "human-approval-2026-002",
         )
         self.assertTrue(self.audit_log.verify_integrity())
 
@@ -178,6 +214,8 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
             record.authorization_reason,
             "ACTION_DISABLED_IN_MVP",
         )
+        self.assertIsNone(decision.grant_id)
+        self.assertIsNone(record.grant_id)
         self.assertTrue(self.audit_log.verify_integrity())
 
     def test_multiple_decisions_form_a_valid_hash_chain(
@@ -224,6 +262,7 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
             decisions.append(decision)
 
             self.assertEqual(record.action_id, request.action_id)
+            self.assertEqual(record.grant_id, decision.grant_id)
 
         records = self.audit_log.records
 
@@ -264,6 +303,8 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
             record.authorization_reason,
             "ACTION_DISABLED_IN_MVP",
         )
+        self.assertIsNone(record.grant_id)
+        self.assertTrue(self.audit_log.verify_integrity())
 
     def test_authorization_reason_tampering_is_detected(
         self,
@@ -277,6 +318,22 @@ class TestAuthorizationAuditIntegration(unittest.TestCase):
         self.audit_log._records[0] = replace(
             original,
             authorization_reason="ALTERED_DECISION",
+        )
+
+        self.assertFalse(self.audit_log.verify_integrity())
+
+    def test_grant_id_tampering_is_detected(self) -> None:
+        request = self.request()
+        grant = self.grant()
+
+        _, original = self.evaluate_and_audit(
+            request,
+            grant=grant,
+        )
+
+        self.audit_log._records[0] = replace(
+            original,
+            grant_id="altered-grant-id",
         )
 
         self.assertFalse(self.audit_log.verify_integrity())
