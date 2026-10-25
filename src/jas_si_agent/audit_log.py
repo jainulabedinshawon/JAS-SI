@@ -35,6 +35,7 @@ class AuditRecord:
     resource: str
     authorized: bool
     authorization_reason: str
+    grant_id: Optional[str]
     verification_status: str
     verification_reason: str
     evidence_ref: Optional[str]
@@ -71,7 +72,10 @@ def _calculate_hash(record: AuditRecord) -> str:
 
 def _is_valid_hash(value: object) -> bool:
     """Return whether value is a lowercase, 64-character SHA-256 hex hash."""
-    return isinstance(value, str) and _HASH_PATTERN.fullmatch(value) is not None
+    return (
+        isinstance(value, str)
+        and _HASH_PATTERN.fullmatch(value) is not None
+    )
 
 
 class AuditLog:
@@ -114,6 +118,11 @@ class AuditLog:
         if evidence_ref is not None and not isinstance(evidence_ref, str):
             raise TypeError("evidence_ref must be a string or None")
 
+        grant_id = decision.grant_id
+
+        if grant_id is not None and not isinstance(grant_id, str):
+            raise TypeError("decision grant_id must be a string or None")
+
         previous_hash = (
             self._records[-1].record_hash
             if self._records
@@ -127,6 +136,7 @@ class AuditLog:
             resource=request.resource,
             authorized=decision.allowed,
             authorization_reason=decision.reason,
+            grant_id=grant_id,
             verification_status=verification.status.value,
             verification_reason=verification.reason,
             evidence_ref=evidence_ref,
@@ -157,7 +167,6 @@ class AuditLog:
             if not isinstance(record, AuditRecord):
                 return False
 
-            # bool is a subclass of int, so reject it explicitly.
             if (
                 not isinstance(record.sequence, int)
                 or isinstance(record.sequence, bool)
