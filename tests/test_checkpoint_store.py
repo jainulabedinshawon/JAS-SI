@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -14,6 +13,7 @@ if str(SRC) not in sys.path:
 
 from jas_si_agent.audit_log import AuditLog
 from jas_si_agent.audit_store import JsonlAuditStore
+from jas_si_agent.audit_checkpoint import create_checkpoint
 from jas_si_agent.checkpoint_store import (
     CheckpointStoreError,
     JsonCheckpointStore,
@@ -166,6 +166,25 @@ class TestJsonCheckpointStore(unittest.TestCase):
             self.checkpoints.load(),
             second_checkpoint,
         )
+
+    def test_rollback_records_cannot_replace_checkpoint(self) -> None:
+        self.append_record()
+        self.append_record()
+        records = self.audit_store.load_records()
+        self.checkpoints.create_and_save(records)
+        
+        with self.assertRaises(CheckpointStoreError):
+            self.checkpoints.create_and_save(self.log.records[:1])
+
+    def test_dangling_symlink_is_rejected(self) -> None:
+        self.checkpoints.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.checkpoints.path.symlink_to("/nonexistent")
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlinks unavailable on this platform: {exc}")
+
+        with self.assertRaises(CheckpointStoreError):
+            self.checkpoints.save(create_checkpoint(()))
 
     def test_audit_store_rejects_dangling_symlink(self) -> None:
         link_path = self.audit_store.path
