@@ -10,15 +10,9 @@ JAS-SI 1.0 and the frozen research protocol remain unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
-
-from jas_si_agent.grant_signing import (
-    MAX_GRANT_TTL,
-    GrantLedger,
-    verify_grant_signature,
-)
 
 SAFE_ACTIONS = frozenset(
     {
@@ -67,8 +61,6 @@ class AuthorizationGrant:
     allowed_actions: tuple[str, ...]
     allowed_resources: tuple[str, ...]
     expires_at: datetime
-    bound_action_id: Optional[str] = None
-    signature: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -122,16 +114,6 @@ def _resource_is_safe(resource: str) -> bool:
 
 class AuthorizationGate:
     """Deny by default; never execute the requested action."""
-
-    def __init__(
-        self,
-        grant_key: Optional[bytes] = None,
-        ledger: Optional[GrantLedger] = None,
-        max_grant_ttl: timedelta = MAX_GRANT_TTL,
-    ) -> None:
-        self._key = grant_key
-        self._ledger = ledger
-        self._max_ttl = max_grant_ttl
 
     def evaluate(
         self,
@@ -290,18 +272,6 @@ class AuthorizationGate:
                 return deny("GRANT_EXPIRED", grant.grant_id)
         except Exception:
             return deny("INVALID_GRANT_EXPIRY", grant.grant_id)
-
-        if grant.expires_at - current_time > self._max_ttl:
-            return deny("GRANT_TTL_EXCEEDED", grant.grant_id)
-
-        if self._key is not None:
-            if grant.bound_action_id != action_id:
-                return deny("GRANT_NOT_BOUND_TO_ACTION", grant.grant_id)
-            if not verify_grant_signature(grant, action_id, self._key):
-                return deny("GRANT_SIGNATURE_INVALID", grant.grant_id)
-
-        if self._ledger is not None and self._ledger.is_used(grant.grant_id):
-            return deny("GRANT_ALREADY_USED", grant.grant_id)
 
         if action_type not in grant.allowed_actions:
             return deny("ACTION_OUTSIDE_GRANT_SCOPE", grant.grant_id)
