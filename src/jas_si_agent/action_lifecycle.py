@@ -1,4 +1,3 @@
-
 """Coordinate authorization and outcome verification without executing actions.
 
 This module connects the authorization gate to the verification primitives.
@@ -51,6 +50,14 @@ class ActionLifecycleCoordinator:
     ) -> VerificationResult:
         """Verify a report only when its action was authorized."""
 
+        # Validate the report before accessing any of its attributes.
+        if not isinstance(report, ActionReport):
+            return VerificationResult(
+                status=VerificationStatus.INCONCLUSIVE,
+                reason="INVALID_ACTION_REPORT",
+                action_id="",
+            )
+
         action_id = (
             report.action_id
             if isinstance(report.action_id, str)
@@ -64,16 +71,20 @@ class ActionLifecycleCoordinator:
                 action_id=action_id,
             )
 
+        # Authorization must be valid before outcome verification.
         if not isinstance(decision, AuthorizationDecision):
             return inconclusive("INVALID_AUTHORIZATION_DECISION")
 
         if not decision.allowed:
             return inconclusive("ACTION_NOT_AUTHORIZED")
 
-        if not isinstance(report, ActionReport):
-            return inconclusive("INVALID_ACTION_REPORT")
+        # Reject malformed or empty action identifiers.
+        if not action_id.strip():
+            return inconclusive("INVALID_ACTION_ID")
 
-        if decision.action_id != report.action_id:
+        # The report must refer to the authorized action.
+        if decision.action_id != action_id:
             return inconclusive("ACTION_ID_MISMATCH")
 
+        # Delegate evidence and outcome checks to the verifier.
         return verify_report(report, evidence)
