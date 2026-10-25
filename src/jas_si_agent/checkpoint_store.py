@@ -39,6 +39,33 @@ class JsonCheckpointStore:
                 "checkpoint must be an AuditCheckpoint"
             )
 
+        # Fail closed: never replace a newer checkpoint with an older one.
+        if self.path.is_symlink():
+            raise CheckpointStoreError(
+                "Symlink checkpoint files are not allowed"
+            )
+
+        if self.path.exists():
+            try:
+                existing_checkpoint = self.load()
+            except CheckpointStoreError as exc:
+                raise CheckpointStoreError(
+                    "Refusing to overwrite an invalid checkpoint"
+                ) from exc
+
+            if checkpoint.sequence < existing_checkpoint.sequence:
+                raise CheckpointStoreError(
+                    "Checkpoint downgrade is not allowed"
+                )
+
+            if (
+                checkpoint.sequence == existing_checkpoint.sequence
+                and checkpoint.head_hash != existing_checkpoint.head_hash
+            ):
+                raise CheckpointStoreError(
+                    "Conflicting checkpoint at the same sequence"
+                )
+        
         temp_path: Path | None = None
 
         try:
