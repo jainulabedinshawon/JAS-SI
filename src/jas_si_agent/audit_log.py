@@ -118,11 +118,18 @@ class AuditLog:
         if evidence_ref is not None and not isinstance(evidence_ref, str):
             raise TypeError("evidence_ref must be a string or None")
 
-        grant_id = decision.grant_id
+                grant_id = decision.grant_id
 
         if grant_id is not None and not isinstance(grant_id, str):
-            raise TypeError("decision grant_id must be a string or None")
+            raise TypeError(
+                "decision grant_id must be a string or None"
+            )
 
+        if grant_id is not None and not grant_id.strip():
+            raise ValueError(
+                "decision grant_id must not be empty"
+            )
+            
         previous_hash = (
             self._records[-1].record_hash
             if self._records
