@@ -35,6 +35,77 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
             resource="README.md",
         )
 
+    def test_forged_authorization_decision_is_rejected(self) -> None:
+        forged = AuthorizationDecision(
+            allowed=True,
+            reason="FORGED",
+            action_id="action-001",
+        )
+
+        result = self.coordinator.verify_outcome(
+            forged,
+            self.report(),
+            self.evidence(),
+        )
+
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "INVALID_AUTHORIZATION_DECISION",
+        )
+
+    def test_non_boolean_true_decision_is_rejected(self) -> None:
+        decision = self.coordinator.authorize(self.request())
+
+        # Deliberately simulate corrupted decision state.
+        object.__setattr__(decision, "allowed", 1)
+
+        result = self.coordinator.verify_outcome(
+            decision,
+            self.report(),
+            self.evidence(),
+        )
+
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "ACTION_NOT_AUTHORIZED",
+        )
+
+    def test_authorization_decision_cannot_be_replayed(self) -> None:
+        decision = self.coordinator.authorize(self.request())
+
+        first_result = self.coordinator.verify_outcome(
+            decision,
+            self.report(),
+            self.evidence(),
+        )
+
+        second_result = self.coordinator.verify_outcome(
+            decision,
+            self.report(),
+            self.evidence(),
+        )
+
+        self.assertEqual(
+            first_result.status,
+            VerificationStatus.VERIFIED_SUCCESS,
+        )
+        self.assertEqual(
+            second_result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            second_result.reason,
+            "INVALID_AUTHORIZATION_DECISION",
+        )
+
     def report(self, claimed_success: bool = True) -> ActionReport:
         return ActionReport(
             action_id="action-001",
@@ -61,16 +132,22 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
 
     def test_unauthorized_action_cannot_be_verified(self) -> None:
-        decision = AuthorizationDecision(
-            allowed=False,
-            reason="HUMAN_APPROVAL_REQUIRED",
+        forbidden_request = ActionRequest(
             action_id="action-001",
+            action_type="execute_shell",
+            resource="README.md",
         )
+
+        decision = self.coordinator.authorize(forbidden_request)
+
+        self.assertIs(decision.allowed, False)
+
         result = self.coordinator.verify_outcome(
             decision,
             self.report(),
             self.evidence(),
         )
+
         self.assertEqual(
             result.status,
             VerificationStatus.INCONCLUSIVE,
