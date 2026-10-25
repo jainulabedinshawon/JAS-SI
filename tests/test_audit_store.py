@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -120,6 +119,26 @@ class TestJsonlAuditStore(unittest.TestCase):
     def test_rejects_blank_lines(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n", encoding="utf-8")
+
+        with self.assertRaises(AuditStoreError):
+            self.store.load_records()
+
+    def test_dangling_symlink_is_rejected(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.symlink_to("/nonexistent")
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlinks unavailable on this platform: {exc}")
+
+        with self.assertRaises(AuditStoreError):
+            self.store.load_records()
+
+    def test_boolean_sequence_in_file_is_rejected(self) -> None:
+        import json
+        self.store.append(self.make_record())
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        data["sequence"] = True
+        self.path.write_text(json.dumps(data) + "\n", encoding="utf-8")
 
         with self.assertRaises(AuditStoreError):
             self.store.load_records()
