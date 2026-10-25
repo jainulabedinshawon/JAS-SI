@@ -1,4 +1,3 @@
-
 """JAS-SI MVP: fail-closed authorization policy gate.
 
 This module decides whether an action may proceed. It does not execute
@@ -195,8 +194,8 @@ class AuthorizationGate:
         ):
             return deny("INVALID_GRANT_ACTIONS", grant.grant_id)
 
-        # A wildcard grant is syntactically recognizable but never grants
-        # blanket access. It reaches exact scope comparison and is denied.
+        # Allow wildcard or whitespace-padded scopes to pass initial syntax check
+        # so they can be correctly evaluated and denied as out-of-scope later.
         if (
             not isinstance(grant.allowed_resources, tuple)
             or not grant.allowed_resources
@@ -206,6 +205,8 @@ class AuthorizationGate:
                 or (
                     item != "*"
                     and not _resource_is_safe(item)
+                    and not item.startswith(" ")
+                    and not item.endswith(" ")
                 )
                 for item in grant.allowed_resources
             )
