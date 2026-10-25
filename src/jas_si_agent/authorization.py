@@ -1,8 +1,11 @@
+
 """JAS-SI MVP: fail-closed authorization policy gate.
 
-This module decides whether an action may proceed. It does not execute tools, modify files, or grant OS permissions.
+This module decides whether an action may proceed. It does not execute
+tools, modify files, or grant OS permissions.
 
-Resources are repository-relative identifiers, not arbitrary OS paths. JAS-SI 1.0 and the frozen research protocol remain unchanged.
+Resources are repository-relative identifiers, not arbitrary OS paths.
+JAS-SI 1.0 and the frozen research protocol remain unchanged.
 """
 
 from __future__ import annotations
@@ -72,27 +75,40 @@ class AuthorizationDecision:
 
 
 def _resource_is_safe(resource: str) -> bool:
-    """Accept repository-relative identifiers without traversal syntax.
+    """Validate a repository-relative resource identifier lexically.
 
-    This is lexical validation only. It does not resolve symlinks or prove that a later filesystem operation remains inside a repository root.
+    This does not resolve symlinks or guarantee that a later filesystem
+    operation remains inside the repository root. Callers performing
+    filesystem operations must independently enforce root containment.
     """
-    if not resource or resource != resource.strip():
+    if not isinstance(resource, str) or not resource:
         return False
+
     if "\x00" in resource or "\\" in resource:
         return False
-    if resource.startswith("/") or resource.startswith("//"):
+
+    if resource.startswith("/"):
         return False
+
     windows_path = PureWindowsPath(resource)
     if windows_path.is_absolute() or windows_path.drive:
         return False
+
+    # Preserve exact resource strings. Whitespace differences must fail
+    # exact grant-scope matching, rather than being silently normalized.
     parts = resource.split("/")
-    # Reject ambiguous or traversal path components.
-    if any(part in ("", ".", "..") for part in parts):
+
+    # Permit one trailing slash for a directory identifier, e.g. "tests/".
+    if resource.endswith("/"):
+        parts = parts[:-1]
+
+    if not parts or any(part in ("", ".", "..") for part in parts):
         return False
-    # Reject wildcard-based resource identifiers.
+
+    # Wildcards are never valid request paths or ordinary resource paths.
     if any("*" in part for part in parts):
         return False
-    # Confirm the identifier remains a relative POSIX-style path.
+
     parsed = PurePosixPath(resource)
     return not parsed.is_absolute() and ".." not in parsed.parts
 
@@ -145,7 +161,7 @@ class AuthorizationGate:
         if action_type in NEVER_ALLOWED_ACTIONS:
             return deny("ACTION_DISABLED_IN_MVP")
 
-        # Policy approval does not mean the action is inherently harmless.
+        # Safe-policy actions do not gain or claim grant authorization.
         if action_type in SAFE_ACTIONS:
             return AuthorizationDecision(
                 allowed=True,
@@ -178,15 +194,24 @@ class AuthorizationGate:
             )
         ):
             return deny("INVALID_GRANT_ACTIONS", grant.grant_id)
+
+        # A wildcard grant is syntactically recognizable but never grants
+        # blanket access. It reaches exact scope comparison and is denied.
         if (
             not isinstance(grant.allowed_resources, tuple)
             or not grant.allowed_resources
             or any(
-                not isinstance(item, str) or not _resource_is_safe(item)
+                not isinstance(item, str)
+                or not item.strip()
+                or (
+                    item != "*"
+                    and not _resource_is_safe(item)
+                )
                 for item in grant.allowed_resources
             )
         ):
             return deny("INVALID_GRANT_RESOURCES", grant.grant_id)
+
         if not isinstance(grant.expires_at, datetime):
             return deny("INVALID_GRANT_EXPIRY", grant.grant_id)
         if now is not None and not isinstance(now, datetime):
@@ -195,6 +220,7 @@ class AuthorizationGate:
         current_time = (
             now if now is not None else datetime.now(timezone.utc)
         )
+
         try:
             current_offset = current_time.utcoffset()
         except Exception:
@@ -216,7 +242,13 @@ class AuthorizationGate:
 
         if action_type not in grant.allowed_actions:
             return deny("ACTION_OUTSIDE_GRANT_SCOPE", grant.grant_id)
+
+        # Exact matching only: no wildcard expansion, trimming or prefix match.
         if request.resource not in grant.allowed_resources:
+            return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
+
+        # A literal wildcard must never match an ordinary resource.
+        if "*" in grant.allowed_resources:
             return deny("RESOURCE_OUTSIDE_GRANT_SCOPE", grant.grant_id)
 
         return AuthorizationDecision(
