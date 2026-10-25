@@ -141,6 +141,62 @@ class TestJsonCheckpointStore(unittest.TestCase):
         with self.assertRaises(CheckpointStoreError):
             self.checkpoints.load()
 
+    def test_checkpoint_cannot_be_downgraded(self) -> None:
+        self.append_record()
+        first_records = self.audit_store.load_records()
+        first_checkpoint = self.checkpoints.create_and_save(
+            first_records
+        )
+
+        self.append_record()
+        second_records = self.audit_store.load_records()
+        second_checkpoint = self.checkpoints.create_and_save(
+            second_records
+        )
+
+        self.assertGreater(
+            second_checkpoint.sequence,
+            first_checkpoint.sequence,
+        )
+
+        with self.assertRaises(CheckpointStoreError):
+            self.checkpoints.save(first_checkpoint)
+
+        self.assertEqual(
+            self.checkpoints.load(),
+            second_checkpoint,
+        )
+
+    def test_audit_store_rejects_dangling_symlink(self) -> None:
+        link_path = self.audit_store.path
+        link_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path = link_path.parent / "missing-target.jsonl"
+
+        try:
+            link_path.symlink_to(target_path)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlinks unavailable on this platform: {exc}")
+
+        with self.assertRaises(ValueError):
+            self.audit_store.load_records()
+
+    def test_audit_store_rejects_boolean_sequence(self) -> None:
+        self.append_record()
+
+        import json
+
+        data = json.loads(
+            self.audit_store.path.read_text(encoding="utf-8")
+        )
+        data["sequence"] = True
+        self.audit_store.path.write_text(
+            json.dumps(data) + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(ValueError):
+            self.audit_store.load_records()
+
 
 if __name__ == "__main__":
     unittest.main()
