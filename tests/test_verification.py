@@ -149,6 +149,28 @@ class TestIndependentVerification(unittest.TestCase):
             "UNKNOWN_OBSERVED_STATE",
         )
 
+    def test_none_report_is_inconclusive(self) -> None:
+        result = verify_report(None, None)  # type: ignore[arg-type]
+
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(result.reason, "INVALID_ACTION_REPORT")
+        self.assertEqual(result.action_id, "")
+
+    def test_wrong_report_type_is_inconclusive(self) -> None:
+        result = verify_report(
+            {"action_id": "action-001"},  # type: ignore[arg-type]
+            None,
+        )
+
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(result.reason, "INVALID_ACTION_REPORT")
+
 
 if __name__ == "__main__":
     unittest.main()
