@@ -49,6 +49,14 @@ def verify_report(
 ) -> VerificationResult:
     """Compare an action report with separately supplied evidence."""
 
+    # Validate the report before accessing any of its attributes.
+    if not isinstance(report, ActionReport):
+        return VerificationResult(
+            status=VerificationStatus.INCONCLUSIVE,
+            reason="INVALID_ACTION_REPORT",
+            action_id="",
+        )
+
     action_id = (
         report.action_id
         if isinstance(report.action_id, str)
