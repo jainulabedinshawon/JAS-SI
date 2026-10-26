@@ -17,10 +17,12 @@ RUN groupadd --system --gid 10001 jas-si \
        --shell /usr/sbin/nologin \
        jas-si
 
-# Install runtime dependencies separately for better layer caching.
-COPY requirements.txt /app/requirements.txt
-RUN python -m pip install --no-cache-dir \
-    -r /app/requirements.txt
+# Install exact, hash-verified dependencies from lock file.
+COPY requirements.lock.txt /app/requirements.lock.txt
+RUN python -m pip install \
+    --no-cache-dir \
+    --require-hashes \
+    -r /app/requirements.lock.txt
 
 # Copy only application source into the runtime image.
 COPY src/ /app/src/
@@ -29,7 +31,7 @@ USER 10001:10001
 
 EXPOSE 8000
 
-# Liveness check only; it does not claim the API is enabled.
+# Liveness check only; does not claim the API is enabled.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()" || exit 1
 
