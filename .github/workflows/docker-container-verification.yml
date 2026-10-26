@@ -1,4 +1,3 @@
-
 name: JAS-SI Docker Container Verification
 
 on:
@@ -8,7 +7,7 @@ on:
     paths:
       - "Dockerfile"
       - ".dockerignore"
-      - "requirements.txt"
+      - "requirements.lock.txt"
       - "src/jas_si_agent/**"
       - ".github/workflows/docker-container-verification.yml"
 
@@ -18,7 +17,7 @@ on:
     paths:
       - "Dockerfile"
       - ".dockerignore"
-      - "requirements.txt"
+      - "requirements.lock.txt"
       - "src/jas_si_agent/**"
       - ".github/workflows/docker-container-verification.yml"
 
