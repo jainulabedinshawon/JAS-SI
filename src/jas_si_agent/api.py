@@ -1,8 +1,6 @@
-
 """JAS-SI REST API scaffold.
 
-The API evaluates authorization and verifies reported outcomes.
-It does not execute actions.
+The API evaluates authorization and verifies reported outcomes. It does not execute actions.
 
 Do not expose publicly before a complete security review.
 """
@@ -12,12 +10,8 @@ from __future__ import annotations
 import hmac
 from typing import Optional
 
-from fastapi import (
-    Depends,
-    FastAPI,
-    Header,
-    HTTPException,
-)
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
@@ -27,15 +21,23 @@ from jas_si_agent.verification import (
     VerificationEvidence,
 )
 
-
 settings = Settings.from_env()
 
 app = FastAPI(
     title=settings.service_name,
     version="0.1.0",
     description=(
-        "Authorization evaluation and outcome verification only."
+        "Authorization evaluation and outcome verification only. "
+        "This API does not execute actions. "
+        "Protected endpoints require the X-API-Key header."
     ),
+)
+
+api_key_header = APIKeyHeader(
+    name="X-API-Key",
+    scheme_name="ApiKeyAuth",
+    description="Provide the configured JAS-SI API key.",
+    auto_error=False,
 )
 
 # Deliberately no action executor is registered.
@@ -62,6 +64,23 @@ class VerifyRequest(BaseModel):
     collected_independently: bool = False
 
 
+@app.middleware("http")
+async def add_security_headers(
+    request: Request,
+    call_next,
+):
+    """Attach baseline browser security headers to every response."""
+    response = await call_next(request)
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=()"
+    )
+    return response
+
+
 def _require_enabled() -> None:
     if not settings.api_enabled:
         raise HTTPException(
@@ -71,36 +90,26 @@ def _require_enabled() -> None:
 
 
 def _require_api_key(
-    x_api_key: Optional[str] = Header(
-        default=None,
-        alias="X-API-Key",
-    ),
+    x_api_key: Optional[str] = Security(api_key_header),
 ) -> None:
     """Fail closed when the API or its authentication is misconfigured."""
-
     _require_enabled()
 
     configured_key = settings.api_key
-
     if not configured_key:
         raise HTTPException(
             status_code=503,
             detail="API authentication is not configured",
         )
-
     if not x_api_key:
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-
-    provided_bytes = x_api_key.encode("utf-8")
-    configured_bytes = configured_key.encode("utf-8")
-
     if not hmac.compare_digest(
-        provided_bytes,
-        configured_bytes,
+        x_api_key.encode("utf-8"),
+        configured_key.encode("utf-8"),
     ):
         raise HTTPException(
             status_code=401,
@@ -156,13 +165,11 @@ def verify(payload: VerifyRequest) -> dict:
     )
 
     evidence = None
-
     evidence_submitted = (
         payload.observed_state is not None
         or payload.evidence_ref is not None
         or payload.collected_independently
     )
-
     if evidence_submitted:
         if not payload.observed_state or not payload.evidence_ref:
             raise HTTPException(
@@ -172,7 +179,6 @@ def verify(payload: VerifyRequest) -> dict:
                     "provided when evidence is supplied"
                 ),
             )
-
         evidence = VerificationEvidence(
             action_id=payload.action_id,
             observed_state=payload.observed_state,
@@ -189,7 +195,6 @@ def verify(payload: VerifyRequest) -> dict:
         ) from None
 
     status = getattr(result.status, "value", result.status)
-
     return {
         "action_id": result.action_id,
         "status": status,
