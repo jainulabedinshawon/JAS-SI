@@ -1,3 +1,5 @@
+"""Tests for the JAS-SI audit log and tamper detection."""
+
 from __future__ import annotations
 
 import sys
@@ -12,6 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from jas_si_agent.audit_log import (  # noqa: E402
+    AuditCheckpoint,
     AuditLog,
     GENESIS_HASH,
 )
@@ -230,6 +233,62 @@ class TestAuditLog(unittest.TestCase):
         )
 
         self.assertFalse(self.log.verify_integrity())
+
+    def test_empty_log_checkpoint_is_valid(self) -> None:
+        checkpoint = self.log.create_checkpoint()
+
+        self.assertEqual(checkpoint.sequence, 0)
+        self.assertEqual(checkpoint.record_hash, GENESIS_HASH)
+        self.assertTrue(self.log.verify_integrity(checkpoint))
+
+    def test_checkpoint_remains_valid_after_appending_records(self) -> None:
+        self.append_one()
+        checkpoint = self.log.create_checkpoint()
+
+        self.append_one()
+
+        self.assertEqual(checkpoint.sequence, 1)
+        self.assertTrue(self.log.verify_integrity(checkpoint))
+
+    def test_checkpoint_detects_mismatched_hash(self) -> None:
+        self.append_one()
+
+        checkpoint = AuditCheckpoint(
+            sequence=1,
+            record_hash="a" * 64,
+        )
+
+        self.assertFalse(self.log.verify_integrity(checkpoint))
+
+    def test_checkpoint_beyond_log_is_rejected(self) -> None:
+        self.append_one()
+
+        checkpoint = AuditCheckpoint(
+            sequence=2,
+            record_hash="b" * 64,
+        )
+
+        self.assertFalse(self.log.verify_integrity(checkpoint))
+
+    def test_checkpoint_boolean_sequence_is_rejected(self) -> None:
+        self.append_one()
+
+        checkpoint = AuditCheckpoint(
+            sequence=True,
+            record_hash=self.log.records[0].record_hash,
+        )
+
+        self.assertFalse(self.log.verify_integrity(checkpoint))
+
+    def test_checkpoint_with_invalid_hash_is_rejected(self) -> None:
+        self.append_one()
+
+        checkpoint = AuditCheckpoint(
+            sequence=1,
+            record_hash="invalid-hash",
+        )
+
+        self.assertFalse(self.log.verify_integrity(checkpoint))
 
     def test_empty_log_has_valid_integrity(self) -> None:
         self.assertEqual(self.log.records, ())
