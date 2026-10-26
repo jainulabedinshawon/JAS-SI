@@ -1,0 +1,244 @@
+
+name: JAS-SI Docker Container Verification
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements.txt"
+      - "src/jas_si_agent/**"
+      - ".github/workflows/docker-container-verification.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements.txt"
+      - "src/jas_si_agent/**"
+      - ".github/workflows/docker-container-verification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-docker-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-smoke-test:
+    name: Docker Build and Runtime Security Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Build Docker image
+        run: |
+          docker build --pull -t jas-si-api:ci .
+
+      - name: Verify non-root runtime user
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_user="$(docker image inspect jas-si-api:ci \
+            --format '{{.Config.User}}')"
+
+          echo "Configured image user: ${image_user}"
+
+          test "${image_user}" = "10001:10001"
+
+      - name: Start API with authentication disabled
+        run: |
+          docker run -d \
+            --name jas-si-disabled \
+            -p 127.0.0.1:18000:8000 \
+            -e JAS_SI_ENVIRONMENT=test \
+            -e JAS_SI_API_ENABLED=false \
+            jas-si-api:ci
+
+      - name: Verify disabled-mode health and fail-closed behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for i in $(seq 1 30); do
+            status="$(docker inspect jas-si-disabled \
+              --format '{{.State.Health.Status}}')"
+
+            if [ "${status}" = "healthy" ]; then
+              break
+            fi
+
+            if [ "${status}" = "unhealthy" ]; then
+              docker logs jas-si-disabled
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          test "$(docker inspect jas-si-disabled \
+            --format '{{.State.Health.Status}}')" = "healthy"
+
+          python - <<'PY'
+          import json
+          import urllib.error
+          import urllib.request
+
+          base = "http://127.0.0.1:18000"
+
+          with urllib.request.urlopen(
+              base + "/health", timeout=5
+          ) as response:
+              assert response.status == 200
+              health = json.load(response)
+
+          assert health["status"] == "ok", health
+          assert health["api_enabled"] is False, health
+
+          request = urllib.request.Request(
+              base + "/v1/authorize",
+              data=json.dumps({
+                  "action_id": "ci-disabled-check",
+                  "action": "test",
+                  "resource": "ci-resource",
+              }).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          try:
+              urllib.request.urlopen(request, timeout=5)
+          except urllib.error.HTTPError as error:
+              assert error.code == 503, error.code
+          else:
+              raise AssertionError(
+                  "Protected endpoint unexpectedly worked while API was disabled"
+              )
+
+          print("PASS: health endpoint works; disabled API fails closed.")
+          PY
+
+      - name: Start API with a CI-only test key
+        run: |
+          docker run -d \
+            --name jas-si-enabled \
+            -p 127.0.0.1:18001:8000 \
+            -e JAS_SI_ENVIRONMENT=test \
+            -e JAS_SI_API_ENABLED=true \
+            -e JAS_SI_API_KEY=ci-only-test-key-not-for-production \
+            jas-si-api:ci
+
+      - name: Verify authentication and authorization response
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for i in $(seq 1 30); do
+            status="$(docker inspect jas-si-enabled \
+              --format '{{.State.Health.Status}}')"
+
+            if [ "${status}" = "healthy" ]; then
+              break
+            fi
+
+            if [ "${status}" = "unhealthy" ]; then
+              docker logs jas-si-enabled
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          test "$(docker inspect jas-si-enabled \
+            --format '{{.State.Health.Status}}')" = "healthy"
+
+          python - <<'PY'
+          import json
+          import urllib.error
+          import urllib.request
+
+          base = "http://127.0.0.1:18001"
+          payload = json.dumps({
+              "action_id": "ci-authorize-check",
+              "action": "test",
+              "resource": "ci-resource",
+          }).encode()
+
+          def post_authorize(api_key=None):
+              headers = {"Content-Type": "application/json"}
+              if api_key is not None:
+                  headers["X-API-Key"] = api_key
+
+              request = urllib.request.Request(
+                  base + "/v1/authorize",
+                  data=payload,
+                  headers=headers,
+                  method="POST",
+              )
+
+              try:
+                  with urllib.request.urlopen(
+                      request, timeout=5
+                  ) as response:
+                      return response.status, response.headers, response.read()
+              except urllib.error.HTTPError as error:
+                  return error.code, error.headers, error.read()
+
+          for key in (None, "incorrect-test-key"):
+              status, _, _ = post_authorize(key)
+              assert status == 401, (
+                  f"Expected 401 for invalid/missing key; got {status}"
+              )
+
+          status, headers, body = post_authorize(
+              "ci-only-test-key-not-for-production"
+          )
+
+          assert status == 200, (
+              f"Expected 200 for valid test key; got {status}: "
+              f"{body.decode(errors='replace')}"
+          )
+
+          result = json.loads(body)
+          assert result["executed"] is False, result
+          assert "X-Request-ID" in headers
+          assert headers.get("X-Content-Type-Options") == "nosniff"
+
+          print(
+              "PASS: invalid keys rejected; valid key accepted; "
+              "action execution remains false."
+          )
+          PY
+
+      - name: Show container health results
+        if: always()
+        run: |
+          for name in jas-si-disabled jas-si-enabled; do
+            if docker container inspect "${name}" >/dev/null 2>&1; then
+              docker inspect "${name}" \
+                --format '{{.Name}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' \
+                || true
+            fi
+          done
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          docker logs jas-si-disabled || true
+          docker logs jas-si-enabled || true
+
+      - name: Clean up containers
+        if: always()
+        run: |
+          docker rm -f jas-si-disabled jas-si-enabled || true
