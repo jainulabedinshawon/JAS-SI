@@ -330,6 +330,55 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.assertEqual(rate_limit_events[0]["status_code"], 429)
         self.assertIn("request_id", rate_limit_events[0])
 
+    def test_security_log_reserved_fields_cannot_be_overridden(self):
+        import json
+
+        with patch.object(api.logger, "info") as mock_info:
+            api._log_security_event(
+                "schema_integrity_test",
+                timestamp="forged-timestamp",
+                status_code=200,
+            )
+
+        self.assertTrue(mock_info.called)
+        event = json.loads(mock_info.call_args.args[0])
+        self.assertEqual(event["event_type"], "schema_integrity_test")
+        self.assertNotEqual(event["timestamp"], "forged-timestamp")
+        self.assertEqual(event["status_code"], 200)
+
+    def test_logging_failure_does_not_bypass_authentication(self):
+        with patch.object(
+            api.logger,
+            "info",
+            side_effect=RuntimeError("simulated logger failure"),
+        ):
+            response = self.client.post(
+                "/v1/verify",
+                json={
+                    "action_id": "logging-failure-test",
+                    "claimed_success": True,
+                },
+            )
+
+        # Logging must fail safely; authentication must still reject the call.
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.headers.get("WWW-Authenticate"),
+            "ApiKey",
+        )
+
+    def test_logging_failure_does_not_break_public_health(self):
+        with patch.object(
+            api.logger,
+            "info",
+            side_effect=RuntimeError("simulated logger failure"),
+        ):
+            response = self.client.get("/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+        self.assertTrue(response.headers.get("X-Request-ID"))
+
 
 if __name__ == "__main__":
     unittest.main()
