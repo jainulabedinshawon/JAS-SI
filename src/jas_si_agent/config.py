@@ -3,43 +3,43 @@
 Python 3.10 compatible. Secrets must be supplied through the environment.
 """
 
-from future import annotations
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 
 def _read_bool(name: str, default: bool = False) -> bool:
-raw = os.getenv(name)
-if raw is None:
-return default
+    raw = os.getenv(name)
+    if raw is None:
+        return default
 
-value = raw.strip().lower()
-if value in {"1", "true", "yes", "on"}:
-    return True
-if value in {"0", "false", "no", "off"}:
-    return False
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
 
-raise ValueError(f"{name} must be a boolean value")
+    raise ValueError(f"{name} must be a boolean value")
 
 @dataclass(frozen=True)
 class Settings:
-service_name: str = "JAS-SI API"
-environment: str = "development"
-api_enabled: bool = False
+    service_name: str = "JAS-SI API"
+    environment: str = "development"
+    api_enabled: bool = False
 
-@classmethod
-def from_env(cls) -> "Settings":
-    environment = os.getenv(
-        "JAS_SI_ENVIRONMENT", "development"
-    ).strip().lower()
+    @classmethod
+    def from_env(cls) -> "Settings":
+        environment = os.getenv(
+            "JAS_SI_ENVIRONMENT", "development"
+        ).strip().lower()
 
-    if environment not in {"development", "test", "production"}:
-        raise ValueError("Invalid JAS_SI_ENVIRONMENT")
+        if environment not in {"development", "test", "production"}:
+            raise ValueError("Invalid JAS_SI_ENVIRONMENT")
 
-    return cls(
-        service_name=os.getenv(
-            "JAS_SI_SERVICE_NAME", "JAS-SI API"
-        ).strip(),
-        environment=environment,
-        api_enabled=_read_bool("JAS_SI_API_ENABLED", False),
-    )
+        return cls(
+            service_name=os.getenv(
+                "JAS_SI_SERVICE_NAME", "JAS-SI API"
+            ).strip(),
+            environment=environment,
+            api_enabled=_read_bool("JAS_SI_API_ENABLED", False),
+        )
