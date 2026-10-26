@@ -6,13 +6,11 @@ It does not execute actions. Do not expose publicly before security review.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from jas_si_agent.authorization import AuthorizationGrant
 from jas_si_agent.config import Settings
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.verification import (
@@ -30,14 +28,10 @@ app = FastAPI(
 # Deliberately no action executor is registered.
 _sdk = JASSI()
 
-
 class AuthorizeRequest(BaseModel):
     action_id: str = Field(min_length=1, max_length=128)
     action: str = Field(min_length=1, max_length=128)
     resource: str = Field(min_length=1, max_length=1024)
-    # Grant submission is intentionally not exposed by this first scaffold.
-    # Add it only after implementing and reviewing signed-grant validation.
-
 
 class VerifyRequest(BaseModel):
     action_id: str = Field(min_length=1, max_length=128)
@@ -50,14 +44,12 @@ class VerifyRequest(BaseModel):
     )
     collected_independently: bool = False
 
-
 def _require_enabled() -> None:
     if not settings.api_enabled:
         raise HTTPException(
             status_code=503,
             detail="JAS-SI API is disabled by configuration",
         )
-
 
 @app.get("/health")
 def health() -> dict:
@@ -67,7 +59,6 @@ def health() -> dict:
         "status": "ok",
         "api_enabled": settings.api_enabled,
     }
-
 
 @app.post("/v1/authorize")
 def authorize(payload: AuthorizeRequest) -> dict:
@@ -80,7 +71,6 @@ def authorize(payload: AuthorizeRequest) -> dict:
             resource=payload.resource,
         )
     except Exception:
-        # Do not disclose internal exception details to API clients.
         raise HTTPException(
             status_code=503,
             detail="Authorization evaluation unavailable",
@@ -93,7 +83,6 @@ def authorize(payload: AuthorizeRequest) -> dict:
         "grant_id": decision.grant_id,
         "executed": False,
     }
-
 
 @app.post("/v1/verify")
 def verify(payload: VerifyRequest) -> dict:
