@@ -4,31 +4,36 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from jas_si_agent.api import app
-
-client = TestClient(app)
-
+from jas_si_agent.api import app, settings
 
 class TestJASSIRestAPI(unittest.TestCase):
+    def setUp(self):
+        # Force API to be enabled for testing request validation
+        settings.api_enabled = True
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        settings.api_enabled = False
+
     def test_health_endpoint(self):
-        response = client.get("/health")
+        response = self.client.get("/health")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
         self.assertIn("api_enabled", response.json())
 
     def test_authorize_rejects_missing_fields(self):
-        response = client.post("/v1/authorize", json={})
+        response = self.client.post("/v1/authorize", json={})
 
         self.assertEqual(response.status_code, 422)
 
     def test_verify_rejects_missing_fields(self):
-        response = client.post("/v1/verify", json={})
+        response = self.client.post("/v1/verify", json={})
 
         self.assertEqual(response.status_code, 422)
 
     def test_verify_rejects_incomplete_evidence(self):
-        response = client.post(
+        response = self.client.post(
             "/v1/verify",
             json={
                 "action_id": "test-action-1",
@@ -40,7 +45,6 @@ class TestJASSIRestAPI(unittest.TestCase):
 
         # Evidence reference is required when evidence is submitted.
         self.assertEqual(response.status_code, 422)
-
 
 if __name__ == "__main__":
     unittest.main()
