@@ -1,16 +1,27 @@
-"""JAS-SI REST API scaffold.
+"""JAS-SI REST API with API-key authentication and rate limiting.
 
 The API evaluates authorization and verifies reported outcomes. It does not execute actions.
 
-Do not expose publicly before a complete security review.
+The in-memory rate limiter is per process and is not a distributed limiter.
 """
 
 from __future__ import annotations
 
 import hmac
-from typing import Optional
+import threading
+import time
+from collections import defaultdict, deque
+from math import ceil
+from typing import Deque, Dict, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Security
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Security,
+)
+from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
@@ -29,7 +40,8 @@ app = FastAPI(
     description=(
         "Authorization evaluation and outcome verification only. "
         "This API does not execute actions. "
-        "Protected endpoints require the X-API-Key header."
+        "Protected endpoints require the X-API-Key header. "
+        "Versioned API routes have a per-process rate limit."
     ),
 )
 
@@ -42,6 +54,10 @@ api_key_header = APIKeyHeader(
 
 # Deliberately no action executor is registered.
 _sdk = JASSI()
+
+# Sliding-window timestamps, keyed by client IP.
+_rate_limit_buckets: Dict[str, Deque[float]] = defaultdict(deque)
+_rate_limit_lock = threading.Lock()
 
 
 class AuthorizeRequest(BaseModel):
@@ -64,14 +80,58 @@ class VerifyRequest(BaseModel):
     collected_independently: bool = False
 
 
+def _rate_limit_decision(client_ip: str):
+    """Return allowed, remaining, and retry-after seconds."""
+    now = time.monotonic()
+    limit = settings.rate_limit_requests
+    window = settings.rate_limit_window_seconds
+
+    with _rate_limit_lock:
+        bucket = _rate_limit_buckets[client_ip]
+        while bucket and now - bucket[0] >= window:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            retry_after = max(
+                1,
+                ceil(window - (now - bucket[0])),
+            )
+            return False, 0, retry_after
+        bucket.append(now)
+        remaining = max(0, limit - len(bucket))
+        return True, remaining, 0
+
+
 @app.middleware("http")
-async def add_security_headers(
+async def security_and_rate_limit_middleware(
     request: Request,
     call_next,
 ):
-    """Attach baseline browser security headers to every response."""
-    response = await call_next(request)
+    """Apply baseline security headers and rate-limit /v1/ routes."""
+    if request.url.path.startswith("/v1/"):
+        client_ip = (
+            request.client.host if request.client is not None else "unknown"
+        )
+        allowed, remaining, retry_after = _rate_limit_decision(client_ip)
+        if not allowed:
+            response = JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Try again later."},
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(settings.rate_limit_requests),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+        else:
+            response = await call_next(request)
+            response.headers["X-RateLimit-Limit"] = str(
+                settings.rate_limit_requests
+            )
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+    else:
+        response = await call_next(request)
 
+    # Attach baseline security headers to every response (including 429 errors)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
