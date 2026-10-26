@@ -1,4 +1,3 @@
-
 """Environment-based configuration for the JAS-SI API.
 
 Python 3.10 compatible. Secrets must be supplied through the environment.
@@ -13,19 +12,27 @@ from typing import Optional
 
 def _read_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
-
     if raw is None:
         return default
-
     value = raw.strip().lower()
-
     if value in {"1", "true", "yes", "on"}:
         return True
-
     if value in {"0", "false", "no", "off"}:
         return False
-
     raise ValueError(f"{name} must be a boolean value")
+
+
+def _read_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw.strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a positive integer") from None
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 @dataclass(frozen=True)
@@ -34,6 +41,8 @@ class Settings:
     environment: str = "development"
     api_enabled: bool = False
     api_key: Optional[str] = None
+    rate_limit_requests: int = 60
+    rate_limit_window_seconds: int = 60
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -41,7 +50,6 @@ class Settings:
             "JAS_SI_ENVIRONMENT",
             "development",
         ).strip().lower()
-
         if environment not in {
             "development",
             "test",
@@ -63,4 +71,12 @@ class Settings:
                 False,
             ),
             api_key=api_key,
+            rate_limit_requests=_read_positive_int(
+                "JAS_SI_RATE_LIMIT_REQUESTS",
+                60,
+            ),
+            rate_limit_window_seconds=_read_positive_int(
+                "JAS_SI_RATE_LIMIT_WINDOW_SECONDS",
+                60,
+            ),
         )
