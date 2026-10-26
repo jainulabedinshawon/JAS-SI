@@ -260,6 +260,76 @@ class TestJASSIRestAPI(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _read_positive_int("JAS_SI_TEST_LIMIT", 60)
 
+    def test_response_includes_server_generated_request_id(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        request_id = response.headers.get("X-Request-ID")
+        self.assertIsNotNone(request_id)
+        self.assertRegex(request_id, r"^[0-9a-f]{32}$")
+
+    def test_authentication_failure_is_logged_without_api_key(self):
+        with patch.object(api.logger, "info") as mock_info:
+            response = self.client.post(
+                "/v1/verify",
+                headers={"X-API-Key": "incorrect-test-key"},
+                json={
+                    "action_id": "test-action-log",
+                    "claimed_success": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertTrue(mock_info.called)
+
+        log_line = mock_info.call_args.args[0]
+        import json
+
+        event = json.loads(log_line)
+        self.assertEqual(event["event_type"], "authentication_failure")
+        self.assertEqual(event["reason_code"], "invalid_api_key")
+        self.assertEqual(event["status_code"], 401)
+        self.assertIn("request_id", event)
+        self.assertNotIn(TEST_API_KEY, log_line)
+        self.assertNotIn("incorrect-test-key", log_line)
+
+    def test_rate_limit_exceeded_is_logged(self):
+        with patch.object(
+            api,
+            "settings",
+            replace(
+                api.settings,
+                rate_limit_requests=1,
+                rate_limit_window_seconds=60,
+            ),
+        ):
+            with patch.object(api.logger, "info") as mock_info:
+                first = self.client.post(
+                    "/v1/verify",
+                    headers=self.valid_headers,
+                    json={},
+                )
+                second = self.client.post(
+                    "/v1/verify",
+                    headers=self.valid_headers,
+                    json={},
+                )
+
+        self.assertEqual(first.status_code, 422)
+        self.assertEqual(second.status_code, 429)
+
+        events = [
+            __import__("json").loads(call.args[0])
+            for call in mock_info.call_args_list
+        ]
+        rate_limit_events = [
+            event
+            for event in events
+            if event["event_type"] == "rate_limit_exceeded"
+        ]
+        self.assertEqual(len(rate_limit_events), 1)
+        self.assertEqual(rate_limit_events[0]["status_code"], 429)
+        self.assertIn("request_id", rate_limit_events[0])
+
 
 if __name__ == "__main__":
     unittest.main()
