@@ -1,4 +1,3 @@
-
 """JAS-SI REST API with authentication, rate limiting, and security logging.
 
 The API evaluates authorization and verifies reported outcomes.
@@ -33,6 +32,10 @@ from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
 from jas_si_agent.sdk import JASSI
+from jas_si_agent.security_event_store import (
+    JsonlSecurityEventStore,
+    SecurityEventStoreError,
+)
 from jas_si_agent.verification import (
     ActionReport,
     VerificationEvidence,
@@ -61,6 +64,11 @@ api_key_header = APIKeyHeader(
 # Deliberately no action executor is registered.
 _sdk = JASSI()
 
+# Initialize durable JSONL security event store.
+_security_event_store = JsonlSecurityEventStore(
+    settings.security_event_log_path
+)
+
 # Sliding-window timestamps, keyed by client IP.
 _rate_limit_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
@@ -81,26 +89,56 @@ def _log_security_event(
     request: Optional[Request] = None,
     **details,
 ) -> None:
-    """Write a single JSON security event without affecting API behavior."""
+    """Log sanitized security events to stdout and JSONL storage."""
     try:
         payload = dict(details)
 
-        # Reserved fields are assigned last so details cannot override them.
+        # Reserved fields cannot be overridden by caller-supplied details.
         payload["timestamp"] = datetime.now(timezone.utc).isoformat()
         payload["event_type"] = event_type
 
         if request is not None:
             payload["request_id"] = getattr(
-                request.state, "request_id", "unknown"
+                request.state,
+                "request_id",
+                "unknown",
             )
             payload["method"] = request.method
             payload["endpoint"] = request.url.path
 
+        # Persist only the event metadata already prepared by this function.
+        # Do not add request headers, API keys, or request bodies.
+        try:
+            _security_event_store.append(payload)
+        except (SecurityEventStoreError, OSError, ValueError):
+            # Persistence is best-effort in this integration step.
+            # Never allow a logging failure to bypass authentication checks.
+            logger.error(
+                json.dumps(
+                    {
+                        "event_type": "security_event_persistence_failure",
+                        "timestamp": datetime.now(
+                            timezone.utc
+                        ).isoformat(),
+                        "request_id": payload.get(
+                            "request_id",
+                            "unknown",
+                        ),
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+
         logger.info(
-            json.dumps(payload, separators=(",", ":"), sort_keys=True)
+            json.dumps(
+                payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
         )
     except Exception:
-        # Logging failure must not change authorization or verification.
+        # Logging must not bypass API security controls.
         pass
 
 
