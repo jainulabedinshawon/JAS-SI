@@ -1,0 +1,212 @@
+
+name: JAS-SI Security Event Persistence Verification
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "Dockerfile"
+      - "requirements.lock.txt"
+      - "src/jas_si_agent/**"
+      - ".github/workflows/security-event-persistence-verification.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - "requirements.lock.txt"
+      - "src/jas_si_agent/**"
+      - ".github/workflows/security-event-persistence-verification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-security-event-persistence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  persistence-verification:
+    name: Verify JSONL Recovery Across Container Recreation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Build locked application image
+        run: docker build --pull -t jas-si-persistence:ci .
+
+      - name: Create isolated named volume
+        run: docker volume create jas-si-security-events-ci
+
+      - name: Start first API container with persistent volume
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run -d \
+            --name jas-si-persistence-first \
+            -p 127.0.0.1:18002:8000 \
+            -v jas-si-security-events-ci:/var/lib/jas-si/audit \
+            -e JAS_SI_ENVIRONMENT=test \
+            -e JAS_SI_API_ENABLED=true \
+            -e JAS_SI_API_KEY=ci-only-test-key-not-for-production \
+            jas-si-persistence:ci
+
+      - name: Generate a security event
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ready=false
+
+          for i in $(seq 1 30); do
+            if curl --silent --fail \
+              http://127.0.0.1:18002/health >/dev/null; then
+              ready=true
+              break
+            fi
+
+            if [ "$(docker inspect \
+              jas-si-persistence-first \
+              --format '{{.State.Running}}')" != "true" ]; then
+              docker logs jas-si-persistence-first
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          if [ "${ready}" != "true" ]; then
+            docker logs jas-si-persistence-first
+            echo "API did not become ready"
+            exit 1
+          fi
+
+          status="$(
+            curl --silent \
+              --output /tmp/jas-si-auth-response.json \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              --data '{"action_id":"persistence-ci-check","claimed_success":true}' \
+              http://127.0.0.1:18002/v1/verify
+          )"
+
+          test "${status}" = "401"
+
+          echo "PASS: authentication failure generated HTTP 401."
+
+          docker exec jas-si-persistence-first \
+            python -c '
+          from jas_si_agent.security_event_store import JsonlSecurityEventStore
+          store = JsonlSecurityEventStore(
+              "/var/lib/jas-si/audit/security-events.jsonl"
+          )
+          events = store.load_events()
+          assert any(
+              e.get("event_type") == "authentication_failure"
+              and e.get("status_code") == 401
+              for e in events
+          ), "Expected authentication event was not persisted"
+          print("PASS: security event exists in the mounted volume.")
+          '
+
+      - name: Remove first container
+        run: |
+          docker rm -f jas-si-persistence-first
+
+      - name: Recreate API container with the same volume
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run -d \
+            --name jas-si-persistence-second \
+            -p 127.0.0.1:18003:8000 \
+            -v jas-si-security-events-ci:/var/lib/jas-si/audit \
+            -e JAS_SI_ENVIRONMENT=test \
+            -e JAS_SI_API_ENABLED=true \
+            -e JAS_SI_API_KEY=ci-only-test-key-not-for-production \
+            jas-si-persistence:ci
+
+          ready=false
+
+          for i in $(seq 1 30); do
+            if curl --silent --fail \
+              http://127.0.0.1:18003/health >/dev/null; then
+              ready=true
+              break
+            fi
+
+            if [ "$(docker inspect \
+              jas-si-persistence-second \
+              --format '{{.State.Running}}')" != "true" ]; then
+              docker logs jas-si-persistence-second
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          if [ "${ready}" != "true" ]; then
+            docker logs jas-si-persistence-second
+            echo "Recreated API did not become ready"
+            exit 1
+          fi
+
+      - name: Verify event survives container recreation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker exec jas-si-persistence-second python -c '
+          from jas_si_agent.security_event_store import JsonlSecurityEventStore
+
+          store = JsonlSecurityEventStore(
+              "/var/lib/jas-si/audit/security-events.jsonl"
+          )
+          events = store.load_events()
+
+          matches = [
+              event for event in events
+              if event.get("event_type") == "authentication_failure"
+              and event.get("status_code") == 401
+          ]
+
+          assert matches, (
+              "Persisted authentication event missing after container recreation"
+          )
+
+          print(
+              "PASS: recovered",
+              len(matches),
+              "authentication event(s) after container recreation."
+          )
+          '
+
+          curl --silent --fail \
+            http://127.0.0.1:18003/health >/dev/null
+
+          echo "PASS: recreated API is healthy."
+
+      - name: Collect diagnostic logs on failure
+        if: failure()
+        run: |
+          docker logs jas-si-persistence-first || true
+          docker logs jas-si-persistence-second || true
+
+      - name: Cleanup containers and volume
+        if: always()
+        run: |
+          docker rm -f \
+            jas-si-persistence-first \
+            jas-si-persistence-second || true
+
+          docker volume rm jas-si-security-events-ci || true
