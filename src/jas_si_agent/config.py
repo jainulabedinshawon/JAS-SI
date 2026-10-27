@@ -43,6 +43,9 @@ class Settings:
     api_key: Optional[str] = None
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
+    security_event_log_path: str = (
+        "/var/lib/jas-si/audit/security-events.jsonl"
+    )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -79,4 +82,8 @@ class Settings:
                 "JAS_SI_RATE_LIMIT_WINDOW_SECONDS",
                 60,
             ),
+            security_event_log_path=os.getenv(
+                "JAS_SI_SECURITY_EVENT_LOG_PATH",
+                "/var/lib/jas-si/audit/security-events.jsonl",
+            ).strip(),
         )
