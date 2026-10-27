@@ -2,19 +2,37 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from jas_si_agent import api
+from jas_si_agent.security_event_store import JsonlSecurityEventStore
 
 TEST_API_KEY = "test-only-jas-si-api-key"
 
 
 class TestJASSIRestAPI(unittest.TestCase):
     def setUp(self):
+        self.audit_temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.audit_temp_dir.cleanup)
+
+        test_store = JsonlSecurityEventStore(
+            Path(self.audit_temp_dir.name) / "security-events.jsonl"
+        )
+
+        self.store_patcher = patch.object(
+            api,
+            "_security_event_store",
+            test_store,
+        )
+        self.store_patcher.start()
+        self.addCleanup(self.store_patcher.stop)
+
         self.settings_patcher = patch.object(
             api,
             "settings",
@@ -378,6 +396,86 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
         self.assertTrue(response.headers.get("X-Request-ID"))
+
+    def test_authentication_failure_is_persisted(self):
+        response = self.client.post(
+            "/v1/verify",
+            headers={"X-API-Key": "incorrect-test-key"},
+            json={
+                "action_id": "test-persist-auth",
+                "claimed_success": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+        events = api._security_event_store.load_events()
+        self.assertTrue(events)
+
+        event = events[-1]
+        self.assertEqual(
+            event["event_type"],
+            "authentication_failure",
+        )
+        self.assertEqual(event["status_code"], 401)
+        self.assertEqual(event["reason_code"], "invalid_api_key")
+        self.assertNotIn("incorrect-test-key", str(event))
+        self.assertNotIn(TEST_API_KEY, str(event))
+
+    def test_rate_limit_event_is_persisted(self):
+        with patch.object(
+            api,
+            "settings",
+            replace(
+                api.settings,
+                rate_limit_requests=1,
+                rate_limit_window_seconds=60,
+            ),
+        ):
+            first = self.client.post(
+                "/v1/verify",
+                headers=self.valid_headers,
+                json={},
+            )
+            second = self.client.post(
+                "/v1/verify",
+                headers=self.valid_headers,
+                json={},
+            )
+
+        self.assertEqual(first.status_code, 422)
+        self.assertEqual(second.status_code, 429)
+
+        events = api._security_event_store.load_events()
+        rate_limit_events = [
+            event
+            for event in events
+            if event.get("event_type"] == "rate_limit_exceeded"
+        ]
+
+        self.assertEqual(len(rate_limit_events), 1)
+        self.assertEqual(rate_limit_events[0]["status_code"], 429)
+
+    def test_security_event_store_survives_store_recreation(self):
+        store_path = (
+            Path(self.audit_temp_dir.name) / "security-events.jsonl"
+        )
+
+        api._security_event_store.append(
+            {
+                "event_type": "restart_recovery_test",
+                "status_code": 200,
+            }
+        )
+
+        reopened_store = JsonlSecurityEventStore(store_path)
+        events = reopened_store.load_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(
+            events[0]["event_type"],
+            "restart_recovery_test",
+        )
 
 
 if __name__ == "__main__":
