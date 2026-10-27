@@ -17,6 +17,11 @@ RUN groupadd --system --gid 10001 jas-si \
        --shell /usr/sbin/nologin \
        jas-si
 
+# Prepare a persistent-log mount point for the unprivileged runtime user.
+RUN mkdir -p /var/lib/jas-si/audit \
+    && chown -R 10001:10001 /var/lib/jas-si \
+    && chmod 0700 /var/lib/jas-si/audit
+
 # Install exact, hash-verified dependencies from lock file.
 COPY requirements.lock.txt /app/requirements.lock.txt
 RUN python -m pip install \
