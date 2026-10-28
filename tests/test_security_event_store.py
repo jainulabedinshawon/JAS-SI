@@ -238,6 +238,43 @@ class TestJsonlSecurityEventStore(unittest.TestCase):
         self.assertEqual(report["legacy_event_count"], 0)
         self.assertEqual(self.store.load_events(), (first, second))
 
+    def test_strict_integrity_accepts_chained_events(self) -> None:
+        self.store.append({"event_type": "strict_check"})
+
+        report = self.store.verify_integrity(require_chain=True)
+
+        self.assertTrue(report["valid"])
+        self.assertEqual(report["legacy_event_count"], 0)
+        self.assertEqual(report["verified_event_count"], 1)
+        self.assertEqual(len(report["last_hash"]), 64)
+
+    def test_strict_integrity_rejects_legacy_only_log(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            '{"event_type":"legacy"}\n',
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(SecurityEventStoreError):
+            self.store.verify_integrity(require_chain=True)
+
+    def test_strict_integrity_rejects_removed_metadata(self) -> None:
+        self.store.append({"event_type": "metadata_removal_test"})
+
+        lines = self.path.read_text(encoding="utf-8").splitlines()
+        record = json.loads(lines[0])
+        record.pop("_integrity")
+
+        self.path.write_text(
+            json.dumps(record, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+
+        # Legacy mode remains backward-compatible, but strict mode
+        # must reject this single-record chain downgrade.
+        with self.assertRaises(SecurityEventStoreError):
+            self.store.verify_integrity(require_chain=True)
+
     def test_tampered_event_is_rejected(self) -> None:
         self.store.append({"event_type": "original"})
 
