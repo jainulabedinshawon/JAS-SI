@@ -1,7 +1,7 @@
-
 from __future__ import annotations
 
 import json
+import multiprocessing
 import sys
 import tempfile
 import unittest
@@ -17,6 +17,23 @@ from jas_si_agent.security_event_store import (  # noqa: E402
     JsonlSecurityEventStore,
     SecurityEventStoreError,
 )
+
+
+def _append_events_from_process(
+    path: str,
+    writer_id: int,
+    count: int,
+) -> None:
+    store = JsonlSecurityEventStore(path)
+
+    for sequence in range(count):
+        store.append(
+            {
+                "event_type": "concurrent_write_test",
+                "writer_id": writer_id,
+                "sequence": sequence,
+            }
+        )
 
 
 class TestJsonlSecurityEventStore(unittest.TestCase):
@@ -115,6 +132,56 @@ class TestJsonlSecurityEventStore(unittest.TestCase):
 
         with self.assertRaises(SecurityEventStoreError):
             self.store.append({"event_type": "test"})
+
+    def test_concurrent_process_writes_remain_valid_jsonl(self) -> None:
+        writer_count = 4
+        events_per_writer = 25
+
+        processes = [
+            multiprocessing.Process(
+                target=_append_events_from_process,
+                args=(
+                    str(self.path),
+                    writer_id,
+                    events_per_writer,
+                ),
+            )
+            for writer_id in range(writer_count)
+        ]
+
+        for process in processes:
+            process.start()
+
+        for process in processes:
+            process.join(timeout=30)
+
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join()
+                self.fail("Concurrent writer process timed out")
+
+            self.assertEqual(process.exitcode, 0)
+
+        events = self.store.load_events()
+
+        self.assertEqual(
+            len(events),
+            writer_count * events_per_writer,
+        )
+
+        observed = {
+            (event["writer_id"], event["sequence"])
+            for event in events
+        }
+
+        expected = {
+            (writer_id, sequence)
+            for writer_id in range(writer_count)
+            for sequence in range(events_per_writer)
+        }
+
+        self.assertEqual(observed, expected)
 
 
 if __name__ == "__main__":
