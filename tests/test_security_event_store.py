@@ -225,6 +225,64 @@ class TestJsonlSecurityEventStore(unittest.TestCase):
             [{"event_type": "lock_test"}],
         )
 
+    def test_new_events_have_valid_hash_chain(self) -> None:
+        first = {"event_type": "first"}
+        second = {"event_type": "second"}
+
+        self.store.append(first)
+        self.store.append(second)
+
+        report = self.store.verify_integrity()
+        self.assertTrue(report["valid"])
+        self.assertEqual(report["verified_event_count"], 2)
+        self.assertEqual(report["legacy_event_count"], 0)
+        self.assertEqual(self.store.load_events(), (first, second))
+
+    def test_tampered_event_is_rejected(self) -> None:
+        self.store.append({"event_type": "original"})
+
+        lines = self.path.read_text(encoding="utf-8").splitlines()
+        record = json.loads(lines[0])
+        record["event_type"] = "tampered"
+        self.path.write_text(
+            json.dumps(record, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(SecurityEventStoreError):
+            self.store.verify_integrity()
+
+    def test_reordered_chain_is_rejected(self) -> None:
+        self.store.append({"event_type": "first"})
+        self.store.append({"event_type": "second"})
+
+        lines = self.path.read_text(encoding="utf-8").splitlines()
+        self.path.write_text(
+            "\n".join(reversed(lines)) + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(SecurityEventStoreError):
+            self.store.load_events()
+
+    def test_legacy_events_are_reported_separately(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            '{"event_type":"legacy"}\n',
+            encoding="utf-8",
+        )
+
+        self.store.append({"event_type": "new"})
+
+        report = self.store.verify_integrity()
+        self.assertTrue(report["valid"])
+        self.assertEqual(report["legacy_event_count"], 1)
+        self.assertEqual(report["verified_event_count"], 1)
+        self.assertEqual(
+            self.store.load_events(),
+            ({"event_type": "legacy"}, {"event_type": "new"}),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
