@@ -132,7 +132,7 @@ jobs:
           store = JsonlSecurityEventStore(
               "/var/lib/jas-si/audit/security-events.jsonl"
           )
-          report = store.verify_integrity()
+          report = store.verify_integrity(require_chain=True)
 
           assert report["valid"] is True
           assert report["verified_event_count"] >= 1
@@ -223,7 +223,7 @@ jobs:
           store = JsonlSecurityEventStore(
               "/var/lib/jas-si/audit/security-events.jsonl"
           )
-          report = store.verify_integrity()
+          report = store.verify_integrity(require_chain=True)
 
           assert report["valid"] is True
           assert report["verified_event_count"] >= 1
