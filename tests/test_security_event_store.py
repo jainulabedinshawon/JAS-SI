@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import multiprocessing
+import os
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -182,6 +185,45 @@ class TestJsonlSecurityEventStore(unittest.TestCase):
         }
 
         self.assertEqual(observed, expected)
+
+    def test_reader_waits_for_exclusive_writer_lock(self) -> None:
+        self.store.append({"event_type": "lock_test"})
+
+        fd = os.open(self.path, os.O_RDONLY)
+        self.addCleanup(os.close, fd)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+        started = threading.Event()
+        finished = threading.Event()
+        result = []
+
+        def read_events() -> None:
+            started.set()
+            result.extend(self.store.load_events())
+            finished.set()
+
+        reader = threading.Thread(target=read_events)
+        reader.start()
+        self.addCleanup(reader.join, 5)
+
+        self.assertTrue(started.wait(timeout=2))
+
+        try:
+            self.assertFalse(
+                finished.wait(timeout=0.2),
+                "Reader should wait while the exclusive lock is held",
+            )
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+
+        reader.join(timeout=5)
+
+        self.assertFalse(reader.is_alive())
+        self.assertTrue(finished.is_set())
+        self.assertEqual(
+            result,
+            [{"event_type": "lock_test"}],
+        )
 
 
 if __name__ == "__main__":
