@@ -1,4 +1,3 @@
-
 """Durable JSONL storage for API security events with hash-chain checks.
 
 Legacy events without integrity metadata remain readable, but are not
@@ -295,9 +294,23 @@ class JsonlSecurityEventStore:
         """Return event payloads after verifying all available chain hashes."""
         return _parse_log(self._read_log_bytes())["events"]
 
-    def verify_integrity(self) -> dict[str, Any]:
-        """Return a verification report or raise if integrity checks fail."""
+    def verify_integrity(
+        self,
+        *,
+        require_chain: bool = False,
+    ) -> dict[str, Any]:
+        """Verify the log, optionally requiring a complete hash chain."""
         parsed = _parse_log(self._read_log_bytes())
+
+        if require_chain and (
+            parsed["legacy_event_count"] > 0
+            or parsed["verified_event_count"] == 0
+        ):
+            raise SecurityEventStoreError(
+                "Strict integrity verification requires a complete "
+                "hash chain with no legacy events"
+            )
+
         return {
             "valid": True,
             "legacy_event_count": parsed["legacy_event_count"],
