@@ -1,4 +1,3 @@
-
 """Durable JSONL storage for API security events.
 
 This is a security-event stream, separate from the hash-chained
@@ -8,6 +7,7 @@ to provide tamper-proof or independently anchored storage.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import stat
@@ -60,6 +60,7 @@ class JsonlSecurityEventStore:
 
     def _append_bytes(self, payload: bytes) -> None:
         fd = -1
+        lock_acquired = False
 
         try:
             self.path.parent.mkdir(
@@ -89,6 +90,11 @@ class JsonlSecurityEventStore:
             if hasattr(os, "fchmod"):
                 os.fchmod(fd, 0o600)
 
+            # Serialize appends from cooperating processes that share
+            # this file on a POSIX filesystem.
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            lock_acquired = True
+
             remaining = memoryview(payload)
 
             while remaining:
@@ -107,6 +113,12 @@ class JsonlSecurityEventStore:
             ) from exc
         finally:
             if fd >= 0:
+                if lock_acquired:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+
                 try:
                     os.close(fd)
                 except OSError:
