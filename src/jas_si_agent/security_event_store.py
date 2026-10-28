@@ -125,24 +125,37 @@ class JsonlSecurityEventStore:
                     pass
 
     def load_events(self) -> tuple[dict[str, Any], ...]:
-        """Read JSONL events after validating file type and JSON syntax."""
+        """Read JSONL events under a shared POSIX file lock."""
+        fd = -1
+
         try:
             if self.path.is_symlink():
                 raise SecurityEventStoreError(
                     "Symlink security log files are not allowed"
                 )
 
-            if not self.path.exists():
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+
+            try:
+                fd = os.open(self.path, flags)
+            except FileNotFoundError:
                 return ()
 
-            if not stat.S_ISREG(self.path.stat().st_mode):
+            file_stat = os.fstat(fd)
+            if not stat.S_ISREG(file_stat.st_mode):
                 raise SecurityEventStoreError(
                     "Security log path must be a regular file"
                 )
 
-            events: list[dict[str, Any]] = []
+            # Writers use LOCK_EX; readers use LOCK_SH.
+            fcntl.flock(fd, fcntl.LOCK_SH)
 
-            with self.path.open("r", encoding="utf-8") as handle:
+            with os.fdopen(fd, "r", encoding="utf-8") as handle:
+                fd = -1
+                events: list[dict[str, Any]] = []
+
                 for line_number, line in enumerate(handle, start=1):
                     if not line.strip():
                         raise SecurityEventStoreError(
@@ -163,7 +176,7 @@ class JsonlSecurityEventStore:
 
                     events.append(item)
 
-            return tuple(events)
+                return tuple(events)
 
         except SecurityEventStoreError:
             raise
@@ -171,3 +184,9 @@ class JsonlSecurityEventStore:
             raise SecurityEventStoreError(
                 "Unable to read security event log"
             ) from exc
+        finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
