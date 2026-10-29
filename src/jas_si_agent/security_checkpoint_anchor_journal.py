@@ -151,7 +151,8 @@ class SecurityCheckpointAnchorJournal:
         fd = self._open_locked()
 
         try:
-            existing = self._parse_records(self._read_all(fd))
+            existing_data = self._read_all(fd)
+            existing = self._parse_records(existing_data)
 
             if not existing:
                 if anchor.previous_anchor_digest is not None:
@@ -164,6 +165,15 @@ class SecurityCheckpointAnchorJournal:
                 )
 
             payload = (anchor.to_json() + "\n").encode("utf-8")
+
+            if (
+                len(existing_data) + len(payload)
+                > self.MAX_JOURNAL_BYTES
+            ):
+                raise SecurityCheckpointAnchorJournalError(
+                    "Journal exceeds the maximum allowed size"
+                )
+
             os.lseek(fd, 0, os.SEEK_END)
 
             remaining = memoryview(payload)
