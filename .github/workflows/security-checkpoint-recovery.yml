@@ -1,0 +1,255 @@
+
+name: JAS-SI Security Checkpoint Recovery Verification
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - "Dockerfile"
+      - "requirements.lock.txt"
+      - "src/jas_si_agent/security_event_store.py"
+      - "src/jas_si_agent/security_event_checkpoint.py"
+      - "tests/test_security_event_store.py"
+      - "tests/test_security_event_checkpoint.py"
+      - "tests/test_rest_api.py"
+      - ".github/workflows/security-checkpoint-recovery.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - "requirements.lock.txt"
+      - "src/jas_si_agent/security_event_store.py"
+      - "src/jas_si_agent/security_event_checkpoint.py"
+      - "tests/test_security_event_store.py"
+      - "tests/test_security_event_checkpoint.py"
+      - "tests/test_rest_api.py"
+      - ".github/workflows/security-checkpoint-recovery.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-checkpoint-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checkpoint-recovery:
+    name: Verify Checkpoint Recovery Across Container Recreation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Run checkpoint and security event tests
+        run: |
+          set -euo pipefail
+
+          docker build --pull -t jas-si-checkpoint:ci .
+
+          docker run --rm \
+            --entrypoint python \
+            jas-si-checkpoint:ci \
+            -m unittest \
+            tests/test_security_event_store.py \
+            tests/test_security_event_checkpoint.py \
+            tests/test_rest_api.py
+
+      - name: Create isolated persistent volume
+        run: docker volume create jas-si-checkpoint-ci
+
+      - name: Start first API container
+        run: |
+          set -euo pipefail
+
+          docker run -d \
+            --name jas-si-checkpoint-first \
+            -p 127.0.0.1:18004:8000 \
+            -v jas-si-checkpoint-ci:/var/lib/jas-si/audit \
+            -e JAS_SI_ENVIRONMENT=test \
+            -e JAS_SI_API_ENABLED=true \
+            -e JAS_SI_API_KEY=ci-only-test-key-not-for-production \
+            jas-si-checkpoint:ci
+
+      - name: Generate event and persist checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ready=false
+
+          for i in $(seq 1 30); do
+            if curl --silent --fail \
+              http://127.0.0.1:18004/health >/dev/null; then
+              ready=true
+              break
+            fi
+
+            if [ "$(docker inspect \
+              jas-si-checkpoint-first \
+              --format '{{.State.Running}}')" != "true" ]; then
+              docker logs jas-si-checkpoint-first
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          if [ "${ready}" != "true" ]; then
+            docker logs jas-si-checkpoint-first
+            echo "API did not become ready"
+            exit 1
+          fi
+
+          status="$(
+            curl --silent \
+              --output /tmp/jas-si-checkpoint-response.json \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              --data '{"action_id":"checkpoint-ci-check","claimed_success":true}' \
+              http://127.0.0.1:18004/v1/verify
+          )"
+
+          test "${status}" = "401"
+
+          docker exec jas-si-checkpoint-first python -c '
+          from pathlib import Path
+          from jas_si_agent.security_event_store import JsonlSecurityEventStore
+          from jas_si_agent.security_event_checkpoint import (
+              create_security_checkpoint,
+              save_security_checkpoint,
+              load_security_checkpoint,
+              verify_security_checkpoint,
+          )
+
+          root = Path("/var/lib/jas-si/audit")
+          store = JsonlSecurityEventStore(
+              root / "security-events.jsonl"
+          )
+          events = store.load_events()
+
+          assert any(
+              event.get("event_type") == "authentication_failure"
+              and event.get("status_code") == 401
+              for event in events
+          ), "Expected authentication event was not persisted"
+
+          checkpoint = create_security_checkpoint(store)
+          checkpoint_path = root / "security-events.checkpoint.json"
+          save_security_checkpoint(checkpoint_path, checkpoint)
+
+          restored = load_security_checkpoint(checkpoint_path)
+          assert restored == checkpoint
+          assert verify_security_checkpoint(store, restored)
+
+          print("PASS: event log and checkpoint verified before recreation.")
+          print("Checkpoint event count:", checkpoint.event_count)
+          print("Checkpoint hash:", checkpoint.last_hash)
+          '
+
+      - name: Remove first container
+        run: docker rm -f jas-si-checkpoint-first
+
+      - name: Recreate API with the same volume
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run -d \
+            --name jas-si-checkpoint-second \
+            -p 127.0.0.1:18005:8000 \
+            -v jas-si-checkpoint-ci:/var/lib/jas-si/audit \
+            -e JAS_SI_ENVIRONMENT=test \
+            -e JAS_SI_API_ENABLED=true \
+            -e JAS_SI_API_KEY=ci-only-test-key-not-for-production \
+            jas-si-checkpoint:ci
+
+          ready=false
+
+          for i in $(seq 1 30); do
+            if curl --silent --fail \
+              http://127.0.0.1:18005/health >/dev/null; then
+              ready=true
+              break
+            fi
+
+            if [ "$(docker inspect \
+              jas-si-checkpoint-second \
+              --format '{{.State.Running}}')" != "true" ]; then
+              docker logs jas-si-checkpoint-second
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          if [ "${ready}" != "true" ]; then
+            docker logs jas-si-checkpoint-second
+            echo "Recreated API did not become ready"
+            exit 1
+          fi
+
+      - name: Verify recovered checkpoint and event log
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker exec jas-si-checkpoint-second python -c '
+          from pathlib import Path
+          from jas_si_agent.security_event_store import JsonlSecurityEventStore
+          from jas_si_agent.security_event_checkpoint import (
+              load_security_checkpoint,
+              verify_security_checkpoint,
+          )
+
+          root = Path("/var/lib/jas-si/audit")
+          store = JsonlSecurityEventStore(
+              root / "security-events.jsonl"
+          )
+          checkpoint = load_security_checkpoint(
+              root / "security-events.checkpoint.json"
+          )
+
+          assert verify_security_checkpoint(store, checkpoint), (
+              "Recovered checkpoint does not match the event log"
+          )
+
+          events = store.load_events()
+          assert any(
+              event.get("event_type") == "authentication_failure"
+              and event.get("status_code") == 401
+              for event in events
+          ), "Authentication event missing after recreation"
+
+          print("PASS: checkpoint file survived container recreation.")
+          print("PASS: recovered event log matches the saved checkpoint.")
+          print("Verified events:", checkpoint.event_count)
+          print("Verified hash:", checkpoint.last_hash)
+          '
+
+          curl --silent --fail \
+            http://127.0.0.1:18005/health >/dev/null
+
+          echo "PASS: recreated API is healthy."
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          docker logs jas-si-checkpoint-first || true
+          docker logs jas-si-checkpoint-second || true
+
+      - name: Cleanup containers and volume
+        if: always()
+        run: |
+          docker rm -f \
+            jas-si-checkpoint-first \
+            jas-si-checkpoint-second || true
+
+          docker volume rm jas-si-checkpoint-ci || true
