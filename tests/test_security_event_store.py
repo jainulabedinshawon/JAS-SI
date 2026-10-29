@@ -248,6 +248,45 @@ class TestJsonlSecurityEventStore(unittest.TestCase):
         self.assertEqual(report["verified_event_count"], 1)
         self.assertEqual(len(report["last_hash"]), 64)
 
+    def test_trusted_checkpoint_accepts_matching_hash(self) -> None:
+        self.store.append({"event_type": "checkpoint_test"})
+
+        baseline = self.store.verify_integrity(require_chain=True)
+        expected_hash = baseline["last_hash"]
+
+        report = self.store.verify_integrity(
+            require_chain=True,
+            expected_last_hash=expected_hash,
+        )
+
+        self.assertTrue(report["valid"])
+        self.assertTrue(report["checkpoint_checked"])
+        self.assertEqual(report["last_hash"], expected_hash)
+
+    def test_trusted_checkpoint_rejects_mismatch(self) -> None:
+        self.store.append({"event_type": "checkpoint_test"})
+
+        with self.assertRaisesRegex(
+            SecurityEventStoreError,
+            "does not match trusted checkpoint",
+        ):
+            self.store.verify_integrity(
+                require_chain=True,
+                expected_last_hash="a" * 64,
+            )
+
+    def test_trusted_checkpoint_rejects_invalid_format(self) -> None:
+        self.store.append({"event_type": "checkpoint_test"})
+
+        with self.assertRaisesRegex(
+            SecurityEventStoreError,
+            "lowercase SHA-256 hash",
+        ):
+            self.store.verify_integrity(
+                require_chain=True,
+                expected_last_hash="NOT-A-HASH",
+            )
+
     def test_strict_integrity_rejects_legacy_only_log(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
