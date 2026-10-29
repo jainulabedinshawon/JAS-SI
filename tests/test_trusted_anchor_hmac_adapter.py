@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -101,7 +100,7 @@ class TestHmacVerifyingTrustedAnchorProvider(unittest.TestCase):
             TrustedAnchorProviderError,
             "provider ID",
         ):
-            publish_and_verify_anchor(provider, self.anchor)
+            provider.publish(self.anchor)
 
     def test_wrong_secret_fails_closed(self) -> None:
         provider = HmacVerifyingTrustedAnchorProvider(
@@ -114,7 +113,7 @@ class TestHmacVerifyingTrustedAnchorProvider(unittest.TestCase):
             TrustedAnchorProviderError,
             "HMAC signature is invalid",
         ):
-            publish_and_verify_anchor(provider, self.anchor)
+            provider.publish(self.anchor)
 
     def test_backend_exception_fails_closed(self) -> None:
         class RaisingBackend(FakeBackend):
