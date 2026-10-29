@@ -121,9 +121,35 @@ class TestSecurityCheckpointAnchorJournal(unittest.TestCase):
         self.journal.append(self.first)
         payload = self.path.read_bytes()
 
-        self.journal.MAX_JOURNAL_BYTES = len(payload)
+        with patch.object(
+            SecurityCheckpointAnchorJournal,
+            "MAX_JOURNAL_BYTES",
+            len(payload),
+        ):
+            self.assertEqual(self.journal.load(), (self.first,))
 
-        self.assertEqual(self.journal.load(), (self.first,))
+    def test_rejects_append_that_exceeds_size_limit(self) -> None:
+        first_payload = (
+            self.first.to_json() + "\n"
+        ).encode("utf-8")
+
+        with patch.object(
+            SecurityCheckpointAnchorJournal,
+            "MAX_JOURNAL_BYTES",
+            len(first_payload),
+        ):
+            self.journal.append(self.first)
+
+            with self.assertRaisesRegex(
+                SecurityCheckpointAnchorJournalError,
+                "maximum allowed size",
+            ):
+                self.journal.append(self.second)
+
+            self.assertEqual(
+                self.journal.load(),
+                (self.first,),
+            )
 
 
 if __name__ == "__main__":
