@@ -79,6 +79,43 @@ class TestSecurityEventCheckpoint(unittest.TestCase):
             "Tampered event content must fail checkpoint verification",
         )
 
+    def test_rejects_tampered_checkpoint_hash(self) -> None:
+        self.store.append(
+            {
+                "event_type": "authentication_failure",
+                "status_code": 401,
+            }
+        )
+
+        checkpoint = create_security_checkpoint(self.store)
+        save_security_checkpoint(self.checkpoint_path, checkpoint)
+
+        # Change the saved checkpoint hash without changing the event log.
+        data = json.loads(
+            self.checkpoint_path.read_text(encoding="utf-8")
+        )
+
+        data["last_hash"] = (
+            "0" * 64
+            if checkpoint.last_hash != "0" * 64
+            else "1" * 64
+        )
+
+        self.checkpoint_path.write_text(
+            json.dumps(data, sort_keys=True, separators=(",", ":"))
+            + "\n",
+            encoding="utf-8",
+        )
+
+        tampered_checkpoint = load_security_checkpoint(
+            self.checkpoint_path
+        )
+
+        self.assertFalse(
+            verify_security_checkpoint(self.store, tampered_checkpoint),
+            "A checkpoint hash mismatch must fail verification",
+        )
+
     def test_rejects_invalid_checkpoint_json(self) -> None:
         self.checkpoint_path.write_text(
             '{"event_count": true, "last_hash": "bad"}',
