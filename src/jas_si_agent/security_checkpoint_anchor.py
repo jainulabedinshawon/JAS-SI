@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import hashlib
@@ -129,3 +128,26 @@ class SecurityCheckpointAnchor:
             )
 
         return anchor
+
+
+def verify_anchor_successor(
+    previous: SecurityCheckpointAnchor,
+    current: SecurityCheckpointAnchor,
+) -> bool:
+    """Verify that current is a valid successor to previous."""
+    if not isinstance(previous, SecurityCheckpointAnchor):
+        return False
+
+    if not isinstance(current, SecurityCheckpointAnchor):
+        return False
+
+    if current.repository_id != previous.repository_id:
+        return False
+
+    if current.event_count <= previous.event_count:
+        return False
+
+    if current.previous_anchor_digest != previous.digest:
+        return False
+
+    return True
