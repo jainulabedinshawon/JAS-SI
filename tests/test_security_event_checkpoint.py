@@ -116,6 +116,38 @@ class TestSecurityEventCheckpoint(unittest.TestCase):
             "A checkpoint hash mismatch must fail verification",
         )
 
+    def test_rejects_older_checkpoint_after_new_event(self) -> None:
+        self.store.append(
+            {
+                "event_type": "authentication_failure",
+                "status_code": 401,
+            }
+        )
+
+        older_checkpoint = create_security_checkpoint(self.store)
+
+        # A later event advances the log beyond the saved checkpoint.
+        self.store.append(
+            {
+                "event_type": "authorization_failure",
+                "status_code": 403,
+            }
+        )
+
+        # Simulate restoring the older checkpoint.
+        save_security_checkpoint(
+            self.checkpoint_path,
+            older_checkpoint,
+        )
+        restored_checkpoint = load_security_checkpoint(
+            self.checkpoint_path
+        )
+
+        self.assertFalse(
+            verify_security_checkpoint(self.store, restored_checkpoint),
+            "An older checkpoint must not validate a newer event log",
+        )
+
     def test_rejects_invalid_checkpoint_json(self) -> None:
         self.checkpoint_path.write_text(
             '{"event_count": true, "last_hash": "bad"}',
