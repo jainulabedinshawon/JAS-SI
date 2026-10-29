@@ -1,4 +1,3 @@
-
 name: JAS-SI Security Checkpoint Recovery Verification
 
 on:
@@ -56,10 +55,26 @@ jobs:
           docker run --rm \
             --entrypoint python \
             jas-si-checkpoint:ci \
-            -m unittest \
-            tests/test_security_event_store.py \
-            tests/test_security_event_checkpoint.py \
-            tests/test_rest_api.py
+            -m unittest discover \
+            -s tests \
+            -p 'test_security_event_store.py' \
+            -v
+
+          docker run --rm \
+            --entrypoint python \
+            jas-si-checkpoint:ci \
+            -m unittest discover \
+            -s tests \
+            -p 'test_security_event_checkpoint.py' \
+            -v
+
+          docker run --rm \
+            --entrypoint python \
+            jas-si-checkpoint:ci \
+            -m unittest discover \
+            -s tests \
+            -p 'test_rest_api.py' \
+            -v
 
       - name: Create isolated persistent volume
         run: docker volume create jas-si-checkpoint-ci
