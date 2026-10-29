@@ -1,6 +1,6 @@
-
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -50,6 +50,33 @@ class TestSecurityEventCheckpoint(unittest.TestCase):
 
         self.assertFalse(
             verify_security_checkpoint(self.store, checkpoint)
+        )
+
+    def test_rejects_tampered_event_payload(self) -> None:
+        self.store.append(
+            {
+                "event_type": "authentication_failure",
+                "status_code": 401,
+            }
+        )
+
+        checkpoint = create_security_checkpoint(self.store)
+
+        original_line = self.log_path.read_text(encoding="utf-8")
+        record = json.loads(original_line)
+
+        # Tamper with event content but preserve its original hash metadata.
+        record["event_type"] = "authorization_success"
+
+        self.log_path.write_text(
+            json.dumps(record, sort_keys=True, separators=(",", ":"))
+            + "\n",
+            encoding="utf-8",
+        )
+
+        self.assertFalse(
+            verify_security_checkpoint(self.store, checkpoint),
+            "Tampered event content must fail checkpoint verification",
         )
 
     def test_rejects_invalid_checkpoint_json(self) -> None:
