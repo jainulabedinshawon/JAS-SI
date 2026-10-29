@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import tempfile
@@ -102,6 +101,24 @@ class TestSecurityCheckpointAnchorJournal(unittest.TestCase):
 
         with self.assertRaises(SecurityCheckpointAnchorJournalError):
             linked_journal.load()
+
+    def test_rejects_oversized_journal(self) -> None:
+        self.journal.MAX_JOURNAL_BYTES = 32
+        self.path.write_bytes(b"x" * 33)
+
+        with self.assertRaisesRegex(
+            SecurityCheckpointAnchorJournalError,
+            "maximum allowed size",
+        ):
+            self.journal.load()
+
+    def test_accepts_journal_at_size_limit(self) -> None:
+        self.journal.append(self.first)
+        payload = self.path.read_bytes()
+
+        self.journal.MAX_JOURNAL_BYTES = len(payload)
+
+        self.assertEqual(self.journal.load(), (self.first,))
 
 
 if __name__ == "__main__":
