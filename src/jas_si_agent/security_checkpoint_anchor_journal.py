@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import fcntl
@@ -23,6 +22,8 @@ class SecurityCheckpointAnchorJournal:
     This journal detects malformed records and broken sequences.
     It does not protect against an attacker who can rewrite the entire file.
     """
+
+    MAX_JOURNAL_BYTES = 16 * 1024 * 1024  # 16 MiB
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -107,15 +108,35 @@ class SecurityCheckpointAnchorJournal:
                 "Unable to open anchor journal"
             ) from exc
 
-    @staticmethod
-    def _read_all(fd: int) -> bytes:
+    @classmethod
+    def _read_all(cls, fd: int) -> bytes:
+        try:
+            size = os.fstat(fd).st_size
+        except OSError as exc:
+            raise SecurityCheckpointAnchorJournalError(
+                "Unable to inspect journal size"
+            ) from exc
+
+        if size < 0 or size > cls.MAX_JOURNAL_BYTES:
+            raise SecurityCheckpointAnchorJournalError(
+                "Journal exceeds the maximum allowed size"
+            )
+
         chunks: list[bytes] = []
         offset = 0
 
-        while True:
-            chunk = os.pread(fd, 64 * 1024, offset)
+        while offset < size:
+            chunk = os.pread(
+                fd,
+                min(64 * 1024, size - offset),
+                offset,
+            )
+
             if not chunk:
-                break
+                raise SecurityCheckpointAnchorJournalError(
+                    "Journal changed or ended unexpectedly while reading"
+                )
+
             chunks.append(chunk)
             offset += len(chunk)
 
