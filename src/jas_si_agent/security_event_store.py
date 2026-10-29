@@ -298,8 +298,9 @@ class JsonlSecurityEventStore:
         self,
         *,
         require_chain: bool = False,
+        expected_last_hash: str | None = None,
     ) -> dict[str, Any]:
-        """Verify the log, optionally requiring a complete hash chain."""
+        """Verify the chain and optionally compare a trusted checkpoint."""
         parsed = _parse_log(self._read_log_bytes())
 
         if require_chain and (
@@ -311,9 +312,30 @@ class JsonlSecurityEventStore:
                 "hash chain with no legacy events"
             )
 
+        actual_hash = parsed["last_hash"]
+
+        if expected_last_hash is not None:
+            if (
+                not isinstance(expected_last_hash, str)
+                or len(expected_last_hash) != 64
+                or any(
+                    char not in "0123456789abcdef"
+                    for char in expected_last_hash
+                )
+            ):
+                raise SecurityEventStoreError(
+                    "Expected checkpoint must be a lowercase SHA-256 hash"
+                )
+
+            if not hmac.compare_digest(actual_hash, expected_last_hash):
+                raise SecurityEventStoreError(
+                    "Security event hash does not match trusted checkpoint"
+                )
+
         return {
             "valid": True,
             "legacy_event_count": parsed["legacy_event_count"],
             "verified_event_count": parsed["verified_event_count"],
-            "last_hash": parsed["last_hash"],
+            "last_hash": actual_hash,
+            "checkpoint_checked": expected_last_hash is not None,
         }
