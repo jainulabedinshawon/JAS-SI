@@ -54,25 +54,31 @@ jobs:
 
           docker run --rm \
             --entrypoint python \
+            -v "${GITHUB_WORKSPACE}/tests:/app/tests:ro" \
+            -w /app \
             jas-si-checkpoint:ci \
             -m unittest discover \
-            -s tests \
+            -s /app/tests \
             -p 'test_security_event_store.py' \
             -v
 
           docker run --rm \
             --entrypoint python \
+            -v "${GITHUB_WORKSPACE}/tests:/app/tests:ro" \
+            -w /app \
             jas-si-checkpoint:ci \
             -m unittest discover \
-            -s tests \
+            -s /app/tests \
             -p 'test_security_event_checkpoint.py' \
             -v
 
           docker run --rm \
             --entrypoint python \
+            -v "${GITHUB_WORKSPACE}/tests:/app/tests:ro" \
+            -w /app \
             jas-si-checkpoint:ci \
             -m unittest discover \
-            -s tests \
+            -s /app/tests \
             -p 'test_rest_api.py' \
             -v
 
