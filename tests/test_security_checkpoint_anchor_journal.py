@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from jas_si_agent.security_checkpoint_anchor import (
     SecurityCheckpointAnchor,
@@ -103,14 +104,18 @@ class TestSecurityCheckpointAnchorJournal(unittest.TestCase):
             linked_journal.load()
 
     def test_rejects_oversized_journal(self) -> None:
-        self.journal.MAX_JOURNAL_BYTES = 32
         self.path.write_bytes(b"x" * 33)
 
-        with self.assertRaisesRegex(
-            SecurityCheckpointAnchorJournalError,
-            "maximum allowed size",
+        with patch.object(
+            SecurityCheckpointAnchorJournal,
+            "MAX_JOURNAL_BYTES",
+            32,
         ):
-            self.journal.load()
+            with self.assertRaisesRegex(
+                SecurityCheckpointAnchorJournalError,
+                "maximum allowed size",
+            ):
+                self.journal.load()
 
     def test_accepts_journal_at_size_limit(self) -> None:
         self.journal.append(self.first)
