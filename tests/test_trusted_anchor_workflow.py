@@ -152,14 +152,13 @@ class TestTrustedAnchorWorkflow(unittest.TestCase):
 
         self.assertEqual(self.journal.load(), ())
 
-    def test_journal_failure_is_reported_after_verification(self) -> None:
+    def test_invalid_journal_is_rejected_before_provider_call(self) -> None:
         provider = FakeProvider()
 
         invalid_journal = SecurityCheckpointAnchorJournal(
             Path(self.temp_dir.name) / "missing" / "anchors.jsonl"
         )
 
-        # Force a journal failure without changing production code.
         invalid_journal.path.parent.mkdir(
             parents=True,
             exist_ok=True,
@@ -171,7 +170,7 @@ class TestTrustedAnchorWorkflow(unittest.TestCase):
 
         with self.assertRaisesRegex(
             TrustedAnchorWorkflowError,
-            "local persistence failed",
+            "Unable to inspect local anchor journal before publication",
         ):
             publish_verify_and_persist_anchor(
                 provider,
@@ -179,7 +178,8 @@ class TestTrustedAnchorWorkflow(unittest.TestCase):
                 self.anchor,
             )
 
-        self.assertEqual(provider.publish_calls, 1)
+        # Malformed local state must block external publication.
+        self.assertEqual(provider.publish_calls, 0)
 
     def test_duplicate_anchor_is_blocked_before_provider_call(self) -> None:
         provider = FakeProvider()
