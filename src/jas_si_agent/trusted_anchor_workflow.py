@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from jas_si_agent.security_checkpoint_anchor import (
@@ -24,11 +25,10 @@ def publish_verify_and_persist_anchor(
     journal: SecurityCheckpointAnchorJournal,
     anchor: SecurityCheckpointAnchor,
 ) -> TrustedAnchorReceipt:
-    """Verify an externally published anchor before local persistence.
+    """Publish, verify, and persist an anchor with a local duplicate guard.
 
-    The journal is updated only after provider verification succeeds.
-    A journal failure is reported explicitly; it does not undo an
-    already completed external publication.
+    A previously persisted anchor is rejected before contacting the provider.
+    This is a local guard, not a distributed exactly-once guarantee.
     """
 
     if not isinstance(anchor, SecurityCheckpointAnchor):
@@ -44,6 +44,22 @@ def publish_verify_and_persist_anchor(
     if not isinstance(journal, SecurityCheckpointAnchorJournal):
         raise TrustedAnchorWorkflowError(
             "A valid SecurityCheckpointAnchorJournal is required"
+        )
+
+    # Preflight: do not publish an anchor already present in the journal.
+    try:
+        existing_anchors = journal.load()
+    except SecurityCheckpointAnchorJournalError as exc:
+        raise TrustedAnchorWorkflowError(
+            "Unable to inspect local anchor journal before publication"
+        ) from exc
+
+    if any(
+        existing.digest == anchor.digest
+        for existing in existing_anchors
+    ):
+        raise TrustedAnchorWorkflowError(
+            "Anchor is already persisted; duplicate publication blocked"
         )
 
     try:
