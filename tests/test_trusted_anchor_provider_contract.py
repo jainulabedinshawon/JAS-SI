@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -94,7 +93,8 @@ class InMemoryContractProvider:
 
 
 class ReferenceProviderContractTests(
-    TrustedAnchorProviderContractMixin
+    TrustedAnchorProviderContractMixin,
+    unittest.TestCase,
 ):
     def make_provider(self):
         return InMemoryContractProvider()
