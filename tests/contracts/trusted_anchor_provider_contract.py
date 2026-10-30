@@ -1,7 +1,5 @@
-
 from __future__ import annotations
 
-import unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from jas_si_agent.security_checkpoint_anchor import (
@@ -12,7 +10,7 @@ from jas_si_agent.trusted_anchor_provider import (
 )
 
 
-class TrustedAnchorProviderContractMixin(unittest.TestCase):
+class TrustedAnchorProviderContractMixin:
     """Reusable conformance tests for recoverable idempotent providers.
 
     A concrete provider test must implement:
