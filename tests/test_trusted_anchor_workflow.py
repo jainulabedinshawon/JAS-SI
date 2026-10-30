@@ -181,6 +181,32 @@ class TestTrustedAnchorWorkflow(unittest.TestCase):
 
         self.assertEqual(provider.publish_calls, 1)
 
+    def test_duplicate_anchor_is_blocked_before_provider_call(self) -> None:
+        provider = FakeProvider()
+
+        # First call publishes, verifies, and persists the anchor.
+        publish_verify_and_persist_anchor(
+            provider,
+            self.journal,
+            self.anchor,
+        )
+
+        self.assertEqual(provider.publish_calls, 1)
+
+        # Second call must be rejected before contacting the provider.
+        with self.assertRaisesRegex(
+            TrustedAnchorWorkflowError,
+            "already persisted",
+        ):
+            publish_verify_and_persist_anchor(
+                provider,
+                self.journal,
+                self.anchor,
+            )
+
+        self.assertEqual(provider.publish_calls, 1)
+        self.assertEqual(self.journal.load(), (self.anchor,))
+
 
 if __name__ == "__main__":
     unittest.main()
