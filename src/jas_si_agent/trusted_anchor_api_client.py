@@ -236,3 +236,113 @@ class TrustedAnchorApiClient:
             )
 
         return receipt
+        
+    def lookup_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> TrustedAnchorReceipt | None:
+        """Look up a previously published receipt by its idempotency key.
+
+        Returns None only for the explicitly configured not-found status.
+        All other unexpected responses fail closed.
+        """
+        if self._contract is None:
+            raise TrustedAnchorApiClientError(
+                "An explicit API contract is required for receipt lookup"
+            )
+
+        try:
+            lookup_path = self._contract.lookup_path(
+                idempotency_key
+            )
+        except TrustedAnchorApiContractError as exc:
+            raise TrustedAnchorApiClientError(
+                "Invalid idempotency lookup key"
+            ) from exc
+
+        try:
+            response = self._transport.request(
+                "GET",
+                lookup_path,
+                headers={
+                    "Authorization": f"Bearer {self._bearer_token}",
+                    "Accept": "application/json",
+                },
+            )
+        except TrustedAnchorHttpTransportError as exc:
+            raise TrustedAnchorApiClientError(
+                "Trusted Anchor lookup request failed"
+            ) from exc
+
+        if (
+            response.status_code
+            == self._contract.lookup_not_found_status_code
+        ):
+            return None
+
+        if (
+            response.status_code
+            not in self._contract.success_status_codes
+        ):
+            raise TrustedAnchorApiClientError(
+                "Provider returned unexpected lookup HTTP status: "
+                f"{response.status_code}"
+            )
+
+        content_type = next(
+            (
+                value
+                for key, value in response.headers.items()
+                if key.lower() == "content-type"
+            ),
+            "",
+        )
+
+        if (
+            content_type.split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            raise TrustedAnchorApiClientError(
+                "Lookup response must use application/json"
+            )
+
+        try:
+            data = json.loads(
+                response.body.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_json_constant,
+            )
+        except (
+            UnicodeDecodeError,
+            ValueError,
+            TypeError,
+            RecursionError,
+        ) as exc:
+            raise TrustedAnchorApiClientError(
+                "Provider returned invalid lookup JSON"
+            ) from exc
+
+        if not isinstance(data, dict) or set(data) != _RECEIPT_FIELDS:
+            raise TrustedAnchorApiClientError(
+                "Lookup receipt has unexpected or missing fields"
+            )
+
+        try:
+            receipt = TrustedAnchorReceipt(**data)
+        except (TypeError, TrustedAnchorProviderError) as exc:
+            raise TrustedAnchorApiClientError(
+                "Lookup receipt failed schema validation"
+            ) from exc
+
+        if receipt.provider_id != self._profile.provider_id:
+            raise TrustedAnchorApiClientError(
+                "Lookup receipt provider ID does not match configuration"
+            )
+
+        if receipt.anchor_digest != idempotency_key:
+            raise TrustedAnchorApiClientError(
+                "Lookup receipt digest does not match the requested key"
+            )
+
+        return receipt
+
