@@ -110,6 +110,24 @@ class TestTrustedAnchorApiContract(unittest.TestCase):
                 success_status_codes=(200, 200),
             )
 
+    def test_rejects_non_4xx_lookup_not_found_status(self):
+        with self.assertRaises(TrustedAnchorApiContractError):
+            TrustedAnchorApiContract(
+                publish_path="v1/anchors",
+                lookup_path_template="v1/lookup/{idempotency_key}",
+                idempotency_header="Idempotency-Key",
+                lookup_not_found_status_code=200,
+            )
+
+    def test_rejects_boolean_lookup_not_found_status(self):
+        with self.assertRaises(TrustedAnchorApiContractError):
+            TrustedAnchorApiContract(
+                publish_path="v1/anchors",
+                lookup_path_template="v1/lookup/{idempotency_key}",
+                idempotency_header="Idempotency-Key",
+                lookup_not_found_status_code=True,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
