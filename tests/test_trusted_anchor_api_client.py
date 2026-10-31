@@ -20,6 +20,9 @@ from jas_si_agent.trusted_anchor_api_client import (
     TrustedAnchorApiClient,
     TrustedAnchorApiClientError,
 )
+from jas_si_agent.trusted_anchor_api_contract import (
+    TrustedAnchorApiContract,
+)
 from jas_si_agent.trusted_anchor_http_transport import (
     TrustedAnchorHttpTransport,
 )
@@ -70,6 +73,38 @@ class TestTrustedAnchorApiClient(unittest.TestCase):
             self.profile,
             transport,
             bearer_token=self.TOKEN,
+        )
+
+        return client, http_client
+
+    def make_contract(self, **overrides):
+        values = {
+            "publish_path": "v1/anchors",
+            "lookup_path_template": (
+                "v1/anchors/by-key/{idempotency_key}"
+            ),
+            "idempotency_header": "Idempotency-Key",
+            "success_status_codes": (200, 201, 202),
+        }
+        values.update(overrides)
+        return TrustedAnchorApiContract(**values)
+
+    def make_contract_client(self, handler, contract=None):
+        http_client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+        )
+
+        transport = TrustedAnchorHttpTransport(
+            self.profile,
+            client=http_client,
+        )
+
+        client = TrustedAnchorApiClient(
+            self.profile,
+            transport,
+            bearer_token=self.TOKEN,
+            contract=contract or self.make_contract(),
         )
 
         return client, http_client
@@ -242,6 +277,118 @@ class TestTrustedAnchorApiClient(unittest.TestCase):
 
         with self.assertRaises(TrustedAnchorApiClientError):
             client.publish(self.anchor)
+
+        http_client.close()
+
+    def test_contract_publish_sends_idempotency_header(self):
+        def handler(request):
+            self.assertEqual(
+                request.url.path,
+                "/v1/anchors",
+            )
+            self.assertEqual(
+                request.headers["Idempotency-Key"],
+                self.anchor.digest,
+            )
+            return httpx.Response(
+                201,
+                headers={"Content-Type": "application/json"},
+                json=self.make_receipt(),
+            )
+
+        client, http_client = self.make_contract_client(handler)
+
+        receipt = client.publish(
+            self.anchor,
+            idempotency_key=self.anchor.digest,
+        )
+
+        self.assertEqual(receipt.anchor_digest, self.anchor.digest)
+        http_client.close()
+
+    def test_contract_publish_uses_configured_path(self):
+        contract = self.make_contract(
+            publish_path="api/v2/checkpoints",
+        )
+
+        def handler(request):
+            self.assertEqual(
+                request.url.path,
+                "/api/v2/checkpoints",
+            )
+            return httpx.Response(
+                201,
+                headers={"Content-Type": "application/json"},
+                json=self.make_receipt(),
+            )
+
+        client, http_client = self.make_contract_client(
+            handler,
+            contract,
+        )
+
+        client.publish(
+            self.anchor,
+            idempotency_key=self.anchor.digest,
+        )
+
+        http_client.close()
+
+    def test_contract_publish_accepts_configured_status(self):
+        contract = self.make_contract(
+            success_status_codes=(202,),
+        )
+
+        client, http_client = self.make_contract_client(
+            lambda request: httpx.Response(
+                202,
+                headers={"Content-Type": "application/json"},
+                json=self.make_receipt(),
+            ),
+            contract,
+        )
+
+        receipt = client.publish(
+            self.anchor,
+            idempotency_key=self.anchor.digest,
+        )
+
+        self.assertEqual(receipt.anchor_digest, self.anchor.digest)
+        http_client.close()
+
+    def test_contract_publish_requires_idempotency_key(self):
+        client, http_client = self.make_contract_client(
+            lambda request: httpx.Response(500),
+        )
+
+        with self.assertRaises(TrustedAnchorApiClientError):
+            client.publish(self.anchor)
+
+        http_client.close()
+
+    def test_contract_publish_rejects_wrong_idempotency_key(self):
+        client, http_client = self.make_contract_client(
+            lambda request: httpx.Response(500),
+        )
+
+        with self.assertRaises(TrustedAnchorApiClientError):
+            client.publish(
+                self.anchor,
+                idempotency_key="b" * 64,
+            )
+
+        http_client.close()
+
+    def test_idempotency_key_requires_contract(self):
+        client, http_client = self.make_client(
+            lambda request: httpx.Response(500),
+        )
+
+        with self.assertRaises(TrustedAnchorApiClientError):
+            client.publish(
+                self.anchor,
+                idempotency_key=self.anchor.digest,
+            )
 
         http_client.close()
 
