@@ -21,6 +21,7 @@ class TrustedAnchorApiContract:
     lookup_path_template: str
     idempotency_header: str
     success_status_codes: tuple[int, ...] = (200, 201)
+    lookup_not_found_status_code: int = 404
 
     def __post_init__(self) -> None:
         self._validate_path(self.publish_path, "publish_path")
@@ -66,6 +67,17 @@ class TrustedAnchorApiContract:
                 "Success status codes must be unique HTTP 2xx integers"
             )
 
+        if (
+            not isinstance(self.lookup_not_found_status_code, int)
+            or isinstance(self.lookup_not_found_status_code, bool)
+            or not 400 <= self.lookup_not_found_status_code <= 499
+            or self.lookup_not_found_status_code
+            in self.success_status_codes
+        ):
+            raise TrustedAnchorApiContractError(
+                "Lookup not-found status must be a distinct HTTP 4xx integer"
+            )
+    
     @staticmethod
     def _validate_path(path: str, field_name: str) -> None:
         if (
