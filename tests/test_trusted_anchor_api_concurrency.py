@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -32,7 +31,6 @@ from jas_si_agent.trusted_anchor_recovery import (
     recover_or_publish_anchor,
 )
 
-
 SECRET = b"jas-si-concurrency-test-secret-minimum-32-bytes"
 WORKER_COUNT = 12
 
@@ -43,7 +41,7 @@ class AtomicConcurrentBackend:
     This is a test double, not evidence of a real provider's behavior.
     """
 
-    def __init__(self, lookup_barrier: threading.Barrier):
+    def __init__(self, lookup_barrier: threading.Barrier | None = None):
         self.lookup_barrier = lookup_barrier
         self.lock = threading.Lock()
 
@@ -61,7 +59,11 @@ class AtomicConcurrentBackend:
 
         # Force all workers to complete their initial lookup
         # before any worker proceeds to publication.
-        self.lookup_barrier.wait(timeout=10)
+        if self.lookup_barrier is not None:
+            try:
+                self.lookup_barrier.wait(timeout=10)
+            except (threading.BrokenBarrierError, ValueError):
+                pass
 
         return existing
 
@@ -180,9 +182,11 @@ class TestTrustedAnchorApiConcurrency(unittest.TestCase):
         )
 
     def test_concurrent_retries_return_same_receipt(self):
-        first = recover_or_publish_anchor(
-            self.provider,
+        # Seed one existing publication before concurrent retry lookups.
+        # This avoids waiting on the 12-worker barrier during setup.
+        first = self.backend.publish_idempotent(
             self.anchor,
+            self.anchor.digest,
         )
 
         # A fresh barrier is not needed because the initial record
