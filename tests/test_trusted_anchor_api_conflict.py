@@ -192,12 +192,15 @@ class TestTrustedAnchorApiConflictRejection(unittest.TestCase):
 
         client = self.make_client(handler)
 
-        with self.assertRaises(TrustedAnchorApiRequestInProgress):
+        with self.assertRaises(
+            TrustedAnchorApiRequestInProgress
+        ) as context:
             client.publish(
                 self.anchor,
                 idempotency_key=self.anchor.digest,
             )
 
+        self.assertEqual(context.exception.status_code, 409)
         self.assertEqual(len(self.requests), 1)
         self.assertEqual(
             self.requests[0].headers["Idempotency-Key"],
@@ -211,12 +214,15 @@ class TestTrustedAnchorApiConflictRejection(unittest.TestCase):
 
         client = self.make_client(handler)
 
-        with self.assertRaises(TrustedAnchorApiIdempotencyConflict):
+        with self.assertRaises(
+            TrustedAnchorApiIdempotencyConflict
+        ) as context:
             client.publish(
                 self.anchor,
                 idempotency_key=self.anchor.digest,
             )
 
+        self.assertEqual(context.exception.status_code, 422)
         self.assertEqual(len(self.requests), 1)
         self.assertEqual(
             self.requests[0].headers["Idempotency-Key"],
