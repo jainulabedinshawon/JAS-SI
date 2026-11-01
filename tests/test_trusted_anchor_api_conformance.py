@@ -83,6 +83,12 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
             last_hash="f" * 64,
         )
 
+        self.conflicting_anchor = SecurityCheckpointAnchor(
+            repository_id="jas-si",
+            event_count=41,
+            last_hash="e" * 64,
+        )
+
         self.backend = FakeConformanceBackend()
 
         self.suite = TrustedAnchorProviderConformance(
@@ -93,9 +99,10 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
         results = self.suite.run(
             self.anchor,
             missing_key="a" * 64,
+            conflicting_anchor=self.conflicting_anchor,
         )
 
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 5)
 
         for result in results:
             with self.subTest(check=result.name):
@@ -151,6 +158,35 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertEqual(result.detail, "ValueError")
+
+    def test_idempotency_key_conflict_is_rejected(self):
+        result = self.suite.check_idempotency_key_conflict(
+            self.anchor,
+            self.conflicting_anchor,
+        )
+
+        self.assertTrue(result.passed, result.detail)
+
+        self.assertEqual(
+            len(self.backend.records),
+            1,
+        )
+
+        original = self.backend.lookup_by_idempotency_key(
+            self.anchor.digest,
+        )
+
+        self.assertIsNotNone(original)
+        self.assertEqual(
+            original.anchor_digest,
+            self.anchor.digest,
+        )
+
+        self.assertIsNone(
+            self.backend.lookup_by_idempotency_key(
+                self.conflicting_anchor.digest,
+            )
+        )
 
     def test_missing_lookup_returns_none(self):
         result = self.suite.check_missing_lookup(
