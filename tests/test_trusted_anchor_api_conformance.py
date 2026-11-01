@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import unittest
 from pathlib import Path
 
@@ -34,6 +35,7 @@ class FakeConformanceBackend:
     def __init__(self):
         self.records = {}
         self.publish_calls = 0
+        self._lock = threading.Lock()
 
     def publish_idempotent(
         self,
@@ -43,29 +45,33 @@ class FakeConformanceBackend:
         if idempotency_key != anchor.digest:
             raise ValueError("Idempotency key mismatch")
 
-        self.publish_calls += 1
+        with self._lock:
+            self.publish_calls += 1
 
-        existing = self.records.get(idempotency_key)
+            existing = self.records.get(idempotency_key)
 
-        if existing is not None:
-            return existing
+            if existing is not None:
+                return existing
 
-        receipt = create_signed_receipt(
-            provider_id="conformance-test-provider",
-            anchor_digest=anchor.digest,
-            external_reference="conformance-" + anchor.digest[:12],
-            observed_at="2026-11-01T12:00:00Z",
-            secret=SECRET,
-        )
+            receipt = create_signed_receipt(
+                provider_id="conformance-test-provider",
+                anchor_digest=anchor.digest,
+                external_reference=(
+                    "conformance-" + anchor.digest[:12]
+                ),
+                observed_at="2026-11-01T12:00:00Z",
+                secret=SECRET,
+            )
 
-        self.records[idempotency_key] = receipt
-        return receipt
+            self.records[idempotency_key] = receipt
+            return receipt
 
     def lookup_by_idempotency_key(
         self,
         idempotency_key,
     ):
-        return self.records.get(idempotency_key)
+        with self._lock:
+            return self.records.get(idempotency_key)
 
 
 class TestTrustedAnchorApiConformance(unittest.TestCase):
@@ -89,7 +95,7 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
             missing_key="a" * 64,
         )
 
-        self.assertEqual(len(results), 3)
+        self.assertEqual(len(results), 4)
 
         for result in results:
             with self.subTest(check=result.name):
@@ -106,6 +112,45 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(len(self.backend.records), 1)
         self.assertEqual(self.backend.publish_calls, 2)
+
+    def test_concurrent_replay_returns_same_receipt(self):
+        workers = 8
+
+        result = self.suite.check_concurrent_replay(
+            self.anchor,
+            workers=workers,
+        )
+
+        self.assertTrue(result.passed, result.detail)
+
+        self.assertEqual(
+            len(self.backend.records),
+            1,
+        )
+
+        self.assertEqual(
+            self.backend.publish_calls,
+            workers,
+        )
+
+        receipt = self.backend.lookup_by_idempotency_key(
+            self.anchor.digest,
+        )
+
+        self.assertIsNotNone(receipt)
+        self.assertEqual(
+            receipt.anchor_digest,
+            self.anchor.digest,
+        )
+
+    def test_concurrent_replay_rejects_invalid_worker_count(self):
+        result = self.suite.check_concurrent_replay(
+            self.anchor,
+            workers=1,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.detail, "ValueError")
 
     def test_missing_lookup_returns_none(self):
         result = self.suite.check_missing_lookup(
