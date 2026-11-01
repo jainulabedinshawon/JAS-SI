@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -20,6 +19,8 @@ from jas_si_agent.security_checkpoint_anchor import (
 from jas_si_agent.trusted_anchor_api_client import (
     TrustedAnchorApiClient,
     TrustedAnchorApiClientError,
+    TrustedAnchorApiIdempotencyConflict,
+    TrustedAnchorApiRequestInProgress,
 )
 from jas_si_agent.trusted_anchor_api_contract import (
     TrustedAnchorApiContract,
@@ -183,6 +184,44 @@ class TestTrustedAnchorApiConflictRejection(unittest.TestCase):
         )
 
         self.assertEqual(len(self.requests), 1)
+
+    def test_http_409_is_classified_as_request_in_progress(self):
+        def handler(request):
+            self.requests.append(request)
+            return httpx.Response(409)
+
+        client = self.make_client(handler)
+
+        with self.assertRaises(TrustedAnchorApiRequestInProgress):
+            client.publish(
+                self.anchor,
+                idempotency_key=self.anchor.digest,
+            )
+
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(
+            self.requests[0].headers["Idempotency-Key"],
+            self.anchor.digest,
+        )
+
+    def test_http_422_is_classified_as_idempotency_conflict(self):
+        def handler(request):
+            self.requests.append(request)
+            return httpx.Response(422)
+
+        client = self.make_client(handler)
+
+        with self.assertRaises(TrustedAnchorApiIdempotencyConflict):
+            client.publish(
+                self.anchor,
+                idempotency_key=self.anchor.digest,
+            )
+
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(
+            self.requests[0].headers["Idempotency-Key"],
+            self.anchor.digest,
+        )
 
 
 if __name__ == "__main__":
