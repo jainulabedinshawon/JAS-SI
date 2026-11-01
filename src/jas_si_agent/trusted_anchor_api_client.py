@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -27,6 +26,14 @@ from jas_si_agent.trusted_anchor_provider_profile import (
 
 class TrustedAnchorApiClientError(RuntimeError):
     """Raised when provider authentication or response validation fails."""
+
+
+class TrustedAnchorApiRequestInProgress(TrustedAnchorApiClientError):
+    """Raised when an idempotent request is already being processed."""
+
+
+class TrustedAnchorApiIdempotencyConflict(TrustedAnchorApiClientError):
+    """Raised when an idempotency key is reused with a different payload."""
 
 
 _TOKEN_PATTERN = re.compile(r"^[\x21-\x7e]{16,4096}$")
@@ -173,6 +180,16 @@ class TrustedAnchorApiClient:
             raise TrustedAnchorApiClientError(
                 "Trusted Anchor provider request failed"
             ) from exc
+
+        if response.status_code == 409:
+            raise TrustedAnchorApiRequestInProgress(
+                "Provider is still processing this idempotent request"
+            )
+
+        if response.status_code == 422:
+            raise TrustedAnchorApiIdempotencyConflict(
+                "Provider rejected idempotency key reuse with a different payload"
+            )
 
         if response.status_code not in accepted_status_codes:
             raise TrustedAnchorApiClientError(
@@ -345,4 +362,3 @@ class TrustedAnchorApiClient:
             )
 
         return receipt
-
