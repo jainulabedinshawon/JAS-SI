@@ -224,6 +224,77 @@ class TestTrustedAnchorApiBackendIntegration(unittest.TestCase):
         finally:
             http_client.close()
 
+    def test_recovers_when_publish_succeeds_but_response_is_lost(self):
+        first_publish_attempt = True
+
+        def flaky_handler(request):
+            nonlocal first_publish_attempt
+
+            if request.method == "POST" and first_publish_attempt:
+                first_publish_attempt = False
+
+                # Simulate remote persistence before response loss.
+                self.make_handler(request)
+
+                raise httpx.ReadTimeout(
+                    "Simulated response loss after remote persistence"
+                )
+
+            return self.make_handler(request)
+
+        http_client = httpx.Client(
+            transport=httpx.MockTransport(flaky_handler),
+            follow_redirects=False,
+        )
+
+        transport = TrustedAnchorHttpTransport(
+            self.profile,
+            client=http_client,
+        )
+
+        api_client = TrustedAnchorApiClient(
+            self.profile,
+            transport,
+            bearer_token=TOKEN,
+            contract=self.contract,
+        )
+
+        backend = TrustedAnchorApiBackendAdapter(api_client)
+
+        provider = RecoverableApiTrustedAnchorProvider(
+            backend,
+            HmacReceiptVerifier(SECRET),
+            expected_provider_id="example-provider",
+        )
+
+        try:
+            # First attempt: remote publication happens,
+            # but the client receives a timeout.
+            with self.assertRaises(Exception):
+                recover_or_publish_anchor(
+                    provider,
+                    self.anchor,
+                )
+
+            self.assertTrue(self.published)
+            self.assertEqual(self.publish_requests, 1)
+
+            # Second attempt: lookup must recover the existing receipt.
+            recovered = recover_or_publish_anchor(
+                provider,
+                self.anchor,
+            )
+
+            self.assertEqual(
+                recovered.anchor_digest,
+                self.anchor.digest,
+            )
+            self.assertEqual(self.lookup_requests, 2)
+            self.assertEqual(self.publish_requests, 1)
+
+        finally:
+            http_client.close()
+
 
 if __name__ == "__main__":
     unittest.main()
