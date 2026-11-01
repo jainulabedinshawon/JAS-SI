@@ -184,6 +184,63 @@ class TrustedAnchorProviderConformance:
             operation,
         )
 
+    def check_idempotency_key_conflict(
+        self,
+        anchor: SecurityCheckpointAnchor,
+        conflicting_anchor: SecurityCheckpointAnchor,
+    ) -> ConformanceResult:
+        def operation():
+            if anchor.digest == conflicting_anchor.digest:
+                raise ValueError(
+                    "Conflict test requires different anchor digests"
+                )
+
+            original_receipt = self.backend.publish_idempotent(
+                anchor,
+                anchor.digest,
+            )
+
+            if not isinstance(original_receipt, TrustedAnchorReceipt):
+                raise AssertionError("Invalid original receipt")
+
+            if original_receipt.anchor_digest != anchor.digest:
+                raise AssertionError("Original receipt digest mismatch")
+
+            try:
+                self.backend.publish_idempotent(
+                    conflicting_anchor,
+                    anchor.digest,
+                )
+            except Exception:
+                pass
+            else:
+                raise AssertionError(
+                    "Backend accepted an idempotency key conflict"
+                )
+
+            recovered = self.backend.lookup_by_idempotency_key(
+                anchor.digest,
+            )
+
+            if recovered != original_receipt:
+                raise AssertionError(
+                    "Conflict changed the original receipt"
+                )
+
+            conflicting_record = self.backend.lookup_by_idempotency_key(
+                conflicting_anchor.digest,
+            )
+
+            if conflicting_record is not None:
+                raise AssertionError(
+                    "Conflict created an unexpected second record"
+                )
+
+        return self._check(
+            "idempotency_key_conflict",
+            operation,
+        )
+
     def check_missing_lookup(
         self,
         missing_key: str,
@@ -205,10 +262,15 @@ class TrustedAnchorProviderConformance:
         anchor: SecurityCheckpointAnchor,
         *,
         missing_key: str,
+        conflicting_anchor: SecurityCheckpointAnchor,
     ) -> tuple[ConformanceResult, ...]:
         return (
             self.check_publish_and_lookup(anchor),
             self.check_idempotent_replay(anchor),
             self.check_concurrent_replay(anchor),
+            self.check_idempotency_key_conflict(
+                anchor,
+                conflicting_anchor,
+            ),
             self.check_missing_lookup(missing_key),
         )
