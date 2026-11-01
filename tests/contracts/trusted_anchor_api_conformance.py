@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -90,12 +91,11 @@ class TrustedAnchorProviderConformance:
             )
 
             if recovered != receipt:
-                raise AssertionError("Lookup did not return published receipt")
+                raise AssertionError(
+                    "Lookup did not return published receipt"
+                )
 
-        return self._check(
-            "publish_and_lookup",
-            operation,
-        )
+        return self._check("publish_and_lookup", operation)
 
     def check_idempotent_replay(
         self,
@@ -113,10 +113,74 @@ class TrustedAnchorProviderConformance:
             )
 
             if first != second:
-                raise AssertionError("Replay returned a different receipt")
+                raise AssertionError(
+                    "Replay returned a different receipt"
+                )
+
+        return self._check("idempotent_replay", operation)
+
+    def check_concurrent_replay(
+        self,
+        anchor: SecurityCheckpointAnchor,
+        *,
+        workers: int = 8,
+    ) -> ConformanceResult:
+        def operation():
+            if (
+                not isinstance(workers, int)
+                or isinstance(workers, bool)
+                or workers < 2
+                or workers > 32
+            ):
+                raise ValueError(
+                    "workers must be an integer between 2 and 32"
+                )
+
+            def publish_once():
+                return self.backend.publish_idempotent(
+                    anchor,
+                    anchor.digest,
+                )
+
+            with ThreadPoolExecutor(
+                max_workers=workers,
+            ) as executor:
+                receipts = list(
+                    executor.map(
+                        lambda _: publish_once(),
+                        range(workers),
+                    )
+                )
+
+            if not receipts:
+                raise AssertionError("No publication receipts returned")
+
+            first = receipts[0]
+
+            if not isinstance(first, TrustedAnchorReceipt):
+                raise AssertionError("Invalid concurrent receipt")
+
+            if first.anchor_digest != anchor.digest:
+                raise AssertionError(
+                    "Concurrent receipt digest mismatch"
+                )
+
+            if any(receipt != first for receipt in receipts[1:]):
+                raise AssertionError(
+                    "Concurrent replay returned inconsistent receipts"
+                )
+
+            recovered = self.backend.lookup_by_idempotency_key(
+                anchor.digest,
+            )
+
+            if recovered != first:
+                raise AssertionError(
+                    "Lookup differs from concurrent publication receipt"
+                )
 
         return self._check(
-            "idempotent_replay",
+            "concurrent_replay",
             operation,
         )
 
@@ -134,10 +198,7 @@ class TrustedAnchorProviderConformance:
                     "Missing key unexpectedly returned a receipt"
                 )
 
-        return self._check(
-            "missing_lookup",
-            operation,
-        )
+        return self._check("missing_lookup", operation)
 
     def run(
         self,
@@ -148,5 +209,6 @@ class TrustedAnchorProviderConformance:
         return (
             self.check_publish_and_lookup(anchor),
             self.check_idempotent_replay(anchor),
+            self.check_concurrent_replay(anchor),
             self.check_missing_lookup(missing_key),
         )
