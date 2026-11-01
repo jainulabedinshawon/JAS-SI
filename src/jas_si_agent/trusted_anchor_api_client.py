@@ -31,9 +31,17 @@ class TrustedAnchorApiClientError(RuntimeError):
 class TrustedAnchorApiRequestInProgress(TrustedAnchorApiClientError):
     """Raised when an idempotent request is already being processed."""
 
+    def __init__(self, message: str, *, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class TrustedAnchorApiIdempotencyConflict(TrustedAnchorApiClientError):
     """Raised when an idempotency key is reused with a different payload."""
+
+    def __init__(self, message: str, *, status_code: int = 422) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 _TOKEN_PATTERN = re.compile(r"^[\x21-\x7e]{16,4096}$")
