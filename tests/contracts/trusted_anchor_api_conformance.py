@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -241,6 +240,53 @@ class TrustedAnchorProviderConformance:
             operation,
         )
 
+    def check_wrong_idempotency_key(
+        self,
+        anchor: SecurityCheckpointAnchor,
+    ) -> ConformanceResult:
+        def operation():
+            wrong_key = "0" * 64
+
+            if wrong_key == anchor.digest:
+                raise ValueError(
+                    "Test requires a different idempotency key"
+                )
+
+            try:
+                self.backend.publish_idempotent(
+                    anchor,
+                    wrong_key,
+                )
+            except Exception:
+                pass
+            else:
+                raise AssertionError(
+                    "Backend accepted an incorrect idempotency key"
+                )
+
+            existing = self.backend.lookup_by_idempotency_key(
+                anchor.digest,
+            )
+
+            if existing is not None:
+                raise AssertionError(
+                    "Wrong key created an unexpected publication"
+                )
+
+            wrong_record = self.backend.lookup_by_idempotency_key(
+                wrong_key,
+            )
+
+            if wrong_record is not None:
+                raise AssertionError(
+                    "Wrong idempotency key created a record"
+                )
+
+        return self._check(
+            "wrong_idempotency_key",
+            operation,
+        )
+
     def check_missing_lookup(
         self,
         missing_key: str,
@@ -272,5 +318,6 @@ class TrustedAnchorProviderConformance:
                 anchor,
                 conflicting_anchor,
             ),
+            self.check_wrong_idempotency_key(anchor),
             self.check_missing_lookup(missing_key),
         )
