@@ -6,10 +6,14 @@ from jas_si_agent.security_checkpoint_anchor import (
 from jas_si_agent.trusted_anchor_api_client import (
     TrustedAnchorApiClient,
     TrustedAnchorApiClientError,
+    TrustedAnchorApiRequestInProgress,
+    TrustedAnchorApiIdempotencyConflict,
 )
 from jas_si_agent.trusted_anchor_api_recovery import (
     TrustedAnchorApiRecoveryError,
     TrustedAnchorApiRecoveryBackend,
+    TrustedAnchorApiRequestInProgressError,
+    TrustedAnchorApiIdempotencyConflictError,
 )
 from jas_si_agent.trusted_anchor_provider import (
     TrustedAnchorReceipt,
@@ -54,6 +58,16 @@ class TrustedAnchorApiBackendAdapter:
                 anchor,
                 idempotency_key=idempotency_key,
             )
+        except TrustedAnchorApiRequestInProgress as exc:
+            raise TrustedAnchorApiRequestInProgressError(
+                "Provider publication is still in progress",
+                status_code=exc.status_code,
+            ) from exc
+        except TrustedAnchorApiIdempotencyConflict as exc:
+            raise TrustedAnchorApiIdempotencyConflictError(
+                "Provider rejected conflicting idempotency key reuse",
+                status_code=exc.status_code,
+            ) from exc
         except TrustedAnchorApiClientError as exc:
             raise TrustedAnchorApiRecoveryError(
                 "API backend publication failed"
