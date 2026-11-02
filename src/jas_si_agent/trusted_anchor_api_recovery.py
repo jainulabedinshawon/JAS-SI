@@ -10,10 +10,11 @@ from jas_si_agent.trusted_anchor_provider import (
 )
 from jas_si_agent.trusted_anchor_recovery import (
     RecoverableIdempotentTrustedAnchorProvider,
+    TrustedAnchorRecoveryError,
 )
 
 
-class TrustedAnchorApiRecoveryError(RuntimeError):
+class TrustedAnchorApiRecoveryError(TrustedAnchorRecoveryError):
     """Raised when API recovery operations fail."""
 
 
