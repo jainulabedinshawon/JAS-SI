@@ -20,6 +20,10 @@ from jas_si_agent.trusted_anchor_api_provider import (
 )
 from jas_si_agent.trusted_anchor_api_recovery import (
     RecoverableApiTrustedAnchorProvider,
+    TrustedAnchorApiRequestInProgressError,
+)
+from jas_si_agent.trusted_anchor_api_409_policy import (
+    recover_anchor_with_409_policy,
 )
 from jas_si_agent.trusted_anchor_hmac import (
     create_signed_receipt,
@@ -102,6 +106,25 @@ class AtomicConcurrentBackend:
             self.records[idempotency_key] = receipt
 
             return receipt
+
+
+class Concurrent409Backend(AtomicConcurrentBackend):
+    """Simulate concurrent requests receiving HTTP 409.
+
+    The first request persists the receipt. Every publication attempt
+    then reports that the request is still in progress.
+    """
+
+    def publish_idempotent(
+        self,
+        anchor: SecurityCheckpointAnchor,
+        idempotency_key: str,
+    ) -> TrustedAnchorReceipt:
+        super().publish_idempotent(anchor, idempotency_key)
+
+        raise TrustedAnchorApiRequestInProgressError(
+            "Request is still processing"
+        )
 
 
 class TestTrustedAnchorApiConcurrency(unittest.TestCase):
@@ -213,6 +236,63 @@ class TestTrustedAnchorApiConcurrency(unittest.TestCase):
 
         self.assertEqual(len(self.backend.records), 1)
         self.assertEqual(self.backend.publish_calls, 1)
+
+    def test_concurrent_409_recovery_returns_one_verified_receipt(self):
+        backend = Concurrent409Backend(
+            threading.Barrier(WORKER_COUNT)
+        )
+
+        provider = RecoverableApiTrustedAnchorProvider(
+            backend,
+            HmacReceiptVerifier(SECRET),
+            expected_provider_id="concurrent-test-provider",
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=WORKER_COUNT
+        ) as executor:
+
+            futures = [
+                executor.submit(
+                    recover_anchor_with_409_policy,
+                    provider,
+                    self.anchor,
+                    max_lookup_attempts=3,
+                )
+                for _ in range(WORKER_COUNT)
+            ]
+
+            receipts = [
+                future.result(timeout=30)
+                for future in futures
+            ]
+
+        first_receipt = receipts[0]
+
+        for receipt in receipts:
+            self.assertEqual(receipt, first_receipt)
+            self.assertEqual(
+                receipt.anchor_digest,
+                self.anchor.digest,
+            )
+            self.assertTrue(
+                provider.verify(self.anchor, receipt)
+            )
+
+        # All workers attempted publication, but the backend
+        # retained only one logical publication record.
+        self.assertEqual(
+            backend.publish_calls,
+            WORKER_COUNT,
+        )
+        self.assertEqual(
+            len(backend.records),
+            1,
+        )
+        self.assertIn(
+            self.anchor.digest,
+            backend.records,
+        )
 
 
 if __name__ == "__main__":
