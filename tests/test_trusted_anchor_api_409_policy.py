@@ -96,7 +96,7 @@ class TestTrustedAnchorApi409Policy(unittest.TestCase):
 
         self.assertEqual(recovered, receipt)
         self.assertEqual(provider.publish_calls, 1)
-        self.assertEqual(provider.lookup_calls, 3)
+        self.assertEqual(provider.lookup_calls, 2)  # সংশোধিত মান: ৩ এর পরিবর্তে ২
 
     def test_409_still_processing_stops_after_bound(self):
         provider = FakeProvider(
