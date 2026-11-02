@@ -17,6 +17,26 @@ class TrustedAnchorApiRecoveryError(RuntimeError):
     """Raised when API recovery operations fail."""
 
 
+class TrustedAnchorApiRequestInProgressError(
+    TrustedAnchorApiRecoveryError
+):
+    """Raised when the provider is still processing a publication."""
+
+    def __init__(self, message: str, *, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class TrustedAnchorApiIdempotencyConflictError(
+    TrustedAnchorApiRecoveryError
+):
+    """Raised when the provider rejects conflicting key reuse."""
+
+    def __init__(self, message: str, *, status_code: int = 422) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @runtime_checkable
 class TrustedAnchorApiRecoveryBackend(Protocol):
     """Provider-specific backend contract.
@@ -128,6 +148,8 @@ class RecoverableApiTrustedAnchorProvider:
                 anchor,
                 idempotency_key,
             )
+        except TrustedAnchorApiRecoveryError:
+            raise
         except Exception as exc:
             raise TrustedAnchorApiRecoveryError(
                 "API idempotent publication failed"
