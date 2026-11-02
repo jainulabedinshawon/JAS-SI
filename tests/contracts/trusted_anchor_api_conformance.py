@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -60,7 +61,7 @@ class TrustedAnchorProviderConformance:
             return ConformanceResult(
                 name=name,
                 passed=False,
-                detail=type(exc).__name__,
+                detail=f"{type(exc).__name__}: {exc}",
             )
 
         return ConformanceResult(
@@ -158,7 +159,9 @@ class TrustedAnchorProviderConformance:
                 )
 
             if not receipts:
-                raise AssertionError("No publication receipts returned")
+                raise AssertionError(
+                    "No publication receipts returned"
+                )
 
             first = receipts[0]
 
@@ -256,6 +259,21 @@ class TrustedAnchorProviderConformance:
                     "Test requires a different idempotency key"
                 )
 
+            # Preserve existing state because earlier checks in run()
+            # may already have published this anchor.
+            original_record = (
+                self.backend.lookup_by_idempotency_key(
+                    anchor.digest,
+                )
+            )
+
+            wrong_record_before = (
+                self.backend.lookup_by_idempotency_key(
+                    wrong_key,
+                )
+            )
+
+            # An incorrect key must be rejected.
             try:
                 self.backend.publish_idempotent(
                     anchor,
@@ -268,25 +286,34 @@ class TrustedAnchorProviderConformance:
                     "Backend accepted an incorrect idempotency key"
                 )
 
-            existing = self.backend.lookup_by_idempotency_key(
-                anchor.digest,
+            # The original record must remain unchanged.
+            existing_after = (
+                self.backend.lookup_by_idempotency_key(
+                    anchor.digest,
+                )
             )
 
-            if existing is not None:
+            if existing_after != original_record:
                 raise AssertionError(
-                    "Wrong key created an unexpected publication"
+                    "Wrong key changed the original publication"
                 )
 
-            wrong_record = self.backend.lookup_by_idempotency_key(
-                wrong_key,
+            # The wrong-key record must also remain unchanged.
+            wrong_record_after = (
+                self.backend.lookup_by_idempotency_key(
+                    wrong_key,
+                )
             )
 
-            if wrong_record is not None:
+            if wrong_record_after != wrong_record_before:
                 raise AssertionError(
-                    "Wrong idempotency key created a record"
+                    "Wrong key created or changed a publication"
                 )
 
-        return self._check("wrong_idempotency_key", operation)
+        return self._check(
+            "wrong_idempotency_key",
+            operation,
+        )
 
     def check_missing_lookup(
         self,
