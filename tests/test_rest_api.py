@@ -395,7 +395,7 @@ class TestJASSIRestAPI(unittest.TestCase):
         rate_limit_events = [
             event
             for event in events
-            if event["event_type"] == "rate_limit_exceeded"
+            if event.get("event_type") == "rate_limit_exceeded"
         ]
         self.assertEqual(len(rate_limit_events), 1)
         self.assertEqual(rate_limit_events[0]["status_code"], 429)
@@ -503,7 +503,7 @@ class TestJASSIRestAPI(unittest.TestCase):
         rate_limit_events = [
             event
             for event in events
-            if event.get("event_type"] == "rate_limit_exceeded"
+            if event.get("event_type") == "rate_limit_exceeded"
         ]
 
         self.assertEqual(len(rate_limit_events), 1)
