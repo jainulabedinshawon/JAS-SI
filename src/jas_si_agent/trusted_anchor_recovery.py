@@ -109,6 +109,8 @@ def recover_or_publish_anchor(
             anchor,
             idempotency_key,
         )
+    except TrustedAnchorRecoveryError:
+        raise
     except Exception as exc:
         raise TrustedAnchorRecoveryError(
             "Idempotent recovery publication failed"
