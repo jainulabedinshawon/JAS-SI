@@ -387,7 +387,7 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
             action_id=payload.action_id,
             observed_state=payload.observed_state,
             evidence_ref=payload.evidence_ref,
-            collected_independently=payload.collected_independently,
+            collected_independently=False,
         )
 
     try:
@@ -418,4 +418,9 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
         "action_id": result.action_id,
         "status": status,
         "reason": result.reason,
+        "evidence_origin": (
+            "caller_submitted"
+            if evidence_submitted
+            else "not_provided"
+        ),
     }
