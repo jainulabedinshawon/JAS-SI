@@ -45,6 +45,9 @@ from jas_si_agent.trusted_anchor_provider_profile import (
 from jas_si_agent.trusted_anchor_recovery import (
     recover_or_publish_anchor,
 )
+from jas_si_agent.trusted_anchor_api_409_policy import (
+    recover_anchor_with_409_policy,
+)
 
 
 SECRET = b"test-api-backend-secret-minimum-32-bytes"
@@ -291,6 +294,79 @@ class TestTrustedAnchorApiBackendIntegration(unittest.TestCase):
                 recovered.anchor_digest,
                 self.anchor.digest,
             )
+            self.assertEqual(self.lookup_requests, 2)
+            self.assertEqual(self.publish_requests, 1)
+
+        finally:
+            http_client.close()
+
+    def test_409_policy_recovers_signed_receipt_end_to_end(self):
+        def handler(request):
+            if request.method == "GET":
+                self.lookup_requests += 1
+
+                # First lookup: publication does not exist yet.
+                if self.lookup_requests == 1:
+                    return httpx.Response(404)
+
+                # Recovery lookup: return the signed receipt.
+                return httpx.Response(
+                    200,
+                    headers={"Content-Type": "application/json"},
+                    json=asdict(self.receipt),
+                )
+
+            if request.method == "POST":
+                self.publish_requests += 1
+
+                self.assertEqual(
+                    request.headers["Idempotency-Key"],
+                    self.anchor.digest,
+                )
+
+                # Simulate an in-progress remote publication.
+                return httpx.Response(409)
+
+            return httpx.Response(405)
+
+        http_client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+        )
+
+        transport = TrustedAnchorHttpTransport(
+            self.profile,
+            client=http_client,
+        )
+
+        api_client = TrustedAnchorApiClient(
+            self.profile,
+            transport,
+            bearer_token=TOKEN,
+            contract=self.contract,
+        )
+
+        backend = TrustedAnchorApiBackendAdapter(api_client)
+
+        provider = RecoverableApiTrustedAnchorProvider(
+            backend,
+            HmacReceiptVerifier(SECRET),
+            expected_provider_id="example-provider",
+        )
+
+        try:
+            recovered = recover_anchor_with_409_policy(
+                provider,
+                self.anchor,
+                max_lookup_attempts=3,
+            )
+
+            self.assertEqual(recovered, self.receipt)
+
+            self.assertTrue(
+                provider.verify(self.anchor, recovered)
+            )
+
             self.assertEqual(self.lookup_requests, 2)
             self.assertEqual(self.publish_requests, 1)
 
