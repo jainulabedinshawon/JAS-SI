@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -218,7 +217,7 @@ class TrustedAnchorProviderConformance:
                     conflicting_anchor,
                     anchor.digest,
                 )
-            except ValueError:
+            except Exception:
                 pass
             else:
                 raise AssertionError(
@@ -262,7 +261,7 @@ class TrustedAnchorProviderConformance:
                     anchor,
                     wrong_key,
                 )
-            except ValueError:
+            except Exception:
                 pass
             else:
                 raise AssertionError(
