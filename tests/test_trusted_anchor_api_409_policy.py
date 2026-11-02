@@ -96,7 +96,7 @@ class TestTrustedAnchorApi409Policy(unittest.TestCase):
 
         self.assertEqual(recovered, receipt)
         self.assertEqual(provider.publish_calls, 1)
-        self.assertEqual(provider.lookup_calls, 2)  # সংশোধিত মান: ৩ এর পরিবর্তে ২
+        self.assertEqual(provider.lookup_calls, 2)
 
     def test_409_still_processing_stops_after_bound(self):
         provider = FakeProvider(
@@ -135,6 +135,97 @@ class TestTrustedAnchorApi409Policy(unittest.TestCase):
 
         self.assertEqual(provider.publish_calls, 1)
         self.assertEqual(provider.lookup_calls, 1)
+
+    def test_409_rejects_receipt_with_wrong_digest(self):
+        receipt = TrustedAnchorReceipt(
+            provider_id="test-provider",
+            anchor_digest="b" * 64,
+            external_reference="external-123",
+            observed_at="2026-11-02T00:00:00Z",
+            proof="test-proof",
+        )
+
+        provider = FakeProvider(
+            lookup_results=[None, receipt],
+            publish_error=TrustedAnchorApiRequestInProgressError(
+                "Request is still processing"
+            ),
+        )
+
+        with self.assertRaises(TrustedAnchorApiRecoveryError):
+            recover_anchor_with_409_policy(
+                provider,
+                self.anchor,
+                max_lookup_attempts=3,
+            )
+
+        self.assertEqual(provider.publish_calls, 1)
+        self.assertEqual(provider.lookup_calls, 2)
+
+    def test_409_rejects_unverified_receipt(self):
+        receipt = self.make_receipt()
+        provider = FakeProvider(
+            lookup_results=[None, receipt],
+            publish_error=TrustedAnchorApiRequestInProgressError(
+                "Request is still processing"
+            ),
+        )
+
+        provider.verify = lambda anchor, receipt: False
+
+        with self.assertRaises(TrustedAnchorApiRecoveryError):
+            recover_anchor_with_409_policy(
+                provider,
+                self.anchor,
+                max_lookup_attempts=3,
+            )
+
+        self.assertEqual(provider.publish_calls, 1)
+        self.assertEqual(provider.lookup_calls, 2)
+
+    def test_409_lookup_failure_fails_closed(self):
+        class LookupFailureProvider(FakeProvider):
+            def lookup_by_idempotency_key(self, key):
+                self.lookup_calls += 1
+
+                if self.lookup_calls == 1:
+                    return None
+
+                raise OSError("Simulated lookup failure")
+
+        provider = LookupFailureProvider(
+            publish_error=TrustedAnchorApiRequestInProgressError(
+                "Request is still processing"
+            ),
+        )
+
+        with self.assertRaises(TrustedAnchorApiRecoveryError):
+            recover_anchor_with_409_policy(
+                provider,
+                self.anchor,
+                max_lookup_attempts=3,
+            )
+
+        self.assertEqual(provider.publish_calls, 1)
+        self.assertEqual(provider.lookup_calls, 2)
+
+    def test_409_rejects_invalid_receipt_type(self):
+        provider = FakeProvider(
+            lookup_results=[None, {"invalid": "receipt"}],
+            publish_error=TrustedAnchorApiRequestInProgressError(
+                "Request is still processing"
+            ),
+        )
+
+        with self.assertRaises(TrustedAnchorApiRecoveryError):
+            recover_anchor_with_409_policy(
+                provider,
+                self.anchor,
+                max_lookup_attempts=3,
+            )
+
+        self.assertEqual(provider.publish_calls, 1)
+        self.assertEqual(provider.lookup_calls, 2)
 
     def test_invalid_retry_bound_is_rejected(self):
         provider = FakeProvider()
