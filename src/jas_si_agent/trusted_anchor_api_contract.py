@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import re
@@ -11,6 +10,25 @@ class TrustedAnchorApiContractError(ValueError):
 
 _HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._~-]+$")
+
+_RESERVED_HEADERS = {
+    "authorization",
+    "content-type",
+    "accept",
+    "host",
+    "content-length",
+    "transfer-encoding",
+    "connection",
+    "proxy-authorization",
+    "proxy-connection",
+    "keep-alive",
+    "upgrade",
+    "te",
+    "trailer",
+    "expect",
+    "cookie",
+    "set-cookie",
+}
 
 
 @dataclass(frozen=True)
@@ -49,6 +67,15 @@ class TrustedAnchorApiContract:
         ):
             raise TrustedAnchorApiContractError(
                 "Invalid HTTP idempotency header name"
+            )
+
+        if (
+            self.idempotency_header.casefold()
+            in _RESERVED_HEADERS
+        ):
+            raise TrustedAnchorApiContractError(
+                "Idempotency header must not override "
+                "a reserved HTTP header"
             )
 
         if (
