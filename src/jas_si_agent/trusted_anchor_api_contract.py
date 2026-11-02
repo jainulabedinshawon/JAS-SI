@@ -11,7 +11,7 @@ class TrustedAnchorApiContractError(ValueError):
 _HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._~-]+$")
 
-_RESERVED_HEADERS = {
+_RESERVED_HEADERS = frozenset({
     "authorization",
     "content-type",
     "accept",
@@ -28,7 +28,9 @@ _RESERVED_HEADERS = {
     "expect",
     "cookie",
     "set-cookie",
-}
+    "user-agent",
+    "x-api-key",
+})
 
 
 @dataclass(frozen=True)
@@ -69,9 +71,11 @@ class TrustedAnchorApiContract:
                 "Invalid HTTP idempotency header name"
             )
 
+        normalized_header = self.idempotency_header.casefold()
+
         if (
-            self.idempotency_header.casefold()
-            in _RESERVED_HEADERS
+            normalized_header in _RESERVED_HEADERS
+            or normalized_header.startswith("x-forwarded-")
         ):
             raise TrustedAnchorApiContractError(
                 "Idempotency header must not override "
