@@ -30,6 +30,8 @@ from jas_si_agent.trusted_anchor_api_provider import (
 )
 from jas_si_agent.trusted_anchor_api_recovery import (
     RecoverableApiTrustedAnchorProvider,
+    TrustedAnchorApiRequestInProgressError,
+    TrustedAnchorApiIdempotencyConflictError,
 )
 from jas_si_agent.trusted_anchor_hmac import (
     create_signed_receipt,
@@ -291,6 +293,100 @@ class TestTrustedAnchorApiBackendIntegration(unittest.TestCase):
             )
             self.assertEqual(self.lookup_requests, 2)
             self.assertEqual(self.publish_requests, 1)
+
+        finally:
+            http_client.close()
+
+    def test_recovery_preserves_http_409_classification(self):
+        def handler(request):
+            if request.method == "GET":
+                return httpx.Response(404)
+
+            if request.method == "POST":
+                return httpx.Response(409)
+
+            return httpx.Response(405)
+
+        http_client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+        )
+
+        transport = TrustedAnchorHttpTransport(
+            self.profile,
+            client=http_client,
+        )
+
+        api_client = TrustedAnchorApiClient(
+            self.profile,
+            transport,
+            bearer_token=TOKEN,
+            contract=self.contract,
+        )
+
+        provider = RecoverableApiTrustedAnchorProvider(
+            TrustedAnchorApiBackendAdapter(api_client),
+            HmacReceiptVerifier(SECRET),
+            expected_provider_id="example-provider",
+        )
+
+        try:
+            with self.assertRaises(
+                TrustedAnchorApiRequestInProgressError
+            ) as context:
+                recover_or_publish_anchor(
+                    provider,
+                    self.anchor,
+                )
+
+            self.assertEqual(context.exception.status_code, 409)
+
+        finally:
+            http_client.close()
+
+    def test_recovery_preserves_http_422_classification(self):
+        def handler(request):
+            if request.method == "GET":
+                return httpx.Response(404)
+
+            if request.method == "POST":
+                return httpx.Response(422)
+
+            return httpx.Response(405)
+
+        http_client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+        )
+
+        transport = TrustedAnchorHttpTransport(
+            self.profile,
+            client=http_client,
+        )
+
+        api_client = TrustedAnchorApiClient(
+            self.profile,
+            transport,
+            bearer_token=TOKEN,
+            contract=self.contract,
+        )
+
+        provider = RecoverableApiTrustedAnchorProvider(
+            TrustedAnchorApiBackendAdapter(api_client),
+            HmacReceiptVerifier(SECRET),
+            expected_provider_id="example-provider",
+        )
+
+        try:
+            with self.assertRaises(
+                TrustedAnchorApiIdempotencyConflictError
+            ) as context:
+                recover_or_publish_anchor(
+                    provider,
+                    self.anchor,
+                )
+
+            self.assertEqual(context.exception.status_code, 422)
 
         finally:
             http_client.close()
