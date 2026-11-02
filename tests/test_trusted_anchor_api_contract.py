@@ -86,6 +86,40 @@ class TestTrustedAnchorApiContract(unittest.TestCase):
                 idempotency_header="Bad Header",
             )
 
+    def test_rejects_reserved_idempotency_headers(self):
+        reserved_headers = (
+            "Authorization",
+            "authorization",
+            "Content-Type",
+            "Accept",
+            "Host",
+            "Content-Length",
+            "Transfer-Encoding",
+            "Connection",
+            "Proxy-Authorization",
+            "Proxy-Connection",
+            "Keep-Alive",
+            "Upgrade",
+            "TE",
+            "Trailer",
+            "Expect",
+            "Cookie",
+            "Set-Cookie",
+        )
+
+        for header in reserved_headers:
+            with self.subTest(header=header):
+                with self.assertRaises(
+                    TrustedAnchorApiContractError
+                ):
+                    TrustedAnchorApiContract(
+                        publish_path="v1/anchors",
+                        lookup_path_template=(
+                            "v1/lookup/{idempotency_key}"
+                        ),
+                        idempotency_header=header,
+                    )
+
     def test_rejects_non_2xx_status(self):
         with self.assertRaises(TrustedAnchorApiContractError):
             TrustedAnchorApiContract(
