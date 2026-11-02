@@ -189,6 +189,25 @@ class TestJASSIRestAPI(unittest.TestCase):
             "not_provided",
         )
 
+    def test_independence_flag_without_evidence_is_not_evidence(self):
+        response = self.client.post(
+            "/v1/verify",
+            headers=self.valid_headers,
+            json={
+                "action_id": "flag-only-test",
+                "claimed_success": True,
+                "collected_independently": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+
+        self.assertEqual(data["status"], "INCONCLUSIVE")
+        self.assertEqual(data["reason"], "EVIDENCE_MISSING")
+        self.assertEqual(data["evidence_origin"], "not_provided")
+
     def test_missing_api_key_returns_401(self):
         response = self.client.post(
             "/v1/verify",
