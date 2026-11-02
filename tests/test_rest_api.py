@@ -136,6 +136,59 @@ class TestJASSIRestAPI(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
 
+    def test_caller_cannot_claim_independent_evidence(self):
+        response = self.client.post(
+            "/v1/verify",
+            headers=self.valid_headers,
+            json={
+                "action_id": "caller-evidence-test",
+                "claimed_success": True,
+                "observed_state": "success",
+                "evidence_ref": "caller-controlled-reference",
+                "collected_independently": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+
+        self.assertEqual(
+            data["status"],
+            "INCONCLUSIVE",
+        )
+        self.assertEqual(
+            data["reason"],
+            "INDEPENDENCE_NOT_ESTABLISHED",
+        )
+        self.assertEqual(
+            data["evidence_origin"],
+            "caller_submitted",
+        )
+
+    def test_missing_evidence_reports_no_evidence_origin(self):
+        response = self.client.post(
+            "/v1/verify",
+            headers=self.valid_headers,
+            json={
+                "action_id": "no-evidence-test",
+                "claimed_success": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+
+        self.assertEqual(
+            data["status"],
+            "INCONCLUSIVE",
+        )
+        self.assertEqual(
+            data["evidence_origin"],
+            "not_provided",
+        )
+
     def test_missing_api_key_returns_401(self):
         response = self.client.post(
             "/v1/verify",
@@ -450,7 +503,7 @@ class TestJASSIRestAPI(unittest.TestCase):
         rate_limit_events = [
             event
             for event in events
-            if event.get("event_type") == "rate_limit_exceeded"
+            if event.get("event_type"] == "rate_limit_exceeded"
         ]
 
         self.assertEqual(len(rate_limit_events), 1)
