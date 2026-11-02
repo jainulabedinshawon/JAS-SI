@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import sys
@@ -115,7 +116,7 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
             self.anchor,
         )
 
-        self.assertTrue(result.passed)
+        self.assertTrue(result.passed, result.detail)
         self.assertEqual(len(self.backend.records), 1)
         self.assertEqual(self.backend.publish_calls, 2)
 
@@ -156,7 +157,11 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
         )
 
         self.assertFalse(result.passed)
-        self.assertEqual(result.detail, "ValueError")
+
+        self.assertEqual(
+            result.detail,
+            "ValueError: workers must be an integer between 2 and 32",
+        )
 
     def test_idempotency_key_conflict_is_rejected(self):
         result = self.suite.check_idempotency_key_conflict(
@@ -201,7 +206,7 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
             "b" * 64,
         )
 
-        self.assertTrue(result.passed)
+        self.assertTrue(result.passed, result.detail)
         self.assertEqual(len(self.backend.records), 0)
 
 
