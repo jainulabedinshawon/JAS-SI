@@ -33,6 +33,8 @@ class FakeProvider:
         self.publish_error = publish_error
         self.lookup_calls = 0
         self.publish_calls = 0
+        self.lookup_keys = []
+        self.publish_keys = []
 
         self.anchor = SecurityCheckpointAnchor(
             repository_id="jas-si",
@@ -42,6 +44,7 @@ class FakeProvider:
 
     def lookup_by_idempotency_key(self, key):
         self.lookup_calls += 1
+        self.lookup_keys.append(key)
 
         if self.lookup_results:
             return self.lookup_results.pop(0)
@@ -50,6 +53,7 @@ class FakeProvider:
 
     def publish_idempotent(self, anchor, idempotency_key):
         self.publish_calls += 1
+        self.publish_keys.append(idempotency_key)
 
         if self.publish_error is not None:
             raise self.publish_error
@@ -187,6 +191,7 @@ class TestTrustedAnchorApi409Policy(unittest.TestCase):
         class LookupFailureProvider(FakeProvider):
             def lookup_by_idempotency_key(self, key):
                 self.lookup_calls += 1
+                self.lookup_keys.append(key)
 
                 if self.lookup_calls == 1:
                     return None
@@ -223,6 +228,41 @@ class TestTrustedAnchorApi409Policy(unittest.TestCase):
                 self.anchor,
                 max_lookup_attempts=3,
             )
+
+        self.assertEqual(provider.publish_calls, 1)
+        self.assertEqual(provider.lookup_calls, 2)
+
+    def test_409_recovery_uses_same_idempotency_key(self):
+        receipt = self.make_receipt()
+
+        provider = FakeProvider(
+            lookup_results=[None, receipt],
+            publish_error=TrustedAnchorApiRequestInProgressError(
+                "Request is still processing"
+            ),
+        )
+
+        recovered = recover_anchor_with_409_policy(
+            provider,
+            self.anchor,
+            max_lookup_attempts=3,
+        )
+
+        expected_key = self.anchor.digest
+
+        self.assertEqual(recovered, receipt)
+
+        # Initial lookup + post-409 recovery lookup.
+        self.assertEqual(
+            provider.lookup_keys,
+            [expected_key, expected_key],
+        )
+
+        # Exactly one publication attempt.
+        self.assertEqual(
+            provider.publish_keys,
+            [expected_key],
+        )
 
         self.assertEqual(provider.publish_calls, 1)
         self.assertEqual(provider.lookup_calls, 2)
