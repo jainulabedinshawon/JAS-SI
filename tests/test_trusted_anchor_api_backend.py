@@ -373,6 +373,82 @@ class TestTrustedAnchorApiBackendIntegration(unittest.TestCase):
         finally:
             http_client.close()
 
+    def test_409_policy_stops_after_bounded_http_lookups(self):
+        def handler(request):
+            if request.method == "GET":
+                self.lookup_requests += 1
+
+                # Every lookup reports that no receipt is available.
+                return httpx.Response(404)
+
+            if request.method == "POST":
+                self.publish_requests += 1
+
+                self.assertEqual(
+                    request.headers["Idempotency-Key"],
+                    self.anchor.digest,
+                )
+
+                # Provider reports that publication is still processing.
+                return httpx.Response(409)
+
+            return httpx.Response(405)
+
+        http_client = httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=False,
+        )
+
+        transport = TrustedAnchorHttpTransport(
+            self.profile,
+            client=http_client,
+        )
+
+        api_client = TrustedAnchorApiClient(
+            self.profile,
+            transport,
+            bearer_token=TOKEN,
+            contract=self.contract,
+        )
+
+        backend = TrustedAnchorApiBackendAdapter(api_client)
+
+        provider = RecoverableApiTrustedAnchorProvider(
+            backend,
+            HmacReceiptVerifier(SECRET),
+            expected_provider_id="example-provider",
+        )
+
+        try:
+            with self.assertRaises(
+                TrustedAnchorApiRequestInProgressError
+            ) as context:
+                recover_anchor_with_409_policy(
+                    provider,
+                    self.anchor,
+                    max_lookup_attempts=3,
+                )
+
+            self.assertEqual(
+                context.exception.status_code,
+                409,
+            )
+
+            # One initial lookup + three bounded recovery lookups.
+            self.assertEqual(
+                self.lookup_requests,
+                4,
+            )
+
+            # Exactly one publication attempt.
+            self.assertEqual(
+                self.publish_requests,
+                1,
+            )
+
+        finally:
+            http_client.close()
+
     def test_recovery_preserves_http_409_classification(self):
         def handler(request):
             if request.method == "GET":
