@@ -105,6 +105,11 @@ class TestTrustedAnchorApiContract(unittest.TestCase):
             "Expect",
             "Cookie",
             "Set-Cookie",
+            "User-Agent",
+            "X-API-Key",
+            "X-Forwarded-For",
+            "X-Forwarded-Host",
+            "X-Forwarded-Proto",
         )
 
         for header in reserved_headers:
