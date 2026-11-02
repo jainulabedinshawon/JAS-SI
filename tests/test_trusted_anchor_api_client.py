@@ -334,6 +334,26 @@ class TestTrustedAnchorApiClient(unittest.TestCase):
 
         http_client.close()
 
+    def test_contract_publish_rejects_path_override(self):
+        request_called = False
+
+        def handler(request):
+            nonlocal request_called
+            request_called = True
+            return httpx.Response(500)
+
+        client, http_client = self.make_contract_client(handler)
+
+        with self.assertRaises(TrustedAnchorApiClientError):
+            client.publish(
+                self.anchor,
+                path="v1/admin/anchors",
+                idempotency_key=self.anchor.digest,
+            )
+
+        self.assertFalse(request_called)
+        http_client.close()
+
     def test_contract_publish_accepts_configured_status(self):
         contract = self.make_contract(
             success_status_codes=(202,),
