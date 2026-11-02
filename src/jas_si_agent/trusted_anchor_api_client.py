@@ -147,20 +147,13 @@ class TrustedAnchorApiClient:
                     "Idempotency key must equal the submitted anchor digest"
                 )
 
-            try:
-                request_path = (
-                    self._contract.publish_path
-                    if path is None
-                    else path
-                )
-                self._contract._validate_path(
-                    request_path,
-                    "publish_path",
-                )
-            except TrustedAnchorApiContractError as exc:
+            if path is not None:
                 raise TrustedAnchorApiClientError(
-                    "Invalid publish request path"
-                ) from exc
+                    "Publish path cannot be overridden "
+                    "when an API contract is configured"
+                )
+
+            request_path = self._contract.publish_path
 
             headers[self._contract.idempotency_header] = idempotency_key
 
