@@ -364,7 +364,6 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
     evidence_submitted = (
         payload.observed_state is not None
         or payload.evidence_ref is not None
-        or payload.collected_independently
     )
 
     if evidence_submitted:
