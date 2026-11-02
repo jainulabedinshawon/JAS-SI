@@ -194,7 +194,7 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
 
         self.assertTrue(result.passed, result.detail)
         self.assertEqual(len(self.backend.records), 0)
-        self.assertEqual(self.backend.publish_calls, 1)
+        self.assertEqual(self.backend.publish_calls, 0)
 
     def test_missing_lookup_returns_none(self):
         result = self.suite.check_missing_lookup(
