@@ -1,8 +1,9 @@
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
 
 from jas_si_agent.security_checkpoint_anchor import (
     SecurityCheckpointAnchor,
@@ -52,7 +53,7 @@ class TrustedAnchorProviderConformance:
     def _check(
         self,
         name: str,
-        operation,
+        operation: Callable[[], None],
     ) -> ConformanceResult:
         try:
             operation()
@@ -73,7 +74,7 @@ class TrustedAnchorProviderConformance:
         self,
         anchor: SecurityCheckpointAnchor,
     ) -> ConformanceResult:
-        def operation():
+        def operation() -> None:
             receipt = self.backend.publish_idempotent(
                 anchor,
                 anchor.digest,
@@ -100,7 +101,7 @@ class TrustedAnchorProviderConformance:
         self,
         anchor: SecurityCheckpointAnchor,
     ) -> ConformanceResult:
-        def operation():
+        def operation() -> None:
             first = self.backend.publish_idempotent(
                 anchor,
                 anchor.digest,
@@ -110,6 +111,12 @@ class TrustedAnchorProviderConformance:
                 anchor,
                 anchor.digest,
             )
+
+            if not isinstance(first, TrustedAnchorReceipt):
+                raise AssertionError("Invalid first receipt")
+
+            if not isinstance(second, TrustedAnchorReceipt):
+                raise AssertionError("Invalid replay receipt")
 
             if first != second:
                 raise AssertionError(
@@ -124,7 +131,7 @@ class TrustedAnchorProviderConformance:
         *,
         workers: int = 8,
     ) -> ConformanceResult:
-        def operation():
+        def operation() -> None:
             if (
                 not isinstance(workers, int)
                 or isinstance(workers, bool)
@@ -135,7 +142,7 @@ class TrustedAnchorProviderConformance:
                     "workers must be an integer between 2 and 32"
                 )
 
-            def publish_once():
+            def publish_once() -> TrustedAnchorReceipt:
                 return self.backend.publish_idempotent(
                     anchor,
                     anchor.digest,
@@ -164,7 +171,11 @@ class TrustedAnchorProviderConformance:
                     "Concurrent receipt digest mismatch"
                 )
 
-            if any(receipt != first for receipt in receipts[1:]):
+            if any(
+                not isinstance(receipt, TrustedAnchorReceipt)
+                or receipt != first
+                for receipt in receipts[1:]
+            ):
                 raise AssertionError(
                     "Concurrent replay returned inconsistent receipts"
                 )
@@ -178,17 +189,14 @@ class TrustedAnchorProviderConformance:
                     "Lookup differs from concurrent publication receipt"
                 )
 
-        return self._check(
-            "concurrent_replay",
-            operation,
-        )
+        return self._check("concurrent_replay", operation)
 
     def check_idempotency_key_conflict(
         self,
         anchor: SecurityCheckpointAnchor,
         conflicting_anchor: SecurityCheckpointAnchor,
     ) -> ConformanceResult:
-        def operation():
+        def operation() -> None:
             if anchor.digest == conflicting_anchor.digest:
                 raise ValueError(
                     "Conflict test requires different anchor digests"
@@ -210,11 +218,11 @@ class TrustedAnchorProviderConformance:
                     conflicting_anchor,
                     anchor.digest,
                 )
-            except Exception:
+            except ValueError:
                 pass
             else:
                 raise AssertionError(
-                    "Backend accepted an idempotency key conflict"
+                    "Backend did not reject an idempotency key conflict"
                 )
 
             recovered = self.backend.lookup_by_idempotency_key(
@@ -235,16 +243,13 @@ class TrustedAnchorProviderConformance:
                     "Conflict created an unexpected second record"
                 )
 
-        return self._check(
-            "idempotency_key_conflict",
-            operation,
-        )
+        return self._check("idempotency_key_conflict", operation)
 
     def check_wrong_idempotency_key(
         self,
         anchor: SecurityCheckpointAnchor,
     ) -> ConformanceResult:
-        def operation():
+        def operation() -> None:
             wrong_key = "0" * 64
 
             if wrong_key == anchor.digest:
@@ -257,7 +262,7 @@ class TrustedAnchorProviderConformance:
                     anchor,
                     wrong_key,
                 )
-            except Exception:
+            except ValueError:
                 pass
             else:
                 raise AssertionError(
@@ -282,16 +287,13 @@ class TrustedAnchorProviderConformance:
                     "Wrong idempotency key created a record"
                 )
 
-        return self._check(
-            "wrong_idempotency_key",
-            operation,
-        )
+        return self._check("wrong_idempotency_key", operation)
 
     def check_missing_lookup(
         self,
         missing_key: str,
     ) -> ConformanceResult:
-        def operation():
+        def operation() -> None:
             result = self.backend.lookup_by_idempotency_key(
                 missing_key,
             )
