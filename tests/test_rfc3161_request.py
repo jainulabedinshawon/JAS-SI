@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import subprocess
@@ -13,6 +12,7 @@ from jas_si_agent.rfc3161_request import (
     RFC3161RequestError,
     create_timestamp_request,
 )
+from jas_si_agent.rfc3161_runtime import RFC3161RuntimeError
 
 
 FAKE_DIGEST = "a" * 64
@@ -82,11 +82,26 @@ class TestRFC3161Request(unittest.TestCase):
         with self.assertRaises(RFC3161RequestError):
             create_timestamp_request("z" * 64)
 
-    def test_normalizes_digest(self):
-        self.assertEqual(
-            "A" * 64 .lower(),
-            "a" * 64,
-        )
+    @patch("jas_si_agent.rfc3161_request.subprocess.run")
+    @patch("jas_si_agent.rfc3161_request.check_openssl_runtime")
+    def test_normalizes_digest(self, mock_runtime, mock_run):
+        mock_runtime.return_value = self.make_runtime()
+
+        def fake_run(command, **kwargs):
+            output_path = Path(command[command.index("-out") + 1])
+            output_path.write_bytes(FAKE_DER_REQUEST)
+            return SimpleNamespace(returncode=0)
+
+        mock_run.side_effect = fake_run
+
+        result = create_timestamp_request("A" * 64)
+
+        self.assertEqual(result.digest_hex, "a" * 64)
+
+        command = mock_run.call_args.args[0]
+        digest_index = command.index("-digest")
+
+        self.assertEqual(command[digest_index + 1], "a" * 64)
 
     @patch("jas_si_agent.rfc3161_request.check_openssl_runtime")
     def test_rejects_unavailable_runtime(self, mock_runtime):
@@ -200,7 +215,7 @@ class TestRFC3161Request(unittest.TestCase):
 
 
 def unavailable():
-    raise RuntimeError("OpenSSL unavailable")
+    raise RFC3161RuntimeError("OpenSSL unavailable")
 
 
 if __name__ == "__main__":
