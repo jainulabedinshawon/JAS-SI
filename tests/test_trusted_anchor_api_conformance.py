@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -102,7 +101,7 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
             conflicting_anchor=self.conflicting_anchor,
         )
 
-        self.assertEqual(len(results), 5)
+        self.assertEqual(len(results), 6)
 
         for result in results:
             with self.subTest(check=result.name):
@@ -187,6 +186,15 @@ class TestTrustedAnchorApiConformance(unittest.TestCase):
                 self.conflicting_anchor.digest,
             )
         )
+
+    def test_wrong_idempotency_key_is_rejected(self):
+        result = self.suite.check_wrong_idempotency_key(
+            self.anchor,
+        )
+
+        self.assertTrue(result.passed, result.detail)
+        self.assertEqual(len(self.backend.records), 0)
+        self.assertEqual(self.backend.publish_calls, 1)
 
     def test_missing_lookup_returns_none(self):
         result = self.suite.check_missing_lookup(
