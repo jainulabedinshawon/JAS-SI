@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import base64
@@ -146,6 +145,38 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             self.assertFalse(
                 call.kwargs["follow_redirects"]
             )
+
+    @patch("jas_si_agent.verify_router.httpx.get")
+    def test_base64_content_with_newlines_is_verified(self, mock_get):
+        encoded = base64.b64encode(FILE_CONTENT).decode("ascii")
+        wrapped = encoded[:8] + "\n" + encoded[8:]
+
+        file_response = FakeGitHubResponse(
+            200,
+            {
+                "type": "file",
+                "encoding": "base64",
+                "content": wrapped,
+                "sha": git_blob_sha(FILE_CONTENT),
+            },
+        )
+
+        mock_get.side_effect = [
+            self.commit_response(),
+            file_response,
+        ]
+
+        response = self.client.post(
+            "/v1/github/evidence",
+            headers=self.headers,
+            json=self.payload,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["files"][0]["integrity"],
+            "VERIFIED",
+        )
 
     def test_missing_api_key_is_rejected(self):
         response = self.client.post(
