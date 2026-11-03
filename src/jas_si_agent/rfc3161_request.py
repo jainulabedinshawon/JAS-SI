@@ -46,12 +46,9 @@ def create_timestamp_request(
     """
     Create an RFC 3161 DER timestamp request using OpenSSL.
 
-    SHA-256 is the only enabled algorithm in this initial implementation.
-
+    SHA-256 is the only enabled algorithm in this implementation.
     OpenSSL generates the ASN.1/DER request and its nonce.
-    JAS-SI preserves the original request bytes for later verification.
-
-    No custom ASN.1 encoder or parser is used.
+    The original DER request bytes are preserved for verification.
     """
 
     if not isinstance(checkpoint_digest, str):
