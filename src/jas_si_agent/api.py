@@ -40,6 +40,7 @@ from jas_si_agent.verification import (
     ActionReport,
     VerificationEvidence,
 )
+from jas_si_agent.verify_router import router as github_verify_router
 
 settings = Settings.from_env()
 
@@ -423,3 +424,10 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
             else "not_provided"
         ),
     }
+
+
+# Include GitHub Evidence Verification router with API key protection
+app.include_router(
+    github_verify_router,
+    dependencies=[Depends(_require_api_key)],
+)
