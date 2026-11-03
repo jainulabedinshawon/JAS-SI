@@ -1,3 +1,5 @@
+"""Tests for the JAS-SI JSON checkpoint store."""
+
 from __future__ import annotations
 
 import sys
@@ -13,7 +15,10 @@ if str(SRC) not in sys.path:
 
 from jas_si_agent.audit_log import AuditLog
 from jas_si_agent.audit_store import JsonlAuditStore
-from jas_si_agent.audit_checkpoint import create_checkpoint
+from jas_si_agent.audit_checkpoint import (
+    AuditCheckpoint,
+    create_checkpoint,
+)
 from jas_si_agent.checkpoint_store import (
     CheckpointStoreError,
     JsonCheckpointStore,
@@ -215,6 +220,39 @@ class TestJsonCheckpointStore(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.audit_store.load_records()
+
+    def test_conflicting_checkpoint_at_same_sequence_is_rejected(self) -> None:
+        self.append_record()
+        records = self.audit_store.load_records()
+        original = self.checkpoints.create_and_save(records)
+
+        conflicting = AuditCheckpoint(
+            sequence=original.sequence,
+            head_hash="f" * 64,
+        )
+
+        with self.assertRaises(CheckpointStoreError):
+            self.checkpoints.save(conflicting)
+
+        self.assertEqual(self.checkpoints.load(), original)
+
+    def test_invalid_existing_checkpoint_cannot_be_overwritten(self) -> None:
+        self.checkpoints.path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        self.checkpoints.path.write_text(
+            "{invalid-json}\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(CheckpointStoreError):
+            self.checkpoints.save(create_checkpoint(()))
+
+        self.assertEqual(
+            self.checkpoints.path.read_text(encoding="utf-8"),
+            "{invalid-json}\n",
+        )
 
 
 if __name__ == "__main__":
