@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import base64
@@ -8,6 +7,7 @@ import re
 
 from pathlib import PurePosixPath
 from typing import List
+from urllib.parse import quote
 
 import httpx
 
@@ -206,8 +206,9 @@ def verify_github_evidence(
     verified_files = []
 
     for path in payload.paths:
+        safe_path_url = f"{base_url}/contents/{quote(path, safe='/')}"
         file_data = _github_get(
-            f"{base_url}/contents/{path}",
+            safe_path_url,
             params={"ref": commit_sha},
         )
 
@@ -232,11 +233,16 @@ def verify_github_evidence(
             )
 
         try:
-            content = base64.b64decode(
+            normalized_content = re.sub(
+                r"\s+",
+                "",
                 encoded_content,
+            )
+            content = base64.b64decode(
+                normalized_content,
                 validate=True,
             )
-        except (ValueError, base64.binascii.Error):
+        except (ValueError, TypeError, base64.binascii.Error):
             raise HTTPException(
                 status_code=502,
                 detail="GitHub returned invalid file content.",
