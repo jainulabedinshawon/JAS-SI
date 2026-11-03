@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import os
 import re
 
-from pathlib import PurePosixPath
-from typing import List
+from typing import Any
 from urllib.parse import quote
 
 import httpx
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(
     prefix="/v1",
@@ -21,6 +20,7 @@ router = APIRouter(
 )
 
 _GITHUB_API = "https://api.github.com"
+
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _REPO_PATTERN = re.compile(
     r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
@@ -28,38 +28,53 @@ _REPO_PATTERN = re.compile(
 
 _MAX_FILES = 10
 _MAX_FILE_BYTES = 1_000_000
+_MAX_ENCODED_BYTES = ((_MAX_FILE_BYTES + 2) // 3) * 4
+
+# Permit normal GitHub Base64 line wrapping, but bound whitespace too.
+_MAX_BASE64_WHITESPACE_BYTES = 16_384
+
 _TIMEOUT_SECONDS = 10.0
 
-
 class GitHubEvidenceRequest(BaseModel):
-    repository: str = Field(min_length=3, max_length=200)
-    commit_sha: str = Field(min_length=40, max_length=40)
-    paths: List[str] = Field(min_length=1, max_length=10)
+    model_config = ConfigDict(extra="forbid")
 
+    repository: str = Field(min_length=3, max_length=200)
+    commit_sha: str = Field(
+        min_length=40,
+        max_length=40,
+        pattern=r"^[0-9a-f]{40}$",
+    )
+    paths: list[str] = Field(min_length=1, max_length=_MAX_FILES)
+
+def _client_error(status_code: int, detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail=detail,
+    )
 
 def _validate_request(payload: GitHubEvidenceRequest) -> None:
     if not _REPO_PATTERN.fullmatch(payload.repository):
-        raise HTTPException(
-            status_code=422,
-            detail="Invalid GitHub repository format.",
+        raise _client_error(
+            422,
+            "Invalid GitHub repository format.",
         )
 
     if not _SHA_PATTERN.fullmatch(payload.commit_sha):
-        raise HTTPException(
-            status_code=422,
-            detail="A full 40-character commit SHA is required.",
+        raise _client_error(
+            422,
+            "A full 40-character lowercase commit SHA is required.",
         )
 
-    if len(payload.paths) > _MAX_FILES:
-        raise HTTPException(
-            status_code=422,
-            detail="Maximum 10 evidence files are allowed.",
+    if not payload.paths or len(payload.paths) > _MAX_FILES:
+        raise _client_error(
+            422,
+            "Between 1 and 10 evidence files are required.",
         )
 
     if len(set(payload.paths)) != len(payload.paths):
-        raise HTTPException(
-            status_code=422,
-            detail="Duplicate evidence paths are not allowed.",
+        raise _client_error(
+            422,
+            "Duplicate evidence paths are not allowed.",
         )
 
     for path in payload.paths:
@@ -70,15 +85,17 @@ def _validate_request(payload: GitHubEvidenceRequest) -> None:
             or path.startswith("/")
             or "\\" in path
             or "\x00" in path
-            or any(part in ("", ".", "..") for part in path.split("/"))
+            or any(
+                part in ("", ".", "..")
+                for part in path.split("/")
+            )
         ):
-            raise HTTPException(
-                status_code=422,
-                detail="Invalid repository file path.",
+            raise _client_error(
+                422,
+                "Invalid repository file path.",
             )
 
-
-def _github_headers() -> dict:
+def _github_headers() -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -92,8 +109,11 @@ def _github_headers() -> dict:
 
     return headers
 
-
-def _github_get(url: str, *, params: dict | None = None) -> dict:
+def _github_get(
+    url: str,
+    *,
+    params: dict[str, str] | None = None,
+) -> dict[str, Any]:
     try:
         response = httpx.get(
             url,
@@ -104,68 +124,154 @@ def _github_get(url: str, *, params: dict | None = None) -> dict:
         )
 
     except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=504,
-            detail="GitHub request timed out.",
+        raise _client_error(
+            504,
+            "GitHub request timed out.",
         ) from None
 
     except httpx.RequestError:
-        raise HTTPException(
-            status_code=502,
-            detail="GitHub evidence service is unavailable.",
+        raise _client_error(
+            502,
+            "GitHub evidence service is unavailable.",
         ) from None
 
     if response.status_code == 404:
-        raise HTTPException(
-            status_code=404,
-            detail="GitHub commit or evidence file not found.",
+        raise _client_error(
+            404,
+            "GitHub commit or evidence file not found.",
         )
 
     if response.status_code in (401, 403, 429):
-        raise HTTPException(
-            status_code=503,
-            detail="GitHub API access is unavailable or rate limited.",
+        raise _client_error(
+            503,
+            "GitHub API access is unavailable or rate limited.",
         )
 
     if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail="Unexpected GitHub API response.",
+        raise _client_error(
+            502,
+            "Unexpected GitHub API response.",
         )
 
     try:
         data = response.json()
-    except ValueError:
-        raise HTTPException(
-            status_code=502,
-            detail="Invalid GitHub API response.",
+    except (ValueError, TypeError):
+        raise _client_error(
+            502,
+            "Invalid GitHub API response.",
         ) from None
 
     if not isinstance(data, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="Unexpected GitHub response structure.",
+        raise _client_error(
+            502,
+            "Unexpected GitHub response structure.",
         )
 
     return data
-
 
 def _git_blob_sha1(content: bytes) -> str:
     header = f"blob {len(content)}\0".encode("ascii")
     return hashlib.sha1(header + content).hexdigest()
 
+def _decode_github_content(encoded_content: Any) -> bytes:
+    """
+    Validate and decode GitHub Base64 content.
+
+    The encoded-size and whitespace limits are checked before
+    Base64 decoding to prevent oversized decoded allocations.
+    """
+
+    if not isinstance(encoded_content, str):
+        raise _client_error(
+            502,
+            "GitHub file content is missing or invalid.",
+        )
+
+    # Bound the raw string before regex or Base64 processing.
+    if len(encoded_content) > (
+        _MAX_ENCODED_BYTES + _MAX_BASE64_WHITESPACE_BYTES
+    ):
+        raise _client_error(
+            413,
+            "Evidence file exceeds the size limit.",
+        )
+
+    # GitHub may wrap Base64 with ASCII whitespace.
+    normalized = re.sub(
+        r"[ \t\r\n]",
+        "",
+        encoded_content,
+    )
+
+    if not normalized:
+        raise _client_error(
+            502,
+            "GitHub returned empty file content.",
+        )
+
+    if len(normalized) > _MAX_ENCODED_BYTES:
+        raise _client_error(
+            413,
+            "Evidence file exceeds the size limit.",
+        )
+
+    # Base64 must consist of complete 4-character groups.
+    if len(normalized) % 4 != 0:
+        raise _client_error(
+            502,
+            "GitHub returned invalid Base64 content.",
+        )
+
+    padding = len(normalized) - len(normalized.rstrip("="))
+    expected_decoded_size = (len(normalized) // 4) * 3 - padding
+
+    if expected_decoded_size > _MAX_FILE_BYTES:
+        raise _client_error(
+            413,
+            "Evidence file exceeds the size limit.",
+        )
+
+    try:
+        content = base64.b64decode(
+            normalized,
+            validate=True,
+        )
+    except (binascii.Error, ValueError, TypeError):
+        raise _client_error(
+            502,
+            "GitHub returned invalid Base64 content.",
+        ) from None
+
+    # Exact decoded-size check, including Base64 padding effects.
+    if len(content) > _MAX_FILE_BYTES:
+        raise _client_error(
+            413,
+            "Evidence file exceeds the size limit.",
+        )
+
+    return content
+
+def _require_sha(value: Any, description: str) -> str:
+    if not isinstance(value, str) or not _SHA_PATTERN.fullmatch(value):
+        raise _client_error(
+            502,
+            f"GitHub returned invalid {description}.",
+        )
+
+    return value
 
 @router.post("/github/evidence")
 def verify_github_evidence(
     payload: GitHubEvidenceRequest,
-) -> dict:
+) -> dict[str, Any]:
     """
-    Read-only GitHub evidence verification.
+    Read-only GitHub evidence integrity verification.
 
-    Verifies that requested file contents match the GitHub
-    Git blob identifiers at an immutable commit SHA.
+    Confirms that requested file contents match GitHub Git blob
+    identifiers at an immutable commit SHA.
 
-    Does not establish the semantic truth of repository claims.
+    This endpoint does not execute actions, modify repositories,
+    or establish the semantic truth of repository claims.
     """
 
     _validate_request(payload)
@@ -179,88 +285,76 @@ def verify_github_evidence(
         f"{base_url}/commits/{commit_sha}"
     )
 
-    actual_commit_sha = commit_data.get("sha")
+    actual_commit_sha = _require_sha(
+        commit_data.get("sha"),
+        "commit SHA",
+    )
 
     if actual_commit_sha != commit_sha:
-        raise HTTPException(
-            status_code=502,
-            detail="GitHub returned an unexpected commit SHA.",
+        raise _client_error(
+            502,
+            "GitHub returned an unexpected commit SHA.",
         )
 
     commit_object = commit_data.get("commit")
 
     if not isinstance(commit_object, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="GitHub commit metadata is incomplete.",
+        raise _client_error(
+            502,
+            "GitHub commit metadata is incomplete.",
         )
 
     tree = commit_object.get("tree")
 
-    if not isinstance(tree, dict) or not isinstance(tree.get("sha"), str):
-        raise HTTPException(
-            status_code=502,
-            detail="GitHub commit tree metadata is missing.",
+    if not isinstance(tree, dict):
+        raise _client_error(
+            502,
+            "GitHub commit tree metadata is missing.",
         )
+
+    tree_sha = _require_sha(
+        tree.get("sha"),
+        "tree SHA",
+    )
 
     verified_files = []
 
     for path in payload.paths:
-        safe_path_url = f"{base_url}/contents/{quote(path, safe='/')}"
+        safe_path_url = (
+            f"{base_url}/contents/{quote(path, safe='/')}"
+        )
+
         file_data = _github_get(
             safe_path_url,
             params={"ref": commit_sha},
         )
 
         if file_data.get("type") != "file":
-            raise HTTPException(
-                status_code=422,
-                detail="Requested evidence path is not a file.",
+            raise _client_error(
+                422,
+                "Requested evidence path is not a file.",
             )
 
         if file_data.get("encoding") != "base64":
-            raise HTTPException(
-                status_code=422,
-                detail="Unsupported GitHub file encoding.",
+            raise _client_error(
+                422,
+                "Unsupported GitHub file encoding.",
             )
 
-        encoded_content = file_data.get("content")
-
-        if not isinstance(encoded_content, str):
-            raise HTTPException(
-                status_code=502,
-                detail="GitHub file content is missing.",
-            )
-
-        try:
-            normalized_content = re.sub(
-                r"\s+",
-                "",
-                encoded_content,
-            )
-            content = base64.b64decode(
-                normalized_content,
-                validate=True,
-            )
-        except (ValueError, TypeError, base64.binascii.Error):
-            raise HTTPException(
-                status_code=502,
-                detail="GitHub returned invalid file content.",
-            ) from None
-
-        if len(content) > _MAX_FILE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail="Evidence file exceeds the size limit.",
-            )
+        content = _decode_github_content(
+            file_data.get("content")
+        )
 
         calculated_blob_sha = _git_blob_sha1(content)
-        reported_blob_sha = file_data.get("sha")
+        reported_blob_sha = _require_sha(
+            file_data.get("sha"),
+            "file blob SHA",
+        )
 
         if calculated_blob_sha != reported_blob_sha:
-            raise HTTPException(
-                status_code=422,
-                detail="Git blob integrity verification failed.",
+            raise _client_error(
+                422,
+                "Git blob integrity verification failed.",
             )
 
         verified_files.append(
@@ -279,7 +373,7 @@ def verify_github_evidence(
         "verification_scope": "github_commit_and_file_integrity",
         "repository": repository,
         "commit_sha": actual_commit_sha,
-        "tree_sha": tree["sha"],
+        "tree_sha": tree_sha,
         "files_verified": len(verified_files),
         "files": verified_files,
         "read_only": True,
