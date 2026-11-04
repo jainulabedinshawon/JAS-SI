@@ -1,7 +1,3 @@
-
-fastapi
-uvicorn
-httpx
 fastapi
 uvicorn
 httpx
