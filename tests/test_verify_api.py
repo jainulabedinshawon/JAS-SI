@@ -49,8 +49,8 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         )
 
         self.store_patch = patch.object(
-            api,
-            "_security_event_store",
+            api.app.state,
+            "security_event_store",
             store,
         )
         self.store_patch.start()
