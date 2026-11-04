@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
+    env:
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
     steps:
       - name: Validate Preview URL
         env:
@@ -47,7 +50,13 @@ jobs:
                   "Provide a valid HTTPS Preview origin only."
               )
 
-          print("Preview URL format accepted.")
+          if not os.environ.get("VERCEL_AUTOMATION_BYPASS_SECRET"):
+              raise SystemExit(
+                  "Missing GitHub secret: "
+                  "VERCEL_AUTOMATION_BYPASS_SECRET"
+              )
+
+          print("Preview URL and automation credential configured.")
           PY
 
       - name: Verify health and authentication
@@ -61,14 +70,26 @@ jobs:
           from urllib.request import Request, urlopen
 
           base = os.environ["PREVIEW_URL"].strip().rstrip("/")
+          bypass = os.environ["VERCEL_AUTOMATION_BYPASS_SECRET"]
+
+          headers = {
+              "Accept": "application/json",
+              "x-vercel-protection-bypass": bypass,
+          }
 
           health_request = Request(
               base + "/health",
-              headers={"Accept": "application/json"},
+              headers=headers,
           )
 
-          with urlopen(health_request, timeout=20) as response:
-              health = json.loads(response.read())
+          try:
+              with urlopen(health_request, timeout=20) as response:
+                  health = json.loads(response.read())
+          except HTTPError as error:
+              raise SystemExit(
+                  f"Health request failed: HTTP {error.code}. "
+                  "Check Vercel protection bypass."
+              )
 
           assert health.get("status") == "ok", health
           assert health.get("api_enabled") is True, health
@@ -81,28 +102,39 @@ jobs:
               "resource": "preview-smoke-test",
           }).encode()
 
+          protected_headers = {
+              **headers,
+              "Content-Type": "application/json",
+          }
+
           protected_request = Request(
               base + "/v1/authorize",
               data=payload,
-              headers={"Content-Type": "application/json"},
+              headers=protected_headers,
               method="POST",
           )
 
           try:
               with urlopen(protected_request, timeout=20) as response:
                   status = response.status
-                  headers = response.headers
+                  response_headers = response.headers
           except HTTPError as error:
               status = error.code
-              headers = error.headers
+              response_headers = error.headers
 
           assert status == 401, (
-              f"Expected 401 without API key; received {status}"
+              f"Expected application HTTP 401 without API key; "
+              f"received {status}"
           )
-          assert headers.get("WWW-Authenticate") == "ApiKey"
+
+          assert response_headers.get("WWW-Authenticate") == "ApiKey", (
+              "401 did not contain the expected application "
+              "WWW-Authenticate: ApiKey header. "
+              "Check whether Vercel protection was bypassed."
+          )
 
           print(
-              "PASS: Protected API rejects requests without credentials."
+              "PASS: Application API rejects requests without API key."
           )
           print("PREVIEW SMOKE TEST PASSED.")
           PY
