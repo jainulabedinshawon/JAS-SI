@@ -27,6 +27,7 @@ class FakeCursor:
     def __init__(self, last_hash=GENESIS_HASH):
         self.last_hash = last_hash
         self.calls = []
+        self.next_fetchone = None
 
     def __enter__(self):
         return self
@@ -37,7 +38,15 @@ class FakeCursor:
     def execute(self, query, params=None):
         self.calls.append((query, params))
 
+        if "SELECT %s::jsonb" in query:
+            self.next_fetchone = (params[0].obj,)
+
     def fetchone(self):
+        if self.next_fetchone is not None:
+            result = self.next_fetchone
+            self.next_fetchone = None
+            return result
+
         return (self.last_hash,)
 
 
@@ -98,10 +107,10 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
         with patch.dict(sys.modules, self.modules):
             self.store.append(event)
 
-        self.assertEqual(len(self.cursor.calls), 4)
+        self.assertEqual(len(self.cursor.calls), 5)
 
-        insert_call = self.cursor.calls[2]
-        update_call = self.cursor.calls[3]
+        insert_call = self.cursor.calls[3]
+        update_call = self.cursor.calls[4]
 
         self.assertIn(
             "INSERT INTO jas_si_audit_events",
@@ -136,7 +145,7 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
         with patch.dict(sys.modules, self.modules):
             self.store.append(event)
 
-        insert_call = self.cursor.calls[2]
+        insert_call = self.cursor.calls[3]
 
         self.assertEqual(
             insert_call[1][1],
