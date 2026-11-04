@@ -2,3 +2,7 @@
 fastapi
 uvicorn
 httpx
+fastapi
+uvicorn
+httpx
+psycopg[binary]
