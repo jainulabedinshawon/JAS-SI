@@ -1,0 +1,108 @@
+
+name: JAS-SI Vercel Preview Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: "Deployed Vercel Preview URL (HTTPS)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-preview-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  preview-smoke-test:
+    name: Verify Live Preview API
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate Preview URL
+        env:
+          PREVIEW_URL: ${{ inputs.preview_url }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          value = os.environ["PREVIEW_URL"].strip()
+          parsed = urlsplit(value)
+
+          if (
+              parsed.scheme != "https"
+              or not parsed.hostname
+              or parsed.username
+              or parsed.password
+              or parsed.query
+              or parsed.fragment
+              or parsed.path not in ("", "/")
+          ):
+              raise SystemExit(
+                  "Provide a valid HTTPS Preview origin only."
+              )
+
+          print("Preview URL format accepted.")
+          PY
+
+      - name: Verify health and authentication
+        env:
+          PREVIEW_URL: ${{ inputs.preview_url }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          base = os.environ["PREVIEW_URL"].strip().rstrip("/")
+
+          health_request = Request(
+              base + "/health",
+              headers={"Accept": "application/json"},
+          )
+
+          with urlopen(health_request, timeout=20) as response:
+              health = json.loads(response.read())
+
+          assert health.get("status") == "ok", health
+          assert health.get("api_enabled") is True, health
+
+          print("PASS: Preview health endpoint is operational.")
+
+          payload = json.dumps({
+              "action_id": "preview-smoke-test",
+              "action": "read",
+              "resource": "preview-smoke-test",
+          }).encode()
+
+          protected_request = Request(
+              base + "/v1/authorize",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          try:
+              with urlopen(protected_request, timeout=20) as response:
+                  status = response.status
+                  headers = response.headers
+          except HTTPError as error:
+              status = error.code
+              headers = error.headers
+
+          assert status == 401, (
+              f"Expected 401 without API key; received {status}"
+          )
+          assert headers.get("WWW-Authenticate") == "ApiKey"
+
+          print(
+              "PASS: Protected API rejects requests without credentials."
+          )
+          print("PREVIEW SMOKE TEST PASSED.")
+          PY
