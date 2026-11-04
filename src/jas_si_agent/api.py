@@ -3,6 +3,10 @@
 The API evaluates authorization and verifies reported outcomes.
 It does not execute actions.
 
+The security event store is injected through FastAPI application state.
+Critical operation results are withheld when their audit event cannot
+be persisted. Authentication denials remain denials even if logging fails.
+
 The in-memory rate limiter is per process, not distributed.
 """
 
@@ -32,15 +36,14 @@ from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
 from jas_si_agent.sdk import JASSI
-from jas_si_agent.security_event_store import (
-    JsonlSecurityEventStore,
-    SecurityEventStoreError,
+from jas_si_agent.postgres_security_event_store import (
+    PostgresSecurityEventStore,
 )
-from jas_si_agent.verification import (
-    ActionReport,
-    VerificationEvidence,
-)
+from jas_si_agent.security_event_store import JsonlSecurityEventStore
+from jas_si_agent.security_event_store_interface import SecurityEventStore
+from jas_si_agent.verification import ActionReport, VerificationEvidence
 from jas_si_agent.verify_router import router as github_verify_router
+
 
 settings = Settings.from_env()
 
@@ -65,10 +68,58 @@ api_key_header = APIKeyHeader(
 # Deliberately no action executor is registered.
 _sdk = JASSI()
 
-# Initialize durable JSONL security event store.
-_security_event_store = JsonlSecurityEventStore(
+# Default backend. Tests and deployments can replace this through app.state.
+app.state.security_event_store = JsonlSecurityEventStore(
     settings.security_event_log_path
 )
+
+
+@app.on_event("startup")
+def initialize_security_event_store() -> None:
+    """Require verified PostgreSQL audit storage in deployed environments."""
+
+    if settings.environment not in {"preview", "production"}:
+        return
+
+    if not settings.api_enabled or not settings.api_key:
+        raise RuntimeError(
+            "Preview/production requires API enabled and API key configured"
+        )
+
+    if not settings.database_url:
+        raise RuntimeError(
+            "Preview/production requires JAS_SI_DATABASE_URL"
+        )
+
+    store = PostgresSecurityEventStore(settings.database_url)
+
+    try:
+        result = store.verify_integrity()
+    except Exception as exc:
+        raise RuntimeError(
+            "PostgreSQL audit integrity verification failed; startup denied"
+        ) from exc
+
+    if result.get("valid") is not True:
+        raise RuntimeError(
+            "PostgreSQL audit chain is not valid; startup denied"
+        )
+
+    app.state.security_event_store = store
+
+
+def get_security_event_store(request: Request) -> SecurityEventStore:
+    """Return the storage backend configured for this application."""
+    store = getattr(request.app.state, "security_event_store", None)
+
+    if store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Security event storage is not configured",
+        )
+
+    return store
+
 
 # Sliding-window timestamps, keyed by client IP.
 _rate_limit_buckets: Dict[str, Deque[float]] = defaultdict(deque)
@@ -88,9 +139,14 @@ if not logger.handlers:
 def _log_security_event(
     event_type: str,
     request: Optional[Request] = None,
+    event_store: Optional[SecurityEventStore] = None,
     **details,
-) -> None:
-    """Log sanitized security events to stdout and JSONL storage."""
+) -> bool:
+    """Persist a sanitized event and return whether persistence succeeded.
+
+    Stdout logging is supplementary. A successful stdout write is never
+    treated as proof that the durable event store accepted the event.
+    """
     try:
         payload = dict(details)
 
@@ -107,40 +163,56 @@ def _log_security_event(
             payload["method"] = request.method
             payload["endpoint"] = request.url.path
 
-        # Persist only the event metadata already prepared by this function.
-        # Do not add request headers, API keys, or request bodies.
+        if event_store is None and request is not None:
+            event_store = getattr(
+                request.app.state,
+                "security_event_store",
+                None,
+            )
+
+        if event_store is None:
+            persisted = False
+        else:
+            try:
+                event_store.append(payload)
+                persisted = True
+            except Exception:
+                persisted = False
+
+        if not persisted:
+            failure_payload = {
+                "event_type": "security_event_persistence_failure",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "request_id": payload.get("request_id", "unknown"),
+            }
+            try:
+                logger.error(
+                    json.dumps(
+                        failure_payload,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                )
+            except Exception:
+                pass
+
+        # Stdout is useful for diagnostics but is not the audit record.
         try:
-            _security_event_store.append(payload)
-        except (SecurityEventStoreError, OSError, ValueError):
-            # Persistence is best-effort in this integration step.
-            # Never allow a logging failure to bypass authentication checks.
-            logger.error(
+            logger.info(
                 json.dumps(
-                    {
-                        "event_type": "security_event_persistence_failure",
-                        "timestamp": datetime.now(
-                            timezone.utc
-                        ).isoformat(),
-                        "request_id": payload.get(
-                            "request_id",
-                            "unknown",
-                        ),
-                    },
+                    payload,
                     separators=(",", ":"),
                     sort_keys=True,
                 )
             )
+        except Exception:
+            pass
 
-        logger.info(
-            json.dumps(
-                payload,
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-        )
+        return persisted
+
     except Exception:
-        # Logging must not bypass API security controls.
-        pass
+        # A logging failure must never bypass an authentication denial.
+        return False
 
 
 class AuthorizeRequest(BaseModel):
@@ -171,6 +243,7 @@ def _rate_limit_decision(client_ip: str):
 
     with _rate_limit_lock:
         bucket = _rate_limit_buckets[client_ip]
+
         while bucket and now - bucket[0] >= window:
             bucket.popleft()
 
@@ -253,15 +326,18 @@ def _require_enabled(request: Request) -> None:
 def _require_api_key(
     request: Request,
     x_api_key: Optional[str] = Security(api_key_header),
+    event_store: SecurityEventStore = Depends(get_security_event_store),
 ) -> None:
     """Fail closed when API or authentication configuration is invalid."""
     _require_enabled(request)
 
     configured_key = settings.api_key
+
     if not configured_key:
         _log_security_event(
             "configuration_error",
             request,
+            event_store,
             status_code=503,
             reason_code="api_key_not_configured",
         )
@@ -274,6 +350,7 @@ def _require_api_key(
         _log_security_event(
             "authentication_failure",
             request,
+            event_store,
             status_code=401,
             reason_code="missing_api_key",
         )
@@ -290,6 +367,7 @@ def _require_api_key(
         _log_security_event(
             "authentication_failure",
             request,
+            event_store,
             status_code=401,
             reason_code="invalid_api_key",
         )
@@ -314,7 +392,11 @@ def health() -> dict:
     "/v1/authorize",
     dependencies=[Depends(_require_api_key)],
 )
-def authorize(payload: AuthorizeRequest, request: Request) -> dict:
+def authorize(
+    payload: AuthorizeRequest,
+    request: Request,
+    event_store: SecurityEventStore = Depends(get_security_event_store),
+) -> dict:
     try:
         decision = _sdk.authorize(
             action_id=payload.action_id,
@@ -325,6 +407,7 @@ def authorize(payload: AuthorizeRequest, request: Request) -> dict:
         _log_security_event(
             "authorization_error",
             request,
+            event_store,
             status_code=503,
             reason_code="evaluation_unavailable",
         )
@@ -333,14 +416,21 @@ def authorize(payload: AuthorizeRequest, request: Request) -> dict:
             detail="Authorization evaluation unavailable",
         ) from None
 
-    _log_security_event(
+    persisted = _log_security_event(
         "authorization_evaluated",
         request,
+        event_store,
         status_code=200,
         action_id=decision.action_id,
         allowed=bool(decision.allowed),
         reason_code="allowed" if decision.allowed else "denied",
     )
+
+    if not persisted:
+        raise HTTPException(
+            status_code=503,
+            detail="Authorization result could not be securely audited",
+        )
 
     return {
         "action_id": decision.action_id,
@@ -355,7 +445,11 @@ def authorize(payload: AuthorizeRequest, request: Request) -> dict:
     "/v1/verify",
     dependencies=[Depends(_require_api_key)],
 )
-def verify(payload: VerifyRequest, request: Request) -> dict:
+def verify(
+    payload: VerifyRequest,
+    request: Request,
+    event_store: SecurityEventStore = Depends(get_security_event_store),
+) -> dict:
     report = ActionReport(
         action_id=payload.action_id,
         claimed_success=payload.claimed_success,
@@ -372,6 +466,7 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
             _log_security_event(
                 "verification_input_rejected",
                 request,
+                event_store,
                 status_code=422,
                 reason_code="incomplete_evidence",
             )
@@ -396,6 +491,7 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
         _log_security_event(
             "verification_error",
             request,
+            event_store,
             status_code=503,
             reason_code="verification_unavailable",
         )
@@ -406,13 +502,20 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
 
     status = getattr(result.status, "value", result.status)
 
-    _log_security_event(
+    persisted = _log_security_event(
         "outcome_verified",
         request,
+        event_store,
         status_code=200,
         action_id=result.action_id,
         verification_status=str(status)[:64],
     )
+
+    if not persisted:
+        raise HTTPException(
+            status_code=503,
+            detail="Verification result could not be securely audited",
+        )
 
     return {
         "action_id": result.action_id,
@@ -426,7 +529,7 @@ def verify(payload: VerifyRequest, request: Request) -> dict:
     }
 
 
-# Include GitHub Evidence Verification router with API key protection
+# Include GitHub Evidence Verification router with API key protection.
 app.include_router(
     github_verify_router,
     dependencies=[Depends(_require_api_key)],

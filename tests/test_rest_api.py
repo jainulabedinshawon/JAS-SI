@@ -21,14 +21,14 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.audit_temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.audit_temp_dir.cleanup)
 
-        test_store = JsonlSecurityEventStore(
+        self.test_store = JsonlSecurityEventStore(
             Path(self.audit_temp_dir.name) / "security-events.jsonl"
         )
 
         self.store_patcher = patch.object(
-            api,
-            "_security_event_store",
-            test_store,
+            api.app.state,
+            "security_event_store",
+            self.test_store,
         )
         self.store_patcher.start()
         self.addCleanup(self.store_patcher.stop)
@@ -481,7 +481,7 @@ class TestJASSIRestAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
-        events = api._security_event_store.load_events()
+        events = self.test_store.load_events()
         self.assertTrue(events)
 
         event = events[-1]
@@ -518,7 +518,7 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.assertEqual(first.status_code, 422)
         self.assertEqual(second.status_code, 429)
 
-        events = api._security_event_store.load_events()
+        events = self.test_store.load_events()
         rate_limit_events = [
             event
             for event in events
@@ -533,7 +533,7 @@ class TestJASSIRestAPI(unittest.TestCase):
             Path(self.audit_temp_dir.name) / "security-events.jsonl"
         )
 
-        api._security_event_store.append(
+        self.test_store.append(
             {
                 "event_type": "restart_recovery_test",
                 "status_code": 200,

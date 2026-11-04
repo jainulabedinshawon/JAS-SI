@@ -1,4 +1,3 @@
-
 """Environment-based configuration for the JAS-SI API.
 
 Python 3.10 compatible. Secrets must be supplied through the environment.
@@ -98,6 +97,10 @@ class Settings:
         repr=False,
     )
     trusted_anchor_provider_id: Optional[str] = None
+    database_url: Optional[str] = field(
+        default=None,
+        repr=False,
+    )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -109,6 +112,7 @@ class Settings:
         if environment not in {
             "development",
             "test",
+            "preview",
             "production",
         }:
             raise ValueError("Invalid JAS_SI_ENVIRONMENT")
@@ -150,4 +154,7 @@ class Settings:
             ).strip(),
             trusted_anchor_hmac_secret=hmac_secret,
             trusted_anchor_provider_id=provider_id,
+            database_url=(
+                os.getenv("JAS_SI_DATABASE_URL") or None
+            ),
         )
