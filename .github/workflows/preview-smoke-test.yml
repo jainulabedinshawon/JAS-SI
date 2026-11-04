@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   preview-smoke-test:
-    name: Verify Live Preview API
+    name: Verify Live Preview API and Audit Persistence
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -46,17 +46,12 @@ jobs:
               or parsed.fragment
               or parsed.path not in ("", "/")
           ):
-              raise SystemExit(
-                  "Provide a valid HTTPS Preview origin only."
-              )
+              raise SystemExit("Provide a valid HTTPS Preview origin only.")
 
           if not os.environ.get("VERCEL_AUTOMATION_BYPASS_SECRET"):
-              raise SystemExit(
-                  "Missing GitHub secret: "
-                  "VERCEL_AUTOMATION_BYPASS_SECRET"
-              )
+              raise SystemExit("Missing VERCEL_AUTOMATION_BYPASS_SECRET.")
 
-          print("Preview URL and automation credential configured.")
+          print("PASS: Preview configuration is present.")
           PY
 
       - name: Verify health and authentication
@@ -77,18 +72,14 @@ jobs:
               "x-vercel-protection-bypass": bypass,
           }
 
-          health_request = Request(
-              base + "/health",
-              headers=headers,
-          )
+          request = Request(base + "/health", headers=headers)
 
           try:
-              with urlopen(health_request, timeout=20) as response:
+              with urlopen(request, timeout=20) as response:
                   health = json.loads(response.read())
           except HTTPError as error:
               raise SystemExit(
-                  f"Health request failed: HTTP {error.code}. "
-                  "Check Vercel protection bypass."
+                  f"Health request failed: HTTP {error.code}."
               )
 
           assert health.get("status") == "ok", health
@@ -97,9 +88,9 @@ jobs:
           print("PASS: Preview health endpoint is operational.")
 
           payload = json.dumps({
-              "action_id": "preview-smoke-test",
-              "action": "read",
-              "resource": "preview-smoke-test",
+              "action_id": "preview-smoke-test-unauthenticated",
+              "action": "read_repository",
+              "resource": "README.md",
           }).encode()
 
           protected_headers = {
@@ -123,18 +114,77 @@ jobs:
               response_headers = error.headers
 
           assert status == 401, (
-              f"Expected application HTTP 401 without API key; "
-              f"received {status}"
+              f"Expected HTTP 401 without API key; received {status}"
           )
 
           assert response_headers.get("WWW-Authenticate") == "ApiKey", (
-              "401 did not contain the expected application "
-              "WWW-Authenticate: ApiKey header. "
-              "Check whether Vercel protection was bypassed."
+              "Expected WWW-Authenticate: ApiKey."
           )
 
-          print(
-              "PASS: Application API rejects requests without API key."
+          print("PASS: API rejects requests without an API key.")
+          PY
+
+      - name: Verify authenticated authorization and audit persistence
+        env:
+          PREVIEW_URL: ${{ inputs.preview_url }}
+          JAS_SI_PREVIEW_API_KEY: ${{ secrets.JAS_SI_PREVIEW_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          base = os.environ["PREVIEW_URL"].strip().rstrip("/")
+          bypass = os.environ["VERCEL_AUTOMATION_BYPASS_SECRET"]
+          api_key = os.environ.get("JAS_SI_PREVIEW_API_KEY", "")
+
+          if not api_key:
+              raise SystemExit("Missing JAS_SI_PREVIEW_API_KEY.")
+
+          payload = json.dumps({
+              "action_id": "preview-authenticated-audit-smoke-test",
+              "action": "read_repository",
+              "resource": "README.md",
+          }).encode()
+
+          headers = {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              "x-vercel-protection-bypass": bypass,
+              "X-API-Key": api_key,
+          }
+
+          request = Request(
+              base + "/v1/authorize",
+              data=payload,
+              headers=headers,
+              method="POST",
           )
-          print("PREVIEW SMOKE TEST PASSED.")
+
+          try:
+              with urlopen(request, timeout=30) as response:
+                  status = response.status
+                  result = json.loads(response.read())
+          except HTTPError as error:
+              raise SystemExit(
+                  f"Authenticated API request failed: HTTP {error.code}. "
+                  "Check API key, Preview deployment, and audit storage."
+              )
+
+          assert status == 200, f"Unexpected HTTP status: {status}"
+          assert result.get("action_id") == (
+              "preview-authenticated-audit-smoke-test"
+          ), result
+          assert result.get("allowed") is True, result
+          assert result.get("executed") is False, result
+
+          print(
+              "PASS: API key accepted; safe authorization evaluated."
+          )
+          print(
+              "PASS: API returned success after audit persistence."
+          )
+          print("PASS: No action was executed.")
+          print("AUTHENTICATED PREVIEW AUDIT TEST PASSED.")
           PY
