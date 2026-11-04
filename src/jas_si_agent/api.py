@@ -36,6 +36,9 @@ from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
 from jas_si_agent.sdk import JASSI
+from jas_si_agent.postgres_security_event_store import (
+    PostgresSecurityEventStore,
+)
 from jas_si_agent.security_event_store import JsonlSecurityEventStore
 from jas_si_agent.security_event_store_interface import SecurityEventStore
 from jas_si_agent.verification import ActionReport, VerificationEvidence
@@ -69,6 +72,40 @@ _sdk = JASSI()
 app.state.security_event_store = JsonlSecurityEventStore(
     settings.security_event_log_path
 )
+
+
+@app.on_event("startup")
+def initialize_security_event_store() -> None:
+    """Require verified PostgreSQL audit storage in deployed environments."""
+
+    if settings.environment not in {"preview", "production"}:
+        return
+
+    if not settings.api_enabled or not settings.api_key:
+        raise RuntimeError(
+            "Preview/production requires API enabled and API key configured"
+        )
+
+    if not settings.database_url:
+        raise RuntimeError(
+            "Preview/production requires JAS_SI_DATABASE_URL"
+        )
+
+    store = PostgresSecurityEventStore(settings.database_url)
+
+    try:
+        result = store.verify_integrity()
+    except Exception as exc:
+        raise RuntimeError(
+            "PostgreSQL audit integrity verification failed; startup denied"
+        ) from exc
+
+    if result.get("valid") is not True:
+        raise RuntimeError(
+            "PostgreSQL audit chain is not valid; startup denied"
+        )
+
+    app.state.security_event_store = store
 
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
