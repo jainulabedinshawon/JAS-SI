@@ -1,0 +1,74 @@
+# JAS-SI PROPRIETARY LICENSE
+
+Copyright (c) 2026 Jainul Abedin Shawon. All rights reserved.
+
+JAS-SI (JAS Intelligence) — JAS Research
+
+## 1. Ownership
+
+The original source code, core engine, architecture, documentation, research materials, designs, and other original materials contained in or derived from this repository (collectively, the "Proprietary Materials") are protected by applicable copyright and intellectual property laws.
+
+Except for third-party components expressly identified as subject to separate licenses, the Proprietary Materials are owned by Jainul Abedin Shawon (the "Owner").
+
+## 2. No Public License Grant
+
+No license or other permission is granted to any person or entity to use, copy, reproduce, modify, adapt, distribute, publish, sublicense, sell, host, or commercially exploit the Proprietary Materials.
+
+Access to this repository, whether public or shared, does not constitute a grant of permission to reuse or redistribute its contents.
+
+## 3. Limited Viewing
+
+Viewing the Proprietary Materials, and any forking or caching performed through the GitHub platform in accordance with GitHub's Terms of Service, is permitted solely for personal reading and evaluation. No other right is granted by such access.
+
+## 4. Restrictions
+
+Without prior written permission from the Owner, no person or entity may:
+
+- Reproduce or redistribute the Proprietary Materials.
+- Create or distribute derivative works based on the Proprietary Materials.
+- Incorporate the Proprietary Materials into any commercial or non-commercial product or service.
+- Operate the Proprietary Materials, or any derivative, as a hosted or managed service (SaaS) for any party.
+- Reverse engineer, decompile, or attempt to extract the source code, architecture, or logic of any non-public component.
+- Use the Proprietary Materials to train, fine-tune, evaluate for commercial purposes, or build any machine-learning model or dataset.
+- Publish modified or substantially copied versions of the Proprietary Materials.
+- Remove or alter any copyright, license, or attribution notice.
+- Represent the Proprietary Materials or derivative works as their own.
+
+## 5. Third-Party Components
+
+This License does not replace, restrict, or override the licenses governing third-party software, libraries, dependencies, or other materials included in or used by this project. Such components remain subject to their respective copyright notices and license terms.
+
+## 6. Trademarks and Project Identity
+
+The names "JAS-SI", "JAS Intelligence", "JAS Research", associated logos, and other project identifiers are not licensed for any use by this document. No trademark or branding rights are granted.
+
+## 7. Contributions
+
+No contributions, pull requests, or suggestions are accepted into the Proprietary Materials unless covered by a separate written contributor agreement signed by the Owner. Absent such an agreement, any submission is made without any grant of rights to the submitter and the Owner may use it freely.
+
+## 8. Separate Permission
+
+Any permission to use, reproduce, modify, distribute, host, or commercially exploit the Proprietary Materials must be expressly granted in a separate written agreement signed by the Owner.
+
+## 9. Termination and Remedies
+
+Any use in breach of this License is unauthorized and automatically terminates any permission that may otherwise apply. The Owner reserves the right to seek all remedies available under law, including injunctive relief, without limiting any other right.
+
+## 10. Disclaimer
+
+THE PROPRIETARY MATERIALS ARE PROVIDED FOR RESEARCH AND DEVELOPMENT VISIBILITY ONLY, "AS IS" AND WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW. THE OWNER SHALL NOT BE LIABLE FOR ANY CLAIM OR DAMAGES ARISING FROM THEIR USE.
+
+## 11. Governing Law
+
+This License is governed by the laws of Bangladesh, without regard to conflict-of-law principles.
+
+## 12. Reservation of Rights
+
+All rights not expressly granted in a separate written agreement are reserved by the Owner.
+
+---
+
+**Licensing inquiries:**  
+JAS Research  
+Copyright Owner: Jainul Abedin Shawon  
+Repository: https://github.com/jainulabedinshawon/JAS-SI
