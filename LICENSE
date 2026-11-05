@@ -1,74 +1,104 @@
-# JAS-SI PROPRIETARY LICENSE
+JAS-SI PROPRIETARY LICENSE
 
 Copyright (c) 2026 Jainul Abedin Shawon. All rights reserved.
 
 JAS-SI (JAS Intelligence) — JAS Research
 
-## 1. Ownership
+1. Ownership
 
 The original source code, core engine, architecture, documentation, research materials, designs, and other original materials contained in or derived from this repository (collectively, the "Proprietary Materials") are protected by applicable copyright and intellectual property laws.
 
 Except for third-party components expressly identified as subject to separate licenses, the Proprietary Materials are owned by Jainul Abedin Shawon (the "Owner").
 
-## 2. No Public License Grant
+2. No Public License Grant
 
 No license or other permission is granted to any person or entity to use, copy, reproduce, modify, adapt, distribute, publish, sublicense, sell, host, or commercially exploit the Proprietary Materials.
 
-Access to this repository, whether public or shared, does not constitute a grant of permission to reuse or redistribute its contents.
+Access to this repository, whether public or shared, does not constitute a grant of permission to reuse, reproduce, modify, or redistribute its contents.
 
-## 3. Limited Viewing
+3. Limited Viewing and GitHub Platform Permissions
 
-Viewing the Proprietary Materials, and any forking or caching performed through the GitHub platform in accordance with GitHub's Terms of Service, is permitted solely for personal reading and evaluation. No other right is granted by such access.
+The Proprietary Materials may be viewed solely for personal reading and evaluation, subject to applicable law and the terms governing access to the repository.
 
-## 4. Restrictions
+Nothing in this License limits the permissions granted to GitHub under its Terms of Service for hosting, displaying, caching, indexing, and operating the platform, or the permissions necessary for GitHub users to interact with the repository through its features.
+
+Such platform permissions do not grant users any additional rights to use, reproduce, modify, distribute, or commercially exploit the Proprietary Materials outside the permissions provided by GitHub's Terms of Service.
+
+4. Restrictions
 
 Without prior written permission from the Owner, no person or entity may:
 
-- Reproduce or redistribute the Proprietary Materials.
-- Create or distribute derivative works based on the Proprietary Materials.
+- Reproduce, copy, or redistribute the Proprietary Materials.
+- Create, publish, or distribute derivative works based on the Proprietary Materials.
 - Incorporate the Proprietary Materials into any commercial or non-commercial product or service.
 - Operate the Proprietary Materials, or any derivative, as a hosted or managed service (SaaS) for any party.
-- Reverse engineer, decompile, or attempt to extract the source code, architecture, or logic of any non-public component.
-- Use the Proprietary Materials to train, fine-tune, evaluate for commercial purposes, or build any machine-learning model or dataset.
+- Reverse engineer, decompile, or attempt to extract source code, architecture, or logic from any non-public component.
+- Use the Proprietary Materials to train, fine-tune, or develop machine-learning models or datasets, to the extent such use is restricted by applicable law.
 - Publish modified or substantially copied versions of the Proprietary Materials.
-- Remove or alter any copyright, license, or attribution notice.
+- Remove or alter copyright, license, or attribution notices.
 - Represent the Proprietary Materials or derivative works as their own.
 
-## 5. Third-Party Components
+5. Third-Party Components
 
-This License does not replace, restrict, or override the licenses governing third-party software, libraries, dependencies, or other materials included in or used by this project. Such components remain subject to their respective copyright notices and license terms.
+This License does not replace, restrict, or override the licenses governing third-party software, libraries, dependencies, datasets, or other materials included in or used by this project.
 
-## 6. Trademarks and Project Identity
+Such components remain subject to their respective copyright notices, licenses, and applicable terms.
 
-The names "JAS-SI", "JAS Intelligence", "JAS Research", associated logos, and other project identifiers are not licensed for any use by this document. No trademark or branding rights are granted.
+Where third-party components are distributed with this project, their applicable license notices must be preserved.
 
-## 7. Contributions
+6. Trademarks and Project Identity
 
-No contributions, pull requests, or suggestions are accepted into the Proprietary Materials unless covered by a separate written contributor agreement signed by the Owner. Absent such an agreement, any submission is made without any grant of rights to the submitter and the Owner may use it freely.
+The names "JAS-SI", "JAS Intelligence", "JAS Research", associated logos, visual identities, and other project identifiers are not licensed for use by this document.
 
-## 8. Separate Permission
+No trademark, service mark, branding, or endorsement rights are granted.
 
-Any permission to use, reproduce, modify, distribute, host, or commercially exploit the Proprietary Materials must be expressly granted in a separate written agreement signed by the Owner.
+7. Contributions
 
-## 9. Termination and Remedies
+Contributions, pull requests, patches, or other submissions are not accepted into the Proprietary Materials unless the contributor has first entered into a separate written contributor agreement approved and signed by the Owner.
 
-Any use in breach of this License is unauthorized and automatically terminates any permission that may otherwise apply. The Owner reserves the right to seek all remedies available under law, including injunctive relief, without limiting any other right.
+Unsolicited submissions do not automatically transfer copyright, ownership, or other intellectual property rights to the Owner.
 
-## 10. Disclaimer
+The Owner may reject or disregard any submission that is not covered by an appropriate written agreement.
 
-THE PROPRIETARY MATERIALS ARE PROVIDED FOR RESEARCH AND DEVELOPMENT VISIBILITY ONLY, "AS IS" AND WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW. THE OWNER SHALL NOT BE LIABLE FOR ANY CLAIM OR DAMAGES ARISING FROM THEIR USE.
+8. Separate Permission
 
-## 11. Governing Law
+Any permission to use, reproduce, modify, distribute, host, sublicense, or commercially exploit the Proprietary Materials must be expressly granted through a separate written agreement signed by the Owner.
 
-This License is governed by the laws of Bangladesh, without regard to conflict-of-law principles.
+Any such permission is limited to the scope and conditions expressly stated in that agreement.
 
-## 12. Reservation of Rights
+9. Termination and Remedies
 
-All rights not expressly granted in a separate written agreement are reserved by the Owner.
+Any permission granted under a separate agreement may be terminated in accordance with that agreement and applicable law.
+
+Any use of the Proprietary Materials outside the permissions granted by the Owner is unauthorized.
+
+The Owner reserves all rights and remedies available under applicable law, including the right to seek injunctive relief and damages where legally available.
+
+10. Disclaimer of Warranty and Limitation of Liability
+
+THE PROPRIETARY MATERIALS ARE PROVIDED FOR RESEARCH AND DEVELOPMENT VISIBILITY ONLY, "AS IS" AND WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE OWNER SHALL NOT BE LIABLE FOR ANY CLAIM, LOSS, OR DAMAGES ARISING OUT OF OR IN CONNECTION WITH THE PROPRIETARY MATERIALS OR THEIR USE.
+
+11. Governing Law
+
+This License is governed by the laws of Bangladesh, without regard to conflict-of-law principles, subject to applicable mandatory legal requirements.
+
+Any dispute arising out of or in connection with this License shall be subject to the jurisdiction of the competent courts of Bangladesh.
+
+12. Reservation of Rights
+
+All rights not expressly granted through a separate written agreement are reserved by the Owner.
+
+Nothing in this License shall be interpreted as granting an implied license or other permission to use the Proprietary Materials.
 
 ---
 
-**Licensing inquiries:**  
-JAS Research  
-Copyright Owner: Jainul Abedin Shawon  
+Licensing Inquiries
+
+JAS Research
+Copyright Owner: Jainul Abedin Shawon
+Project: JAS-SI (JAS Intelligence)
 Repository: https://github.com/jainulabedinshawon/JAS-SI
+
+All rights reserved.
