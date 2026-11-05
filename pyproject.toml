@@ -1,0 +1,49 @@
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jas-si"
+version = "0.1.0"
+description = "JAS Intelligence Core Architecture and Verification Engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-JAS-SI-Proprietary"
+license-files = ["LICENSE"]
+
+authors = [
+    { name = "Jainul Abedin Shawon" }
+]
+
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Intended Audience :: Developers",
+]
+
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+    "pydantic==2.14.1",
+    "httpx==0.28.1",
+    "psycopg[binary]==3.3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "build>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jainulabedinshawon/JAS-SI"
+Repository = "https://github.com/jainulabedinshawon/JAS-SI"
+Issues = "https://github.com/jainulabedinshawon/JAS-SI/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
