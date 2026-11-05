@@ -18,9 +18,12 @@ concurrency:
 
 jobs:
   preview-smoke-test:
-    name: Verify Live Preview API
+    name: Verify Live Preview API and Audit Persistence
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
+    env:
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
     steps:
       - name: Validate Preview URL
@@ -43,11 +46,12 @@ jobs:
               or parsed.fragment
               or parsed.path not in ("", "/")
           ):
-              raise SystemExit(
-                  "Provide a valid HTTPS Preview origin only."
-              )
+              raise SystemExit("Provide a valid HTTPS Preview origin only.")
 
-          print("Preview URL format accepted.")
+          if not os.environ.get("VERCEL_AUTOMATION_BYPASS_SECRET"):
+              raise SystemExit("Missing VERCEL_AUTOMATION_BYPASS_SECRET.")
+
+          print("PASS: Preview configuration is present.")
           PY
 
       - name: Verify health and authentication
@@ -61,14 +65,22 @@ jobs:
           from urllib.request import Request, urlopen
 
           base = os.environ["PREVIEW_URL"].strip().rstrip("/")
+          bypass = os.environ["VERCEL_AUTOMATION_BYPASS_SECRET"]
 
-          health_request = Request(
-              base + "/health",
-              headers={"Accept": "application/json"},
-          )
+          headers = {
+              "Accept": "application/json",
+              "x-vercel-protection-bypass": bypass,
+          }
 
-          with urlopen(health_request, timeout=20) as response:
-              health = json.loads(response.read())
+          request = Request(base + "/health", headers=headers)
+
+          try:
+              with urlopen(request, timeout=20) as response:
+                  health = json.loads(response.read())
+          except HTTPError as error:
+              raise SystemExit(
+                  f"Health request failed: HTTP {error.code}."
+              )
 
           assert health.get("status") == "ok", health
           assert health.get("api_enabled") is True, health
@@ -76,33 +88,103 @@ jobs:
           print("PASS: Preview health endpoint is operational.")
 
           payload = json.dumps({
-              "action_id": "preview-smoke-test",
-              "action": "read",
-              "resource": "preview-smoke-test",
+              "action_id": "preview-smoke-test-unauthenticated",
+              "action": "read_repository",
+              "resource": "README.md",
           }).encode()
+
+          protected_headers = {
+              **headers,
+              "Content-Type": "application/json",
+          }
 
           protected_request = Request(
               base + "/v1/authorize",
               data=payload,
-              headers={"Content-Type": "application/json"},
+              headers=protected_headers,
               method="POST",
           )
 
           try:
               with urlopen(protected_request, timeout=20) as response:
                   status = response.status
-                  headers = response.headers
+                  response_headers = response.headers
           except HTTPError as error:
               status = error.code
-              headers = error.headers
+              response_headers = error.headers
 
           assert status == 401, (
-              f"Expected 401 without API key; received {status}"
+              f"Expected HTTP 401 without API key; received {status}"
           )
-          assert headers.get("WWW-Authenticate") == "ApiKey"
+
+          assert response_headers.get("WWW-Authenticate") == "ApiKey", (
+              "Expected WWW-Authenticate: ApiKey."
+          )
+
+          print("PASS: API rejects requests without an API key.")
+          PY
+
+      - name: Verify authenticated authorization and audit persistence
+        env:
+          PREVIEW_URL: ${{ inputs.preview_url }}
+          JAS_SI_PREVIEW_API_KEY: ${{ secrets.JAS_SI_PREVIEW_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          base = os.environ["PREVIEW_URL"].strip().rstrip("/")
+          bypass = os.environ["VERCEL_AUTOMATION_BYPASS_SECRET"]
+          api_key = os.environ.get("JAS_SI_PREVIEW_API_KEY", "")
+
+          if not api_key:
+              raise SystemExit("Missing JAS_SI_PREVIEW_API_KEY.")
+
+          payload = json.dumps({
+              "action_id": "preview-authenticated-audit-smoke-test",
+              "action": "read_repository",
+              "resource": "README.md",
+          }).encode()
+
+          headers = {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              "x-vercel-protection-bypass": bypass,
+              "X-API-Key": api_key,
+          }
+
+          request = Request(
+              base + "/v1/authorize",
+              data=payload,
+              headers=headers,
+              method="POST",
+          )
+
+          try:
+              with urlopen(request, timeout=30) as response:
+                  status = response.status
+                  result = json.loads(response.read())
+          except HTTPError as error:
+              raise SystemExit(
+                  f"Authenticated API request failed: HTTP {error.code}. "
+                  "Check API key, Preview deployment, and audit storage."
+              )
+
+          assert status == 200, f"Unexpected HTTP status: {status}"
+          assert result.get("action_id") == (
+              "preview-authenticated-audit-smoke-test"
+          ), result
+          assert result.get("allowed") is True, result
+          assert result.get("executed") is False, result
 
           print(
-              "PASS: Protected API rejects requests without credentials."
+              "PASS: API key accepted; safe authorization evaluated."
           )
-          print("PREVIEW SMOKE TEST PASSED.")
+          print(
+              "PASS: API returned success after audit persistence."
+          )
+          print("PASS: No action was executed.")
+          print("AUTHENTICATED PREVIEW AUDIT TEST PASSED.")
           PY
