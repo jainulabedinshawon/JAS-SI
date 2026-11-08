@@ -423,6 +423,70 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "INCONCLUSIVE")
 
+    def test_revocation_and_audit_commit_together(self):
+        tenant_id = self._tenant()
+        issued = self._issue(tenant_id, "test:revoke-success")
+        revoked = self.registry.revoke_key_with_audit(
+            issued.key_id,
+            "integration-test-operator",
+            "test:revoke-success-run",
+        )
+        self.assertTrue(revoked)
+        self.assertIsNone(self.registry.authenticate(issued.token))
+        self.assertTrue(
+            PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
+        )
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT event_payload->>'event_type'
+                    FROM jas_si_audit_events
+                    ORDER BY event_id
+                    """
+                )
+                event_types = [row[0] for row in cursor.fetchall()]
+        self.assertEqual(
+            event_types,
+            ["api_key_issued", "api_key_revoked"],
+        )
+
+    def test_revocation_audit_failure_rolls_back_key_status(self):
+        tenant_id = self._tenant()
+        issued = self._issue(tenant_id, "test:revoke-rollback")
+        original = PostgresSecurityEventStore.append_in_transaction
+
+        def append_then_fail(connection, event):
+            original(connection, event)
+            raise RuntimeError("injected revocation audit failure")
+
+        with patch.object(
+            PostgresSecurityEventStore,
+            "append_in_transaction",
+            side_effect=append_then_fail,
+        ):
+            with self.assertRaises(ApiKeyError):
+                self.registry.revoke_key_with_audit(
+                    issued.key_id,
+                    "integration-test-operator",
+                    "test:revoke-rollback-run",
+                )
+
+        self.assertIsNotNone(self.registry.authenticate(issued.token))
+        self.assertTrue(
+            PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
+        )
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT count(*)
+                    FROM jas_si_audit_events
+                    WHERE event_payload->>'event_type' = 'api_key_revoked'
+                    """
+                )
+                self.assertEqual(cursor.fetchone()[0], 0)
+
     def test_inactive_tenant_creates_no_key_or_audit(self):
         tenant_id = self._tenant()
         with psycopg.connect(self.dsn) as connection:
