@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
@@ -101,29 +102,21 @@ def main() -> int:
             if args.expires_in_days < 1 or args.expires_in_days > 365:
                 raise ApiKeyError("--expires-in-days must be between 1 and 365")
             tenant_id = UUID(args.tenant_id)
-            issued = registry.issue_key(
+            audit_store = PostgresSecurityEventStore(_provisioner_dsn())
+            integrity = audit_store.verify_integrity()
+            if not integrity.get("valid"):
+                raise ApiKeyError(
+                    "Audit chain integrity check failed; provisioning stopped"
+                )
+            issued = registry.issue_key_with_audit(
                 tenant_id=tenant_id,
                 key_name=args.name,
                 scopes=args.scope,
                 created_by=args.created_by,
+                provisioning_run_id=f"operator-cli:{uuid.uuid4()}",
                 expires_at=datetime.now(timezone.utc)
                 + timedelta(days=args.expires_in_days),
             )
-            try:
-                _audit({
-                    "event_type": "api_key_issued",
-                    "tenant_id": str(tenant_id),
-                    "key_id": str(issued.key_id),
-                    "key_name": args.name,
-                    "scopes": sorted(set(args.scope)),
-                    "expires_at": issued.expires_at.isoformat(),
-                    "operator_id": args.created_by,
-                })
-            except Exception:
-                registry.revoke_key(issued.key_id)
-                raise ApiKeyError(
-                    "Key audit persistence failed; issued key was revoked"
-                ) from None
             print("IMPORTANT: this token is displayed once. Store it securely.")
             print(f"key_id={issued.key_id}")
             print(f"expires_at={issued.expires_at.isoformat()}")
