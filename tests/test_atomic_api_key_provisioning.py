@@ -43,6 +43,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/001_create_audit_tables.sql",
             ROOT / "src/jas_si_agent/migrations/002_create_tenant_api_keys.sql",
             ROOT / "src/jas_si_agent/migrations/003_atomic_api_key_provisioning.sql",
+            ROOT / "src/jas_si_agent/migrations/004_audit_event_id_identity.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
@@ -99,6 +100,23 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                 )
                 events = cursor.fetchone()[0]
         return keys, runs, events
+
+    def test_audit_event_id_has_identity_default(self):
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT is_identity, column_default
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='jas_si_audit_events'
+                      AND column_name='event_id'
+                    """
+                )
+                row = cursor.fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "YES")
+        self.assertIsNone(row[1])
 
     def test_success_commits_key_run_and_audit_event_together(self):
         tenant_id = self._tenant()
