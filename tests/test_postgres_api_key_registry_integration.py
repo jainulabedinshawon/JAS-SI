@@ -39,6 +39,7 @@ class TestPostgresApiKeyRegistry(unittest.TestCase):
         migrations = [
             ROOT / "src/jas_si_agent/migrations/001_create_audit_tables.sql",
             ROOT / "src/jas_si_agent/migrations/002_create_tenant_api_keys.sql",
+            ROOT / "src/jas_si_agent/migrations/003_atomic_api_key_provisioning.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
