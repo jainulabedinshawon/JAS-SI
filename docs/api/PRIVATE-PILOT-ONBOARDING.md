@@ -120,4 +120,3 @@ This checks Git blob integrity at an immutable commit; it does not establish sem
 - [ ] Authentication failures, rate limits, and key revocation have been tested.
 - [ ] Audit events contain key IDs only, never raw API keys.
 - [ ] Pilot scope, data handling, support, and expiry are agreed.
-```
