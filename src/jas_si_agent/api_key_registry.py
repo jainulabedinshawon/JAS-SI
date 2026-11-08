@@ -362,16 +362,103 @@ class PostgresApiKeyRegistry:
                 )
 
     def revoke_key(self, key_id: uuid.UUID) -> bool:
+        """Compatibility wrapper; revocation and audit are one transaction."""
+        return self.revoke_key_with_audit(
+            key_id=key_id,
+            revoked_by="compat-api",
+            revocation_run_id=f"compat-revoke:{uuid.uuid4()}",
+        )
+
+    def revoke_key_with_audit(
+        self,
+        key_id: uuid.UUID,
+        revoked_by: str,
+        revocation_run_id: str,
+    ) -> bool:
+        """Revoke a key and append its audit event atomically."""
+        import re
+        import psycopg
+        from jas_si_agent.postgres_security_event_store import (
+            PostgresSecurityEventStore,
+        )
+
         if not isinstance(key_id, uuid.UUID):
             raise ApiKeyError("A valid key UUID is required")
-        import psycopg
+        operator = revoked_by.strip() if isinstance(revoked_by, str) else ""
+        run_id = (
+            revocation_run_id.strip()
+            if isinstance(revocation_run_id, str)
+            else ""
+        )
+        if not operator or len(operator) > 120:
+            raise ApiKeyError("revoked_by must contain 1 to 120 characters")
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", run_id):
+            raise ApiKeyError("A valid revocation run identifier is required")
+        if not self.verify_provisioning_schema():
+            raise ApiKeyError(
+                "Atomic provisioning schema is missing; revocation stopped"
+            )
 
-        with psycopg.connect(self._dsn) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """UPDATE jas_si_api_keys
-                       SET status = 'revoked', revoked_at = NOW()
-                       WHERE key_id = %s AND status = 'active'""",
-                    (key_id,),
+        try:
+            with psycopg.connect(self._dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
+                        VALUES (TRUE, %s)
+                        ON CONFLICT (singleton) DO NOTHING
+                        """,
+                        ("0" * 64,),
+                    )
+                    cursor.execute(
+                        """
+                        SELECT last_hash
+                        FROM jas_si_audit_chain_state
+                        WHERE singleton = TRUE
+                        FOR UPDATE
+                        """
+                    )
+                    if cursor.fetchone() is None:
+                        raise ApiKeyError(
+                            "Audit checkpoint unavailable; revocation stopped"
+                        )
+                    integrity = (
+                        PostgresSecurityEventStore.verify_integrity_in_transaction(
+                            connection
+                        )
+                    )
+                    if integrity.get("valid") is not True:
+                        raise ApiKeyError(
+                            "Audit chain integrity check failed; revocation stopped"
+                        )
+                    cursor.execute(
+                        """
+                        UPDATE jas_si_api_keys
+                        SET status = 'revoked', revoked_at = NOW()
+                        WHERE key_id = %s AND status = 'active'
+                        RETURNING tenant_id
+                        """,
+                        (key_id,),
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        return False
+                    tenant_id = row[0]
+
+                PostgresSecurityEventStore.append_in_transaction(
+                    connection,
+                    {
+                        "event_type": "api_key_revoked",
+                        "tenant_id": str(tenant_id),
+                        "key_id": str(key_id),
+                        "operator_id": operator,
+                        "revocation_run_id": run_id,
+                    },
                 )
-                return cursor.rowcount == 1
+            return True
+        except ApiKeyError:
+            raise
+        except Exception as exc:
+            raise ApiKeyError(
+                "Atomic API key revocation failed; state was not changed"
+            ) from exc
