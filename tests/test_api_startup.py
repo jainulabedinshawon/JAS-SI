@@ -82,11 +82,11 @@ class TestAPIStartup(unittest.TestCase):
             self.jsonl_store,
         )
 
-    def test_preview_requires_api_key(self):
+    def test_preview_requires_api_key_pepper(self):
         with (
             patch.object(
                 api, "settings",
-                self.configure(api_key=None),
+                self.configure(api_key=None, api_key_pepper=None),
             ),
             patch.object(api, "PostgresSecurityEventStore") as postgres,
         ):
