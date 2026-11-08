@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: jas-si-php-sdk-\${{ github.ref }}
+  group: jas-si-php-sdk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
