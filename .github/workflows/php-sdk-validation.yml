@@ -21,12 +21,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: jas-si-php-sdk-\${{ github.ref }}
+  group: jas-si-php-sdk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   php-sdk:
-    name: PHP \${{ matrix.php-version }} validation
+    name: PHP ${{ matrix.php-version }} validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -42,7 +42,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: \${{ matrix.php-version }}
+          php-version: ${{ matrix.php-version }}
           extensions: curl
           coverage: none
           tools: composer:v2
