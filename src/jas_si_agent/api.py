@@ -163,6 +163,10 @@ def _log_security_event(
         payload["event_type"] = event_type
 
         if request is not None:
+            for state_field in ("tenant_id", "api_key_id"):
+                state_value = getattr(request.state, state_field, None)
+                if state_value is not None:
+                    payload[state_field] = state_value
             payload["request_id"] = getattr(
                 request.state,
                 "request_id",
