@@ -7,6 +7,8 @@ on:
     paths:
       - "composer.json"
       - "sdks/php/**"
+      - "CHANGELOG.md"
+      - ".spectral.yaml"
       - ".github/workflows/php-sdk-validation.yml"
   pull_request:
     branches:
@@ -14,6 +16,8 @@ on:
     paths:
       - "composer.json"
       - "sdks/php/**"
+      - "CHANGELOG.md"
+      - ".spectral.yaml"
       - ".github/workflows/php-sdk-validation.yml"
   workflow_dispatch:
 
@@ -25,10 +29,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  openapi-contract:
+    name: OpenAPI contract lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Lint OpenAPI contract with Spectral
+        run: npx --yes @stoplight/spectral-cli@6.15.0 lint sdks/php/openapi/jas-si-api-v1.yaml --ruleset .spectral.yaml
+
   php-sdk:
     name: PHP ${{ matrix.php-version }} validation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    needs: openapi-contract
     strategy:
       fail-fast: false
       matrix:
@@ -58,8 +76,23 @@ jobs:
           find sdks/php -type f -name "*.php" -print0 |
             xargs -0 -r -n1 php -l
 
-      - name: Run unit tests
+      - name: Start Prism mock server from OpenAPI contract
+        run: |
+          npx --yes @stoplight/prism-cli@5.14.0 mock sdks/php/openapi/jas-si-api-v1.yaml --host 127.0.0.1 --port 4010 > /tmp/jas-si-prism.log 2>&1 &
+          echo $! > /tmp/jas-si-prism.pid
+          for attempt in $(seq 1 30); do
+            if curl --silent --output /dev/null http://127.0.0.1:4010/; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/jas-si-prism.log
+          exit 1
+
+      - name: Run PHPUnit unit and Prism contract integration tests
+        env:
+          JAS_SI_MOCK_URL: http://127.0.0.1:4010
         run: composer test
 
-      - name: Run static analysis
+      - name: Run PHPStan level 8
         run: composer analyse
