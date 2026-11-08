@@ -23,6 +23,16 @@ Use two separate Neon credentials. The API runtime credential must never be used
 - `JAS_SI_PROVISIONER_DATABASE_URL`: separate operator role used only from a trusted administrative shell.
 - `JAS_SI_API_KEY_PEPPER`: independently generated secret of at least 32 random bytes; store in an approved secret manager.
 
+Generate one fresh staging pepper in a trusted terminal (do not use chat or a ticket):
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Store the same value in the branch-scoped Vercel Preview variable and the operator's secret manager. The earlier staging pepper was configured before any keys were issued; replace it with the operator-controlled value before the first key is provisioned. After keys exist, do not rotate the pepper without a versioned migration plan.
+
+For the Neon `jas_si_provisioner` role, reset its password in the Neon console if the initial one-time password is unavailable, then store its connection string in the operator's local secret manager. Never put this credential in Vercel runtime variables.
+
 Example shell configuration:
 
 ```bash
