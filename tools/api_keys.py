@@ -1,4 +1,4 @@
-""""Operator-only tenant and API-key provisioning utility.
+"""Operator-only tenant and API-key provisioning utility.
 
 Run from a trusted administrative shell after applying database migrations.
 Issued tokens are displayed once and must be captured in an approved secret
