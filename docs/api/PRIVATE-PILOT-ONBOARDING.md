@@ -15,6 +15,32 @@ Status: internal operator runbook. Not a public signup flow. Do not send a custo
 6. Validate a cURL smoke test from a clean environment.
 7. Record the customer acceptance and key ID (never the secret) in the pilot ledger.
 
+## Operator provisioning (internal only)
+
+After applying migrations 001 and 002 to the pilot PostgreSQL database, configure the operator shell with the database DSN and a separately stored pepper (at least 32 random bytes):
+
+```bash
+export JAS_SI_DATABASE_URL="postgresql://<operator-role>:<password>@<host>/<database>"
+export JAS_SI_API_KEY_PEPPER="<secret-manager-value-at-least-32-bytes>"
+
+python tools/api_keys.py create-tenant --name "Pilot Customer"
+# Copy the returned tenant_id, then:
+python tools/api_keys.py issue-key \\
+  --tenant-id "<tenant-uuid>" \\
+  --name "pilot-staging" \\
+  --created-by "operator-id" \\
+  --scope authorization:check \\
+  --scope outcomes:submit \\
+  --scope github:evidence:verify \\
+  --expires-in-days 30
+```
+
+The issue command prints the token once. Capture it directly in the approved secret manager; do not paste it into tickets or chat. To revoke a key:
+
+```bash
+python tools/api_keys.py revoke-key --key-id "<key-uuid>"
+```
+
 ## Client configuration
 
 Store credentials in a secret manager or environment variables:
