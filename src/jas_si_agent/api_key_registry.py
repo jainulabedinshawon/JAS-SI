@@ -112,6 +112,25 @@ class PostgresApiKeyRegistry:
                 row = cursor.fetchone()
                 return bool(row and row[0] and row[1])
 
+    def verify_provisioning_schema(self) -> bool:
+        """Fail closed unless all tables required for atomic issuance exist."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        to_regclass('public.jas_si_tenants'),
+                        to_regclass('public.jas_si_api_keys'),
+                        to_regclass('public.jas_si_api_key_provisioning_runs'),
+                        to_regclass('public.jas_si_audit_events'),
+                        to_regclass('public.jas_si_audit_chain_state')
+                    """
+                )
+                row = cursor.fetchone()
+                return bool(row and all(row))
+
     def create_tenant(self, tenant_name: str) -> uuid.UUID:
         name = tenant_name.strip() if isinstance(tenant_name, str) else ""
         if not name or len(name) > 120:
@@ -136,50 +155,15 @@ class PostgresApiKeyRegistry:
         created_by: str,
         expires_at: datetime | None = None,
     ) -> IssuedApiKey:
-        if not isinstance(tenant_id, uuid.UUID):
-            raise ApiKeyError("A valid tenant UUID is required")
-        name = key_name.strip() if isinstance(key_name, str) else ""
-        creator = created_by.strip() if isinstance(created_by, str) else ""
-        scope_set = frozenset(scopes)
-        if not name or len(name) > 120:
-            raise ApiKeyError("Key name must contain 1 to 120 characters")
-        if not creator or len(creator) > 120:
-            raise ApiKeyError("created_by must contain 1 to 120 characters")
-        if not scope_set or not scope_set.issubset(ALLOWED_SCOPES):
-            raise ApiKeyError("One or more API key scopes are invalid")
-        if expires_at is not None:
-            if expires_at.tzinfo is None or expires_at <= datetime.now(timezone.utc):
-                raise ApiKeyError("Expiry must be a future timezone-aware timestamp")
-
-        key_id = uuid.uuid4()
-        secret = secrets.token_bytes(KEY_SECRET_BYTES)
-        token = f"{KEY_PREFIX}{key_id.hex}_{_encode_secret(secret)}"
-        prefix = f"{KEY_PREFIX}{key_id.hex}"
-        digest = _digest(secret, self._pepper)
-
-        import psycopg
-
-        with psycopg.connect(self._dsn) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """SELECT status FROM jas_si_tenants
-                       WHERE tenant_id = %s FOR UPDATE""",
-                    (tenant_id,),
-                )
-                row = cursor.fetchone()
-                if row is None or row[0] != "active":
-                    raise ApiKeyError("Tenant does not exist or is not active")
-                cursor.execute(
-                    """INSERT INTO jas_si_api_keys
-                       (key_id, tenant_id, key_name, key_prefix, secret_digest,
-                        pepper_version, scopes, created_by, expires_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (
-                        key_id, tenant_id, name, prefix, digest,
-                        PEPPER_VERSION, sorted(scope_set), creator, expires_at,
-                    ),
-                )
-        return IssuedApiKey(key_id, token, prefix, expires_at)
+        """Compatibility wrapper; all key issuance remains atomic and audited."""
+        return self.issue_key_with_audit(
+            tenant_id=tenant_id,
+            key_name=key_name,
+            scopes=scopes,
+            created_by=created_by,
+            provisioning_run_id=f"compat-api:{uuid.uuid4()}",
+            expires_at=expires_at,
+        )
 
     def issue_key_with_audit(
         self,
@@ -223,6 +207,16 @@ class PostgresApiKeyRegistry:
                 raise ApiKeyError(
                     "Expiry must be a future timezone-aware timestamp"
                 )
+
+        if not self.verify_provisioning_schema():
+            raise ApiKeyError(
+                "Atomic provisioning schema is missing; apply migrations first"
+            )
+        audit_store = PostgresSecurityEventStore(self._dsn)
+        if not audit_store.verify_integrity().get("valid"):
+            raise ApiKeyError(
+                "Audit chain integrity check failed; provisioning stopped"
+            )
 
         key_id = uuid.uuid4()
         secret = secrets.token_bytes(KEY_SECRET_BYTES)
