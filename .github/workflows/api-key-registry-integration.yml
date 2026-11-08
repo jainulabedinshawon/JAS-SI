@@ -42,8 +42,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: jas-si-postgres-audit-${{ github.ref }}
-  cancel-in-progress: true
+  group: jas-si-api-key-registry-integration-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   openapi-contract:
