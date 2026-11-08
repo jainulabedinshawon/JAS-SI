@@ -96,7 +96,7 @@ jobs:
 
       - name: Compile PostgreSQL tests
         run: |
-          python -m compileall -q src/jas_si_agent tests
+          python -m compileall -q src/jas_si_agent tests tools
 
       - name: Run PostgreSQL adapter tests
         run: |
