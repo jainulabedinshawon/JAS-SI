@@ -43,6 +43,15 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
+                for role in ("jas_si_provisioner", "jas_si_runtime"):
+                    cursor.execute(
+                        "SELECT 1 FROM pg_roles WHERE rolname = %s",
+                        (role,),
+                    )
+                    if cursor.fetchone() is None:
+                        cursor.execute(
+                            f"CREATE ROLE {role} NOLOGIN"
+                        )
                 for migration in migrations:
                     cursor.execute(migration.read_text(encoding="utf-8"))
 
@@ -147,7 +156,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                     BEGIN
                         RAISE EXCEPTION 'injected checkpoint update failure';
                     END;
-                    $
+                    $$
                     """
                 )
                 cursor.execute(
