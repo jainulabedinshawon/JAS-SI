@@ -156,11 +156,13 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                     CREATE OR REPLACE FUNCTION {function_name}()
                     RETURNS trigger
                     LANGUAGE plpgsql
-                    AS $
+                    AS $$
+
                     BEGIN
                         RAISE EXCEPTION 'injected {table_name} insert failure';
                     END;
-                    $
+                    $$
+
                     """
                 )
                 cursor.execute(
