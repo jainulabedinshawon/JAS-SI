@@ -64,6 +64,8 @@ class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
         self.assertIn("revoke_key_with_audit", script)
         self.assertIn("timedelta(minutes=30)", script)
         self.assertNotIn("print(issued.token)", script)
+        self.assertIn('if path == "/v1/verify":', script)
+        self.assertIn('"claimed_success": True', script)
         cleanup = (ROOT / "tools/revoke_staging_key_for_run.py").read_text(encoding="utf-8")
         self.assertIn("revoke_key_with_audit", cleanup)
         self.assertIn("github-actions:{run_id}", cleanup)
