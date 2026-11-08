@@ -41,7 +41,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     tenant = sub.add_parser("create-tenant")
-    tenant.add_argument("--name", required=True)
+    tenant.add_argument("--name", required=True)\n    tenant.add_argument("--created-by", required=True)
 
     issue = sub.add_parser("issue-key")
     issue.add_argument("--tenant-id", required=True)
@@ -51,7 +51,7 @@ def main() -> int:
     issue.add_argument("--expires-in-days", type=int, default=30)
 
     revoke = sub.add_parser("revoke-key")
-    revoke.add_argument("--key-id", required=True)
+    revoke.add_argument("--key-id", required=True)\n    revoke.add_argument("--revoked-by", required=True)
 
     args = parser.parse_args()
     try:
@@ -71,7 +71,7 @@ def main() -> int:
                 created_by=args.created_by,
                 expires_at=datetime.now(timezone.utc) + timedelta(days=args.expires_in_days),
             )
-            print("IMPORTANT: this token is displayed once. Store it securely.")
+            try:\n                PostgresSecurityEventStore(os.environ["JAS_SI_DATABASE_URL"]).append({\n                    "event_type": "api_key_issued",\n                    "tenant_id": str(tenant_id),\n                    "key_id": str(issued.key_id),\n                    "key_name": args.name,\n                    "scopes": sorted(set(args.scope)),\n                    "expires_at": issued.expires_at.isoformat(),\n                    "operator_id": args.created_by,\n                })\n            except Exception:\n                registry.revoke_key(issued.key_id)\n                raise ApiKeyError("Key audit persistence failed; issued key was revoked") from None\n            print("IMPORTANT: this token is displayed once. Store it securely.")
             print(f"key_id={issued.key_id}")
             print(f"expires_at={issued.expires_at.isoformat()}")
             print(f"api_key={issued.token}")
@@ -81,7 +81,7 @@ def main() -> int:
             revoked = registry.revoke_key(UUID(args.key_id))
             if not revoked:
                 raise ApiKeyError("Active API key was not found")
-            print(f"revoked_key_id={args.key_id}")
+            PostgresSecurityEventStore(os.environ["JAS_SI_DATABASE_URL"]).append({\n                "event_type": "api_key_revoked",\n                "key_id": str(args.key_id),\n                "operator_id": args.revoked_by,\n            })\n            print(f"revoked_key_id={args.key_id}")
             return 0
 
     except (ApiKeyError, ValueError) as exc:
