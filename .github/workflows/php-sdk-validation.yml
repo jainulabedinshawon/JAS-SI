@@ -1,0 +1,54 @@
+name: JAS-SI PHP SDK Validation
+
+on:
+  push:
+    branches:
+      - feat/php-sdk-v0.1
+    paths:
+      - "composer.json"
+      - "sdks/php/**"
+      - ".github/workflows/php-sdk-validation.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "composer.json"
+      - "sdks/php/**"
+      - ".github/workflows/php-sdk-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-php-sdk-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.1"
+          extensions: curl
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate Composer metadata
+        run: composer validate --no-check-publish
+
+      - name: Lint PHP SDK files
+        run: |
+          find sdks/php -type f -name "*.php" -print0 |
+            xargs -0 -r -n1 php -l
+
+      - name: Build Composer autoloader
+        run: composer dump-autoload --no-interaction
