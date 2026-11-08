@@ -77,11 +77,12 @@ def main() -> int:
         print("GitHub run identity is invalid.")
         return 2
 
-    registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
     issued = None
     revoked = False
     checks: list[tuple[str, bool]] = []
     try:
+        registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
+        print("provisioner_constructor=PASS")
         issued = registry.issue_key_with_audit(
             tenant_id=TENANT_ID,
             key_name=f"ci-staging-smoke-{run_id}",
