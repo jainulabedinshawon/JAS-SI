@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
 
   push:
+    branches:
+      - main
     paths:
       - "src/jas_si_agent/postgres_security_event_store.py"
       - "src/jas_si_agent/api_key_registry.py"
