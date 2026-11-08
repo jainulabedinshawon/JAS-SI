@@ -143,7 +143,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                     CREATE OR REPLACE FUNCTION jas_si_test_fail_checkpoint_update()
                     RETURNS trigger
                     LANGUAGE plpgsql
-                    AS $
+                    AS $$
                     BEGIN
                         RAISE EXCEPTION 'injected checkpoint update failure';
                     END;
