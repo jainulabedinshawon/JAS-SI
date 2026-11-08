@@ -27,6 +27,7 @@ class TestAPIStartup(unittest.TestCase):
             "environment": "preview",
             "api_enabled": True,
             "api_key": "test-only-api-key",
+            "api_key_pepper": b"test-only-pepper-that-is-at-least-32-bytes",
             "database_url": "postgresql://test:test@localhost/test",
         }
         values.update(overrides)
