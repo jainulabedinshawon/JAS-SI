@@ -30,7 +30,7 @@ The workflow must not be enabled for real provisioning until every implementatio
 - Changed the compatibility `issue_key(...)` method to delegate to the atomic audited method, so callers cannot accidentally use the former unaudited issuance path.
 - Added migration `003_atomic_api_key_provisioning.sql` with a unique provisioning-run ledger and conditional least-privilege grants for the known operator/runtime roles.
 - Updated the operator CLI to use atomic audited issuance.
-- Added PostgreSQL integration tests for success, failure injected after audit writes, duplicate run IDs, inactive tenants, and role grants; wired the suite into the existing integration workflow.
+- Added PostgreSQL integration tests for successful commit, failure after audit writes, checkpoint-update failure, duplicate and concurrent run IDs, inactive tenants, and role grants; wired the suite into the existing integration workflow.
 - These are code changes on the Draft PR branch only. They have not yet been proven by a completed CI run or a staging database migration/test.
 
 ## Remaining implementation work
