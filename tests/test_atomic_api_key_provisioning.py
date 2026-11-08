@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -333,6 +336,82 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                         """
                     )
                     self.assertFalse(cursor.fetchone()[0])
+
+    def _api_client(self):
+        from jas_si_agent import api
+
+        configured = replace(
+            api.settings,
+            environment="preview",
+            api_enabled=True,
+            api_key=None,
+            api_key_pepper=self.pepper,
+            database_url=self.dsn,
+        )
+        settings_patch = patch.object(api, "settings", configured)
+        settings_patch.start()
+        self.addCleanup(settings_patch.stop)
+        store_patch = patch.object(
+            api.app.state,
+            "security_event_store",
+            PostgresSecurityEventStore(self.dsn),
+        )
+        store_patch.start()
+        self.addCleanup(store_patch.stop)
+        with api._rate_limit_lock:
+            api._rate_limit_buckets.clear()
+        return TestClient(api.app)
+
+    def test_real_registry_missing_key_returns_401(self):
+        self._tenant()
+        response = self._api_client().post(
+            "/v1/verify",
+            json={"action_id": "negative-missing", "claimed_success": True},
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"], "Missing or invalid API key")
+
+    def test_real_registry_invalid_key_returns_401(self):
+        self._tenant()
+        response = self._api_client().post(
+            "/v1/verify",
+            headers={"X-API-Key": "jassi_live_invalid"},
+            json={"action_id": "negative-invalid", "claimed_success": True},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_real_registry_wrong_scope_returns_403(self):
+        tenant_id = self._tenant()
+        issued = self.registry.issue_key_with_audit(
+            tenant_id=tenant_id,
+            key_name="wrong-scope-test",
+            scopes=["authorization:check"],
+            created_by="integration-test-operator",
+            provisioning_run_id="test:api-wrong-scope",
+        )
+        response = self._api_client().post(
+            "/v1/verify",
+            headers={"X-API-Key": issued.token},
+            json={"action_id": "negative-scope", "claimed_success": True},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_real_registry_valid_scope_authenticates(self):
+        tenant_id = self._tenant()
+        issued = self.registry.issue_key_with_audit(
+            tenant_id=tenant_id,
+            key_name="valid-scope-test",
+            scopes=["outcomes:submit"],
+            created_by="integration-test-operator",
+            provisioning_run_id="test:api-valid-scope",
+        )
+        response = self._api_client().post(
+            "/v1/verify",
+            headers={"X-API-Key": issued.token},
+            json={"action_id": "positive-valid", "claimed_success": True},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "INCONCLUSIVE")
 
     def test_inactive_tenant_creates_no_key_or_audit(self):
         tenant_id = self._tenant()
