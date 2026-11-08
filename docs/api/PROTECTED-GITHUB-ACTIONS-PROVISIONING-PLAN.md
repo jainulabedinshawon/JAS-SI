@@ -42,14 +42,14 @@ The workflow must not be enabled for real provisioning until every implementatio
 
 ## Remaining implementation work
 
-1. Complete an independent code review of the atomic issuance and transaction-scoped audit verification implementation.
-2. Add static policy tests for the future privileged workflow before creating that workflow.
-3. Implement and test the OpenPGP encryption/delivery helper, including a generated test key pair and decrypt round-trip; no real token may be issued during this test.
-4. Implement the manual-only protected workflow from the trusted default branch, using a protected GitHub Environment, minimal permissions, immutable action pins, concurrency protection, and ciphertext-only artifact delivery.
-5. Add the GitHub Environment setup runbook and verify required reviewers, branch restrictions, and secret scope in GitHub UI.
-6. Run a controlled staging issuance only after encrypted delivery has been independently tested on the operator's Android device; then verify audit, authenticate, and revoke the test key.
-7. Keep the provisioning workflow unavailable for real issuance until the Environment configuration and encrypted delivery path have been independently tested.
-
+1. Complete an independent security review of the atomic issuance/revocation paths and the privileged workflow before merge.
+2. Have an authorized repository owner create/configure the `jas-si-staging-provisioning` GitHub Environment with required reviewers, a `main`-only deployment branch rule, and environment-scoped `JAS_SI_PROVISIONER_DATABASE_URL` / `JAS_SI_API_KEY_PEPPER` secrets.
+3. Export an OpenPGP public key from the operator's Android device; keep the private key only on that device. Validate the public key/fingerprint without sharing private material.
+4. Obtain explicit approval to take Draft PR #20 out of Draft and merge it to `main`; do not merge automatically.
+5. After merge and Environment verification, dispatch one controlled staging run, download the one-day encrypted artifact, decrypt on Android, and test the resulting scoped token against Preview.
+6. Independently verify exactly one key row, one issuance event, a valid audit chain/checkpoint, then revoke the test key and verify the revocation event and rejection of the old token.
+7. Delete the encrypted artifact when no longer needed and keep the Environment reviewer-gated. No customer-facing rollout is authorized by this staging test.
+ 
 ## Test plan and release gates
 
 ### Unit tests
