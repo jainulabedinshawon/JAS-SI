@@ -28,15 +28,13 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_provisioner'
     ) THEN
-        GRANT SELECT, INSERT ON jas_si_api_key_provisioning_runs
-            TO jas_si_provisioner;
+        EXECUTE 'GRANT SELECT, INSERT ON jas_si_api_key_provisioning_runs TO jas_si_provisioner';
     END IF;
 
     IF EXISTS (
         SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_runtime'
     ) THEN
-        REVOKE ALL ON jas_si_api_key_provisioning_runs
-            FROM jas_si_runtime;
+        EXECUTE 'REVOKE ALL ON jas_si_api_key_provisioning_runs FROM jas_si_runtime';
     END IF;
 END
 $;
