@@ -72,7 +72,20 @@ def main() -> int:
             raise ApiKeyError("Audit chain failed verification after cleanup")
         print("cleanup_audit_chain_valid=true")
         return 0
-    except Exception:
+    except Exception as exc:
+        # Only exception class and SQLSTATE are safe to log; never print the
+        # exception message, DSN, host, or other connection details.
+        print(f"cleanup_error_type={type(exc).__name__}")
+        cause = exc.__cause__
+        depth = 0
+        while cause is not None and depth < 4:
+            sqlstate = getattr(cause, "sqlstate", None)
+            print(
+                f"cleanup_cause_{depth + 1}_type={type(cause).__name__}"
+                + (f" sqlstate={sqlstate}" if sqlstate else "")
+            )
+            cause = cause.__cause__
+            depth += 1
         print("Staging key cleanup or audit verification failed.")
         return 1
 
