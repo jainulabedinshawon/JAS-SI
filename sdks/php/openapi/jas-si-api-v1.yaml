@@ -1,0 +1,338 @@
+openapi: 3.1.0
+info:
+  title: JAS-SI API
+  version: 1.0.0
+  summary: Authorization decisions and evidence-submission contract for JAS-SI.
+  description: >
+    Contract-first API definition. This specification defines the wire contract only;
+    it does not claim that a production server is deployed. Authorization is a decision,
+    not execution. Submitted outcome claims are not independent evidence verification.
+servers:
+  - url: https://api.example.invalid
+    description: Placeholder only; replace with an actual deployment URL.
+security:
+  - ApiKeyAuth: []
+tags:
+  - name: Authorization
+  - name: Outcomes
+  - name: GitHub Evidence
+paths:
+  /v1/authorize:
+    post:
+      operationId: authorizeAction
+      tags: [Authorization]
+      summary: Evaluate whether a requested action is authorized.
+      description: Returns a policy decision. The caller remains responsible for enforcing it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizationRequest'
+            examples:
+              deploy:
+                value:
+                  action_id: deploy-2026-001
+                  action: deploy
+                  resource: production/my-service
+      responses:
+        '200':
+          description: Authorization decision evaluated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationDecision'
+              examples:
+                allowed:
+                  value:
+                    action_id: deploy-2026-001
+                    allowed: true
+                    decision: ALLOW
+                    reason: Policy requirements satisfied.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/verify:
+    post:
+      operationId: submitOutcome
+      tags: [Outcomes]
+      summary: Submit an outcome claim for evaluation.
+      description: >
+        The caller supplies the claim and optional evidence reference. The endpoint must
+        not describe caller-supplied evidence as independently verified unless it fetches
+        and validates independent evidence sources itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutcomeSubmission'
+            examples:
+              claimedSuccess:
+                value:
+                  action_id: deploy-2026-001
+                  claimed_success: true
+                  observed_state: deployment completed
+                  evidence_ref: https://ci.example.invalid/runs/123
+      responses:
+        '200':
+          description: Outcome submission accepted and evaluated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutcomeResult'
+              examples:
+                recorded:
+                  value:
+                    action_id: deploy-2026-001
+                    accepted: true
+                    status: CLAIM_RECORDED
+                    independently_verified: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/github/evidence:
+    post:
+      operationId: verifyGithubEvidence
+      tags: [GitHub Evidence]
+      summary: Check GitHub blob integrity at an immutable commit.
+      description: >
+        A successful integrity check does not prove semantic correctness, task completion,
+        or the truth of a claim.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitHubEvidenceRequest'
+            examples:
+              repositoryFiles:
+                value:
+                  repository: owner/repository
+                  commit_sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                  paths: [README.md, src/main.php]
+      responses:
+        '200':
+          description: Evidence integrity check completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubEvidenceResult'
+              examples:
+                checked:
+                  value:
+                    repository: owner/repository
+                    commit_sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                    results:
+                      - path: README.md
+                        exists: true
+                        integrity: MATCH
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Repository, commit, or requested object was not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                notFound:
+                  value:
+                    detail: Requested GitHub resource was not found.
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Per-customer API key issued by a trusted JAS-SI deployment operator.
+  schemas:
+    AuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required: [action_id, action, resource]
+      properties:
+        action_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        action:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resource:
+          type: string
+          minLength: 1
+          maxLength: 512
+    AuthorizationDecision:
+      type: object
+      required: [allowed]
+      properties:
+        action_id: { type: string }
+        allowed: { type: boolean }
+        decision: { type: string, enum: [ALLOW, DENY] }
+        reason: { type: string }
+        policy_version: { type: string }
+        evaluated_at: { type: string, format: date-time }
+      additionalProperties: true
+    OutcomeSubmission:
+      type: object
+      additionalProperties: false
+      required: [action_id, claimed_success]
+      properties:
+        action_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        claimed_success:
+          type: boolean
+        observed_state:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        evidence_ref:
+          type: string
+          format: uri
+          maxLength: 2048
+      description: observed_state and evidence_ref must be supplied together or omitted together.
+    OutcomeResult:
+      type: object
+      required: [accepted]
+      properties:
+        action_id: { type: string }
+        accepted: { type: boolean }
+        status: { type: string }
+        independently_verified: { type: boolean }
+        verified_state: { type: string }
+        evidence: { type: array, items: { type: object, additionalProperties: true } }
+      additionalProperties: true
+    GitHubEvidenceRequest:
+      type: object
+      additionalProperties: false
+      required: [repository, commit_sha, paths]
+      properties:
+        repository:
+          type: string
+          pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+        commit_sha:
+          type: string
+          pattern: '^[a-fA-F0-9]{40}$'
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1024
+    GitHubEvidenceResult:
+      type: object
+      required: [repository, commit_sha, results]
+      properties:
+        repository: { type: string }
+        commit_sha: { type: string }
+        results:
+          type: array
+          items:
+            type: object
+            required: [path, exists]
+            properties:
+              path: { type: string }
+              exists: { type: boolean }
+              integrity: { type: string, enum: [MATCH, MISMATCH, UNAVAILABLE] }
+              expected_blob_sha: { type: string }
+              actual_blob_sha: { type: string }
+            additionalProperties: true
+      additionalProperties: true
+    ApiError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: object, additionalProperties: true }
+      additionalProperties: true
+  responses:
+    BadRequest:
+      description: Request could not be processed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          examples:
+            badRequest:
+              value: { detail: Invalid request. }
+    Unauthorized:
+      description: API key is missing, invalid, or expired.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          examples:
+            unauthorized:
+              value: { detail: Invalid or missing API key. }
+    Forbidden:
+      description: API key is not permitted to perform this operation.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          examples:
+            forbidden:
+              value: { detail: Insufficient permission. }
+    ValidationError:
+      description: Request schema validation failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          examples:
+            validation:
+              value: { detail: Request validation failed. }
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+          description: Seconds before retrying.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          examples:
+            rateLimited:
+              value: { detail: Rate limit exceeded. }
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+          examples:
+            internal:
+              value: { detail: Internal server error. }
