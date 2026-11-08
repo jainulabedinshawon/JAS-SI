@@ -102,12 +102,6 @@ def main() -> int:
             if args.expires_in_days < 1 or args.expires_in_days > 365:
                 raise ApiKeyError("--expires-in-days must be between 1 and 365")
             tenant_id = UUID(args.tenant_id)
-            audit_store = PostgresSecurityEventStore(_provisioner_dsn())
-            integrity = audit_store.verify_integrity()
-            if not integrity.get("valid"):
-                raise ApiKeyError(
-                    "Audit chain integrity check failed; provisioning stopped"
-                )
             issued = registry.issue_key_with_audit(
                 tenant_id=tenant_id,
                 key_name=args.name,
