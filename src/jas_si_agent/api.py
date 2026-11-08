@@ -453,7 +453,7 @@ def _require_api_key(
             request,
             event_store,
             status_code=401,
-            reason_code="invalid_or_missing_api_key",
+            reason_code="invalid_api_key" if x_api_key else "missing_api_key",
         )
         raise HTTPException(
             status_code=401,
