@@ -181,6 +181,122 @@ class PostgresApiKeyRegistry:
                 )
         return IssuedApiKey(key_id, token, prefix, expires_at)
 
+    def issue_key_with_audit(
+        self,
+        tenant_id: uuid.UUID,
+        key_name: str,
+        scopes: Iterable[str],
+        created_by: str,
+        provisioning_run_id: str,
+        expires_at: datetime | None = None,
+    ) -> IssuedApiKey:
+        """Issue a key, append its audit event, and record idempotency atomically."""
+        import re
+        import psycopg
+        from jas_si_agent.postgres_security_event_store import (
+            PostgresSecurityEventStore,
+        )
+
+        if not isinstance(tenant_id, uuid.UUID):
+            raise ApiKeyError("A valid tenant UUID is required")
+        name = key_name.strip() if isinstance(key_name, str) else ""
+        creator = created_by.strip() if isinstance(created_by, str) else ""
+        run_id = (
+            provisioning_run_id.strip()
+            if isinstance(provisioning_run_id, str)
+            else ""
+        )
+        scope_set = frozenset(scopes)
+        if not name or len(name) > 120:
+            raise ApiKeyError("Key name must contain 1 to 120 characters")
+        if not creator or len(creator) > 120:
+            raise ApiKeyError("created_by must contain 1 to 120 characters")
+        if not scope_set or not scope_set.issubset(ALLOWED_SCOPES):
+            raise ApiKeyError("One or more API key scopes are invalid")
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", run_id):
+            raise ApiKeyError("A valid provisioning run identifier is required")
+        if expires_at is not None:
+            if (
+                expires_at.tzinfo is None
+                or expires_at <= datetime.now(timezone.utc)
+            ):
+                raise ApiKeyError(
+                    "Expiry must be a future timezone-aware timestamp"
+                )
+
+        key_id = uuid.uuid4()
+        secret = secrets.token_bytes(KEY_SECRET_BYTES)
+        token = f"{KEY_PREFIX}{key_id.hex}_{_encode_secret(secret)}"
+        prefix = f"{KEY_PREFIX}{key_id.hex}"
+        digest = _digest(secret, self._pepper)
+
+        try:
+            with psycopg.connect(self._dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT status
+                        FROM jas_si_tenants
+                        WHERE tenant_id = %s
+                        FOR UPDATE
+                        """,
+                        (tenant_id,),
+                    )
+                    tenant_row = cursor.fetchone()
+                    if tenant_row is None or tenant_row[0] != "active":
+                        raise ApiKeyError(
+                            "Tenant does not exist or is not active"
+                        )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO jas_si_api_keys
+                            (key_id, tenant_id, key_name, key_prefix,
+                             secret_digest, pepper_version, scopes,
+                             created_by, expires_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            key_id, tenant_id, name, prefix, digest,
+                            PEPPER_VERSION, sorted(scope_set), creator,
+                            expires_at,
+                        ),
+                    )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO jas_si_api_key_provisioning_runs
+                            (run_id, key_id, tenant_id)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (run_id, key_id, tenant_id),
+                    )
+
+                PostgresSecurityEventStore.append_in_transaction(
+                    connection,
+                    {
+                        "event_type": "api_key_issued",
+                        "tenant_id": str(tenant_id),
+                        "key_id": str(key_id),
+                        "key_name": name,
+                        "scopes": sorted(scope_set),
+                        "expires_at": (
+                            expires_at.isoformat() if expires_at else None
+                        ),
+                        "operator_id": creator,
+                        "provisioning_run_id": run_id,
+                    },
+                )
+        except ApiKeyError:
+            raise
+        except Exception as exc:
+            # Do not leak SQL details, connection strings, or secret material.
+            raise ApiKeyError(
+                "Atomic API key provisioning failed; no key was issued"
+            ) from exc
+
+        return IssuedApiKey(key_id, token, prefix, expires_at)
+
     def authenticate(self, token: str) -> AuthenticatedApiKey | None:
         try:
             key_id, secret = parse_token(token)
