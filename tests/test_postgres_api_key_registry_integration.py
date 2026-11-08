@@ -61,7 +61,7 @@ class TestPostgresApiKeyRegistry(unittest.TestCase):
             "operator@example.invalid",
             datetime.now(timezone.utc) + timedelta(days=7),
         )
-        self.assertEqual(issued.token.count("_"), 3)
+        self.assertTrue(issued.token.startswith("jassi_live_"))
         key_id, secret = parse_token(issued.token)
         self.assertEqual(key_id, issued.key_id)
         self.assertEqual(len(secret), 32)
@@ -101,14 +101,10 @@ class TestPostgresApiKeyRegistry(unittest.TestCase):
         tenant_id = self._tenant()
         issued = self.registry.issue_key(
             tenant_id, "expired", ["outcomes:submit"], "operator",
-            datetime.now(timezone.utc) + timedelta(seconds=1),
+            datetime.now(timezone.utc) + timedelta(seconds=2),
         )
-        with psycopg.connect(self.dsn) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE jas_si_api_keys SET expires_at = NOW() - INTERVAL '1 second' WHERE key_id = %s",
-                    (issued.key_id,),
-                )
+        import time
+        time.sleep(2.1)
         self.assertIsNone(self.registry.authenticate(issued.token))
 
     def test_suspended_tenant_key_is_rejected(self):
