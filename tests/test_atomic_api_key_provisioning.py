@@ -51,7 +51,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             with connection.cursor() as cursor:
                 cursor.execute(
                     "TRUNCATE jas_si_audit_events, jas_si_api_keys, "
-                    "jas_si_tenants CASCADE RESTART IDENTITY"
+                    "jas_si_tenants RESTART IDENTITY CASCADE"
                 )
                 cursor.execute("DELETE FROM jas_si_audit_chain_state")
 
