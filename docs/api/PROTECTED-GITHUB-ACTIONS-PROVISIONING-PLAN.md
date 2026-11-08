@@ -6,7 +6,7 @@ Status: design gate for PR #20. This document is not an enabled provisioning wor
 
 Use a manually dispatched GitHub Actions workflow bound to a protected GitHub Environment. Do not add a public HTTP provisioning endpoint. Do not expose the provisioner database credential or API-key pepper to Vercel runtime.
 
-The workflow must not be enabled for real provisioning until every implementation and test gate below passes. In particular, the existing operator CLI is not sufficient: API-key insertion and audit-chain append currently use separate PostgreSQL transactions. A compensating revoke after audit failure is not atomic and does not satisfy this design.
+The workflow must not be enabled for real provisioning until every implementation and test gate below passes. The earlier operator CLI used separate PostgreSQL transactions for key insertion and audit append. That path has now been replaced on this feature branch by an atomic audited issuance method; the implementation remains unverified until CI and staging tests pass.
 
 ## Threat model and controls
 
@@ -33,23 +33,15 @@ The workflow must not be enabled for real provisioning until every implementatio
 - Added PostgreSQL integration tests for success, failure injected after audit writes, duplicate run IDs, inactive tenants, and role grants; wired the suite into the existing integration workflow.
 - These are code changes on the Draft PR branch only. They have not yet been proven by a completed CI run or a staging database migration/test.
 
-## Required implementation work
+## Remaining implementation work
 
-1. Refactor PostgreSQL audit append into a transaction-aware method that accepts an existing psycopg connection. Keep the existing standalone `append()` API behavior by opening a connection and delegating to that method.
-2. Add a single operator provisioning service method that:
-   - validates tenant, operator identity, scopes, expiry, and idempotency key;
-   - opens one PostgreSQL connection/transaction;
-   - locks and validates the active tenant;
-   - inserts the API-key digest and metadata;
-   - appends the sanitized `api_key_issued` event using the same connection and updates the hash-chain checkpoint;
-   - inserts a unique provisioning-run/idempotency record;
-   - commits only after all writes succeed; and
-   - returns the raw token only in process memory after successful commit.
-3. Add a migration for the unique provisioning-run/idempotency table. No raw token, token fragment, digest, pepper, or DSN may be stored in that table.
-4. Update the operator CLI to call the atomic service. Remove the separate insert-then-audit/revoke flow.
-5. Add a protected workflow file with manual dispatch only, protected Environment, strict inputs, minimal permissions, immutable action pins, no untrusted checkout, concurrency protection, encrypted delivery, one-day artifact retention, and unconditional plaintext cleanup.
-6. Add a runbook for creating the GitHub Environment, required reviewers, branch restrictions, environment-scoped secrets, and operator public-key enrollment. Do not document or request pasting secrets into chat.
-7. Keep the workflow unavailable for real issuance until the Environment protection and secret configuration are independently checked in GitHub UI.
+1. Review the atomic issuance changes and obtain a completed passing PostgreSQL 16 CI run.
+2. Expand failure-injection coverage to fail after each individual SQL write and during checkpoint update; verify complete rollback every time.
+3. Add deterministic concurrent duplicate-run tests and confirm exactly one key/event/idempotency row commits.
+4. Add static policy tests for the future privileged workflow before creating that workflow.
+5. Implement the manual-only protected workflow from the trusted default branch, using a protected GitHub Environment, minimal permissions, immutable action pins, concurrency protection, and encrypted delivery.
+6. Add the GitHub Environment setup runbook and verify required reviewers, branch restrictions, and secret scope in GitHub UI.
+7. Keep the provisioning workflow unavailable for real issuance until the Environment configuration and encrypted delivery path have been independently tested.
 
 ## Test plan and release gates
 
@@ -62,7 +54,7 @@ The workflow must not be enabled for real provisioning until every implementatio
 - Duplicate workflow run ID is rejected and creates no second key.
 - Concurrent attempts for the same idempotency key yield exactly one committed key and one audit event.
 - Audit event contains tenant ID, key ID, operator identity, scopes, expiry, and run ID; it contains no token, secret, digest, DSN, or pepper.
-- The CLI and workflow never emit the raw token to stdout/stderr, logs, job summary, step outputs, or unencrypted files.
+- The future workflow never emits the raw token to stdout/stderr, logs, job summary, step outputs, or unencrypted files. The trusted local CLI may display a one-time token only to the operator's private terminal; it must never be used as the workflow delivery mechanism.
 
 ### PostgreSQL integration tests (PostgreSQL 16)
 - Successful provisioning creates exactly one active key, exactly one audit event, exactly one idempotency record, and a matching valid checkpoint.
