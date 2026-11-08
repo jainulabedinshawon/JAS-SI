@@ -23,6 +23,16 @@ The workflow must not be enabled for real provisioning until every implementatio
 - The artifact must contain only ciphertext plus non-sensitive metadata (key ID, expiry, scopes, run ID). Artifact access is still repository-reader access; encryption is mandatory.
 - A workflow run must fail closed if audit integrity verification fails before issuance, if the tenant is not active, if the requested scopes exceed the allowlist, or if any secret/configuration is missing.
 
+## Implementation status on the feature branch
+
+- Added `PostgresSecurityEventStore.append_in_transaction(connection, event)`; the existing `append()` now delegates to it while retaining its standalone transaction behavior.
+- Added `PostgresApiKeyRegistry.issue_key_with_audit(...)`, which checks the required schema and audit-chain integrity, then inserts the API-key digest, idempotency row, audit event, and checkpoint through one PostgreSQL connection/transaction.
+- Changed the compatibility `issue_key(...)` method to delegate to the atomic audited method, so callers cannot accidentally use the former unaudited issuance path.
+- Added migration `003_atomic_api_key_provisioning.sql` with a unique provisioning-run ledger and conditional least-privilege grants for the known operator/runtime roles.
+- Updated the operator CLI to use atomic audited issuance.
+- Added PostgreSQL integration tests for success, failure injected after audit writes, duplicate run IDs, inactive tenants, and role grants; wired the suite into the existing integration workflow.
+- These are code changes on the Draft PR branch only. They have not yet been proven by a completed CI run or a staging database migration/test.
+
 ## Required implementation work
 
 1. Refactor PostgreSQL audit append into a transaction-aware method that accepts an existing psycopg connection. Keep the existing standalone `append()` API behavior by opening a connection and delegating to that method.
@@ -90,5 +100,5 @@ The workflow must not be enabled for real provisioning until every implementatio
 
 - GitHub connector access available to this implementation can read repository/workflow data and commit files, but cannot manage GitHub Environment secrets or dispatch workflows. Those actions require an authorized operator in GitHub UI.
 - No end-to-end test has been run from the operator's Android device. Encrypted artifact delivery is therefore a design proposal, not yet validated.
-- The existing CLI's issue and audit writes are separate transactions. No production-grade atomic issuance is currently available.
+- Atomic issuance code is present on the Draft PR branch, but has not yet passed a completed CI run or a staging PostgreSQL failure-injection test. It is not approved for real credential issuance.
 - No API key is issued by this design document. No production branch, deployment, database, or customer credential is changed.
