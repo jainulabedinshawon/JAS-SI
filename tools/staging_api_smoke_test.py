@@ -139,6 +139,9 @@ def main() -> int:
                     SELECT event_payload->>'event_type'
                     FROM jas_si_audit_events
                     WHERE event_payload->>'key_id' = %s
+                      AND event_payload->>'event_type' IN (
+                          'api_key_issued', 'api_key_revoked'
+                      )
                     ORDER BY event_id
                     """,
                     (str(issued.key_id),),
