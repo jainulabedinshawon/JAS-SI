@@ -204,6 +204,14 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
+                    INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
+                    VALUES (TRUE, %s)
+                    ON CONFLICT (singleton) DO NOTHING
+                    """,
+                    ("0" * 64,),
+                )
+                cursor.execute(
+                    """
                     UPDATE jas_si_audit_chain_state
                     SET last_hash = %s
                     WHERE singleton = TRUE
