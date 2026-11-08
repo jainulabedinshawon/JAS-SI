@@ -16,26 +16,23 @@ from jas_si_agent.secure_token_delivery import (
 
 @unittest.skipUnless(shutil.which("gpg"), "GnuPG is not installed")
 class TestSecureTokenDelivery(unittest.TestCase):
+    @staticmethod
+    def _valid_token():
+        secret = bytes(range(32))
+        encoded = base64.urlsafe_b64encode(secret).decode("ascii").rstrip("=")
+        return f"jassi_live_{uuid.uuid4().hex}_{encoded}"
+
     def test_public_key_encryption_round_trip(self):
         with tempfile.TemporaryDirectory(prefix="jas-si-gpg-test-") as temp:
             home = Path(temp) / "gnupg"
             home.mkdir(mode=0o700)
             subprocess.run(
                 [
-                    shutil.which("gpg"),
-                    "--batch",
-                    "--no-tty",
-                    "--pinentry-mode",
-                    "loopback",
-                    "--passphrase",
-                    "",
-                    "--homedir",
-                    str(home),
-                    "--quick-generate-key",
+                    shutil.which("gpg"), "--batch", "--no-tty",
+                    "--pinentry-mode", "loopback", "--passphrase", "",
+                    "--homedir", str(home), "--quick-generate-key",
                     "JAS-SI CI Test <jas-si-ci@example.invalid>",
-                    "rsa2048",
-                    "encr",
-                    "1d",
+                    "rsa2048", "encr", "1d",
                 ],
                 check=True,
                 stdout=subprocess.DEVNULL,
@@ -44,13 +41,8 @@ class TestSecureTokenDelivery(unittest.TestCase):
             )
             exported = subprocess.run(
                 [
-                    shutil.which("gpg"),
-                    "--batch",
-                    "--no-tty",
-                    "--homedir",
-                    str(home),
-                    "--armor",
-                    "--export",
+                    shutil.which("gpg"), "--batch", "--no-tty",
+                    "--homedir", str(home), "--armor", "--export",
                     "jas-si-ci@example.invalid",
                 ],
                 check=True,
@@ -59,11 +51,7 @@ class TestSecureTokenDelivery(unittest.TestCase):
                 timeout=20,
             )
             public_key = exported.stdout.decode("ascii")
-            secret = bytes(range(32))
-            token = (
-                f"jassi_live_{uuid.uuid4().hex}_"
-                f"{base64.urlsafe_b64encode(secret).decode('ascii').rstrip('=')}"
-            )
+            token = self._valid_token()
 
             ciphertext = encrypt_token_for_recipient(token, public_key)
             self.assertTrue(ciphertext.startswith(b"-----BEGIN PGP MESSAGE-----"))
@@ -71,12 +59,8 @@ class TestSecureTokenDelivery(unittest.TestCase):
 
             decrypted = subprocess.run(
                 [
-                    shutil.which("gpg"),
-                    "--batch",
-                    "--no-tty",
-                    "--homedir",
-                    str(home),
-                    "--decrypt",
+                    shutil.which("gpg"), "--batch", "--no-tty",
+                    "--homedir", str(home), "--decrypt",
                 ],
                 input=ciphertext,
                 check=True,
@@ -89,15 +73,14 @@ class TestSecureTokenDelivery(unittest.TestCase):
     def test_rejects_private_key_material(self):
         with self.assertRaises(TokenDeliveryError):
             encrypt_token_for_recipient(
-                "not-a-valid-token",
+                self._valid_token(),
                 "-----BEGIN PGP PRIVATE KEY BLOCK-----",
             )
 
-    def test_rejects_multiple_recipient_keys(self):
-        # A malformed bundle is rejected before GnuPG can import it.
+    def test_rejects_malformed_public_key(self):
         with self.assertRaises(TokenDeliveryError):
             encrypt_token_for_recipient(
-                "not-a-valid-token",
+                self._valid_token(),
                 "-----BEGIN PGP PUBLIC KEY BLOCK-----",
             )
 
