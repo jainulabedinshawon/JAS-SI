@@ -1,8 +1,12 @@
-"""Operator-only tenant and API-key provisioning utility.
+""""Operator-only tenant and API-key provisioning utility.
 
 Run from a trusted administrative shell after applying database migrations.
 Issued tokens are displayed once and must be captured in an approved secret
 manager. Never run this command in CI logs or a shared terminal.
+
+The API runtime credential and operator credential are intentionally separate:
+- JAS_SI_DATABASE_URL: least-privilege runtime role (used by the API only)
+- JAS_SI_PROVISIONER_DATABASE_URL: operator role (used by this CLI only)
 """
 
 from __future__ import annotations
@@ -29,21 +33,25 @@ from jas_si_agent.postgres_security_event_store import (  # noqa: E402
 )
 
 
-def _registry() -> PostgresApiKeyRegistry:
-    dsn = os.getenv("JAS_SI_DATABASE_URL")
-    pepper = os.getenv("JAS_SI_API_KEY_PEPPER")
+def _provisioner_dsn() -> str:
+    dsn = os.getenv("JAS_SI_PROVISIONER_DATABASE_URL")
     if not dsn:
-        raise ApiKeyError("Set JAS_SI_DATABASE_URL")
+        raise ApiKeyError(
+            "Set JAS_SI_PROVISIONER_DATABASE_URL to the operator-only database role"
+        )
+    return dsn
+
+
+def _registry() -> PostgresApiKeyRegistry:
+    dsn = _provisioner_dsn()
+    pepper = os.getenv("JAS_SI_API_KEY_PEPPER")
     if not pepper or len(pepper.encode("utf-8")) < 32:
         raise ApiKeyError("Set JAS_SI_API_KEY_PEPPER (at least 32 bytes)")
     return PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
 
 
 def _audit(event: dict) -> None:
-    dsn = os.getenv("JAS_SI_DATABASE_URL")
-    if not dsn:
-        raise ApiKeyError("Set JAS_SI_DATABASE_URL")
-    PostgresSecurityEventStore(dsn).append(event)
+    PostgresSecurityEventStore(_provisioner_dsn()).append(event)
 
 
 def main() -> int:
@@ -75,12 +83,17 @@ def main() -> int:
         registry = _registry()
         if args.command == "create-tenant":
             tenant_id = registry.create_tenant(args.name)
-            _audit({
-                "event_type": "tenant_created",
-                "tenant_id": str(tenant_id),
-                "tenant_name": args.name,
-                "operator_id": args.created_by,
-            })
+            try:
+                _audit({
+                    "event_type": "tenant_created",
+                    "tenant_id": str(tenant_id),
+                    "tenant_name": args.name,
+                    "operator_id": args.created_by,
+                })
+            except Exception:
+                raise ApiKeyError(
+                    "Tenant audit persistence failed; contact an administrator"
+                ) from None
             print(f"tenant_id={tenant_id}")
             return 0
 
