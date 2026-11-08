@@ -20,3 +20,10 @@ CREATE TABLE IF NOT EXISTS jas_si_api_key_provisioning_runs (
 
 CREATE INDEX IF NOT EXISTS idx_jas_si_provisioning_runs_tenant_created
     ON jas_si_api_key_provisioning_runs (tenant_id, created_at);
+
+-- Only the operator role may read/append provisioning idempotency metadata.
+-- The runtime role has no need to access this table.
+GRANT SELECT, INSERT ON jas_si_api_key_provisioning_runs
+    TO jas_si_provisioner;
+REVOKE ALL ON jas_si_api_key_provisioning_runs
+    FROM jas_si_runtime;
