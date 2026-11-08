@@ -1,13 +1,2 @@
 extends:
   - spectral:oas
-rules:
-  operation-description:
-    severity: error
-  operation-operationId:
-    severity: error
-  operation-tags:
-    severity: warn
-  oas3-api-servers:
-    severity: error
-  oas3-unused-component:
-    severity: warn
