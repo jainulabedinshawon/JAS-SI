@@ -11,6 +11,7 @@ from typing import Optional
 
 
 _MIN_HMAC_SECRET_BYTES = 32
+_MIN_API_KEY_PEPPER_BYTES = 32
 
 
 def _read_bool(name: str, default: bool = False) -> bool:
@@ -43,6 +44,16 @@ def _read_positive_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a positive integer")
 
     return value
+
+
+def _read_optional_api_key_pepper() -> Optional[bytes]:
+    raw = os.getenv("JAS_SI_API_KEY_PEPPER")
+    if raw is None or raw == "":
+        return None
+    pepper = raw.encode("utf-8")
+    if len(pepper) < _MIN_API_KEY_PEPPER_BYTES:
+        raise ValueError("JAS_SI_API_KEY_PEPPER must contain at least 32 UTF-8 bytes")
+    return pepper
 
 
 def _read_optional_hmac_secret() -> Optional[bytes]:
@@ -120,7 +131,7 @@ class Settings:
         raw_api_key = os.getenv("JAS_SI_API_KEY")
         api_key = raw_api_key if raw_api_key else None
 
-        hmac_secret = _read_optional_hmac_secret()
+        api_key_pepper = _read_optional_api_key_pepper()\n        hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
 
         if (hmac_secret is None) != (provider_id is None):
@@ -139,7 +150,7 @@ class Settings:
                 "JAS_SI_API_ENABLED",
                 False,
             ),
-            api_key=api_key,
+            api_key=api_key,\n            api_key_pepper=api_key_pepper,
             rate_limit_requests=_read_positive_int(
                 "JAS_SI_RATE_LIMIT_REQUESTS",
                 60,
