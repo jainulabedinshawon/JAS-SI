@@ -1,27 +1,7 @@
-name: JAS-SI Protected Staging API Key Provisioning
+name: JAS-SI Protected Staging API Authentication Smoke Test
 
 on:
   workflow_dispatch:
-    inputs:
-      key_name:
-        description: Short internal staging key label
-        required: true
-        type: string
-      scope:
-        description: Exactly one least-privilege API scope
-        required: true
-        type: choice
-        options:
-          - authorization:check
-          - outcomes:submit
-          - github:evidence:verify
-      expires_in_days:
-        description: Short staging-key lifetime
-        required: true
-        type: choice
-        options:
-          - "1"
-          - "7"
 
 permissions:
   contents: read
@@ -63,14 +43,3 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
         run: python tools/staging_api_smoke_test.py
 
-
-      - name: Revoke key if artifact delivery failed
-        if: failure() && steps.provision.outputs.key_id != ''
-        env:
-          JAS_SI_PROVISIONER_DATABASE_URL: ${{ secrets.JAS_SI_PROVISIONER_DATABASE_URL }}
-          JAS_SI_API_KEY_PEPPER: ${{ secrets.JAS_SI_API_KEY_PEPPER }}
-        run: |
-          python tools/api_keys.py revoke-key \
-            --key-id "${{ steps.provision.outputs.key_id }}" \
-            --revoked-by "github-actions-failure-cleanup" \
-            --run-id "github-actions-cleanup:${{ github.run_id }}"
