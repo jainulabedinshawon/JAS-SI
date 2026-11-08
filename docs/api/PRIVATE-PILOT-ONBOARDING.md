@@ -23,7 +23,7 @@ After applying migrations 001 and 002 to the pilot PostgreSQL database, configur
 export JAS_SI_DATABASE_URL="postgresql://<operator-role>:<password>@<host>/<database>"
 export JAS_SI_API_KEY_PEPPER="<secret-manager-value-at-least-32-bytes>"
 
-python tools/api_keys.py create-tenant --name "Pilot Customer"
+python tools/api_keys.py create-tenant --name "Pilot Customer" --created-by "operator-id"
 # Copy the returned tenant_id, then:
 python tools/api_keys.py issue-key \\
   --tenant-id "<tenant-uuid>" \\
@@ -38,7 +38,7 @@ python tools/api_keys.py issue-key \\
 The issue command prints the token once. Capture it directly in the approved secret manager; do not paste it into tickets or chat. To revoke a key:
 
 ```bash
-python tools/api_keys.py revoke-key --key-id "<key-uuid>"
+python tools/api_keys.py revoke-key --key-id "<key-uuid>" --revoked-by "operator-id"
 ```
 
 ## Client configuration
