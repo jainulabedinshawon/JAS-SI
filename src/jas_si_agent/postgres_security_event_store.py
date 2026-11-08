@@ -138,125 +138,99 @@ class PostgresSecurityEventStore:
                 "Unable to persist PostgreSQL security event"
             ) from exc
 
-    def verify_integrity(self) -> dict[str, Any]:
-        """Verify every stored event and the final database checkpoint.
+    @staticmethod
+    def verify_integrity_in_transaction(connection: Any) -> dict[str, Any]:
+        """Verify the full chain using the caller's current transaction.
 
-        A repeatable-read, read-only transaction ensures that concurrent
-        appends cannot produce a mixed verification snapshot.
+        Callers that need to append after verification must first lock the
+        singleton checkpoint row FOR UPDATE. All appenders use the same lock.
         """
-
         try:
-            import psycopg
-
-            with psycopg.connect(self.dsn) as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SET TRANSACTION
-                        ISOLATION LEVEL REPEATABLE READ,
-                        READ ONLY
-                        """
-                    )
-
-                    cursor.execute(
-                        """
-                        SELECT
-                            event_payload,
-                            previous_hash,
-                            event_hash
-                        FROM jas_si_audit_events
-                        ORDER BY event_id ASC
-                        """
-                    )
-                    rows = cursor.fetchall()
-
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        """
-                    )
-                    checkpoint_row = cursor.fetchone()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT event_payload, previous_hash, event_hash
+                    FROM jas_si_audit_events
+                    ORDER BY event_id ASC
+                    """
+                )
+                rows = cursor.fetchall()
+                cursor.execute(
+                    """
+                    SELECT last_hash
+                    FROM jas_si_audit_chain_state
+                    WHERE singleton = TRUE
+                    """
+                )
+                checkpoint_row = cursor.fetchone()
 
             previous_hash = GENESIS_HASH
             verified_count = 0
-
             for event_number, row in enumerate(rows, start=1):
                 payload, recorded_previous, recorded_hash = row
-
                 if not isinstance(payload, dict):
                     raise SecurityEventStoreError(
                         f"Invalid event payload at position {event_number}"
                     )
-
                 if not _valid_hash(recorded_previous):
                     raise SecurityEventStoreError(
                         f"Invalid previous hash at position {event_number}"
                     )
-
                 if not _valid_hash(recorded_hash):
                     raise SecurityEventStoreError(
                         f"Invalid event hash at position {event_number}"
                     )
-
-                if not hmac.compare_digest(
-                    recorded_previous,
-                    previous_hash,
-                ):
+                if not hmac.compare_digest(recorded_previous, previous_hash):
                     raise SecurityEventStoreError(
                         f"Hash-chain link mismatch at position {event_number}"
                     )
-
                 try:
-                    expected_hash = _event_hash(
-                        payload,
-                        previous_hash,
-                    )
+                    expected_hash = _event_hash(payload, previous_hash)
                 except (TypeError, ValueError, RecursionError) as exc:
                     raise SecurityEventStoreError(
                         f"Invalid event data at position {event_number}"
                     ) from exc
-
-                if not hmac.compare_digest(
-                    recorded_hash,
-                    expected_hash,
-                ):
+                if not hmac.compare_digest(recorded_hash, expected_hash):
                     raise SecurityEventStoreError(
                         f"Event hash mismatch at position {event_number}"
                     )
-
                 previous_hash = recorded_hash
                 verified_count += 1
 
             if checkpoint_row is None:
                 if rows:
-                    raise SecurityEventStoreError(
-                        "Audit checkpoint is missing"
-                    )
+                    raise SecurityEventStoreError("Audit checkpoint is missing")
                 checkpoint_hash = GENESIS_HASH
             else:
                 checkpoint_hash = checkpoint_row[0]
-
             if not _valid_hash(checkpoint_hash):
-                raise SecurityEventStoreError(
-                    "Invalid database chain checkpoint"
-                )
-
-            if not hmac.compare_digest(
-                checkpoint_hash,
-                previous_hash,
-            ):
+                raise SecurityEventStoreError("Invalid database chain checkpoint")
+            if not hmac.compare_digest(checkpoint_hash, previous_hash):
                 raise SecurityEventStoreError(
                     "Database checkpoint does not match verified chain"
                 )
-
             return {
                 "valid": True,
                 "verified_event_count": verified_count,
                 "last_hash": previous_hash,
             }
+        except SecurityEventStoreError:
+            raise
+        except Exception as exc:
+            raise SecurityEventStoreError(
+                "Unable to verify PostgreSQL audit chain in transaction"
+            ) from exc
 
+    def verify_integrity(self) -> dict[str, Any]:
+        """Verify every event and checkpoint in a repeatable-read snapshot."""
+        try:
+            import psycopg
+            with psycopg.connect(self.dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+                    )
+                return self.verify_integrity_in_transaction(connection)
         except SecurityEventStoreError:
             raise
         except Exception as exc:
