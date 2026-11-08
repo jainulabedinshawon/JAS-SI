@@ -15,7 +15,9 @@ on:
       - "tests/test_postgres_security_event_store.py"
       - "tests/test_postgres_security_event_store_integration.py"
       - "tests/test_postgres_api_key_registry_integration.py"
+      - "tests/test_atomic_api_key_provisioning.py"
       - "tests/test_api_key_authentication.py"
+      - "tests/test_atomic_api_key_provisioning.py"
       - "tests/test_api_startup.py"
       - "tests/test_rest_api.py"
       - "tests/test_verify_api.py"
@@ -104,6 +106,7 @@ jobs:
             tests.test_postgres_security_event_store \
             tests.test_postgres_security_event_store_integration \
             tests.test_postgres_api_key_registry_integration \
+            tests.test_atomic_api_key_provisioning \
             tests.test_api_key_authentication \
             tests.test_api_key_registry \
             tests.test_api_startup \
