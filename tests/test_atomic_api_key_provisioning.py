@@ -44,6 +44,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/002_create_tenant_api_keys.sql",
             ROOT / "src/jas_si_agent/migrations/003_atomic_api_key_provisioning.sql",
             ROOT / "src/jas_si_agent/migrations/004_audit_event_id_identity.sql",
+            ROOT / "src/jas_si_agent/migrations/005_provisioner_tenant_row_lock.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
@@ -352,6 +353,26 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                         cursor.fetchone(),
                         (True, True),
                     )
+
+                if provisioner_exists:
+                    cursor.execute(
+                        """
+                        SELECT
+                            has_column_privilege(
+                                'jas_si_provisioner',
+                                'jas_si_tenants',
+                                'provisioning_lock_version',
+                                'UPDATE'
+                            ),
+                            has_column_privilege(
+                                'jas_si_provisioner',
+                                'jas_si_tenants',
+                                'status',
+                                'UPDATE'
+                            )
+                        """
+                    )
+                    self.assertEqual(cursor.fetchone(), (True, False))
 
                 if runtime_exists:
                     cursor.execute(
