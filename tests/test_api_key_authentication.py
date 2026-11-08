@@ -42,6 +42,9 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
         self.settings_patch = patch.object(api, "settings", self.settings)
         self.settings_patch.start()
         self.addCleanup(self.settings_patch.stop)
+        self.startup_patch = patch.object(api.app.router, "on_startup", [])
+        self.startup_patch.start()
+        self.addCleanup(self.startup_patch.stop)
         with api._rate_limit_lock:
             api._rate_limit_buckets.clear()
         self.client = TestClient(api.app)
