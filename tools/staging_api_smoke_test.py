@@ -106,7 +106,20 @@ def main() -> int:
             "wrong_scope_denied_403",
             request_status("/v1/verify", issued.token) == 403,
         ))
-    except Exception:
+    except Exception as exc:
+        # Report exception classes and database SQLSTATE only; never print
+        # exception messages, which may contain connection or secret material.
+        print(f"staging_error_type={type(exc).__name__}")
+        cause = exc.__cause__
+        depth = 0
+        while cause is not None and depth < 4:
+            sqlstate = getattr(cause, "sqlstate", None)
+            print(
+                f"staging_cause_{depth + 1}_type={type(cause).__name__}"
+                + (f" sqlstate={sqlstate}" if sqlstate else "")
+            )
+            cause = cause.__cause__
+            depth += 1
         print("Staging API smoke checks encountered an error.")
     finally:
         if issued is not None:
