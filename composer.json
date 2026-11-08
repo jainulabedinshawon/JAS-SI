@@ -13,12 +13,12 @@
   },
   "autoload": {
     "psr-4": {
-      "JASSI\\\\": "sdks/php/src/"
+      "JASSI\\": "sdks/php/src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "JASSI\\\\Tests\\\\": "sdks/php/tests/"
+      "JASSI\\Tests\\": "sdks/php/tests/"
     }
   },
   "scripts": {
