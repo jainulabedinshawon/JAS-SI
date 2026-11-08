@@ -143,6 +143,74 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         self.assertTrue(result["valid"])
         self.assertEqual(result["verified_event_count"], 0)
 
+    def _assert_insert_trigger_failure_rolls_back(self, table_name, trigger_name):
+        tenant_id = self._tenant()
+        function_name = f"{trigger_name}_fn"
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    CREATE OR REPLACE FUNCTION {function_name}()
+                    RETURNS trigger
+                    LANGUAGE plpgsql
+                    AS $
+                    BEGIN
+                        RAISE EXCEPTION 'injected {table_name} insert failure';
+                    END;
+                    $
+                    """
+                )
+                cursor.execute(
+                    f"""
+                    CREATE TRIGGER {trigger_name}
+                    AFTER INSERT ON {table_name}
+                    FOR EACH ROW
+                    EXECUTE FUNCTION {function_name}()
+                    """
+                )
+        try:
+            with self.assertRaises(ApiKeyError):
+                self._issue(tenant_id, f"test:{trigger_name}")
+        finally:
+            with psycopg.connect(self.dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"DROP TRIGGER IF EXISTS {trigger_name} ON {table_name}"
+                    )
+                    cursor.execute(f"DROP FUNCTION IF EXISTS {function_name}()")
+        self.assertEqual(self._counts(), (0, 0, 0))
+        self.assertTrue(
+            PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
+        )
+
+    def test_key_insert_failure_rolls_back_everything(self):
+        self._assert_insert_trigger_failure_rolls_back(
+            "jas_si_api_keys",
+            "jas_si_test_fail_key_insert",
+        )
+
+    def test_idempotency_insert_failure_rolls_back_everything(self):
+        self._assert_insert_trigger_failure_rolls_back(
+            "jas_si_api_key_provisioning_runs",
+            "jas_si_test_fail_run_insert",
+        )
+
+    def test_invalid_audit_checkpoint_fails_closed_before_key_insert(self):
+        tenant_id = self._tenant()
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE jas_si_audit_chain_state
+                    SET last_hash = %s
+                    WHERE singleton = TRUE
+                    """,
+                    ("f" * 64,),
+                )
+        with self.assertRaises(ApiKeyError):
+            self._issue(tenant_id, "test:invalid-audit-checkpoint")
+        self.assertEqual(self._counts(), (0, 0, 0))
+
     def test_checkpoint_update_failure_rolls_back_all_writes(self):
         tenant_id = self._tenant()
         with psycopg.connect(self.dsn) as connection:
