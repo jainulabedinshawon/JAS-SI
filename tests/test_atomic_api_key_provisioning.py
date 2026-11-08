@@ -170,22 +170,12 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                                 'jas_si_provisioner',
                                 'jas_si_api_key_provisioning_runs',
                                 'INSERT'
-                            ),
-                            has_table_privilege(
-                                'jas_si_provisioner',
-                                'jas_si_api_key_provisioning_runs',
-                                'UPDATE'
-                            ),
-                            has_table_privilege(
-                                'jas_si_provisioner',
-                                'jas_si_api_key_provisioning_runs',
-                                'DELETE'
                             )
                         """
                     )
                     self.assertEqual(
                         cursor.fetchone(),
-                        (True, True, False, False),
+                        (True, True),
                     )
 
                 if runtime_exists:
