@@ -1,0 +1,163 @@
+"""Issue, exercise, and revoke one short-lived staging API key in one process.
+
+The raw token exists only in process memory and is sent only over HTTPS to the
+fixed, trusted Preview deployment. It is never printed, persisted, exported to
+GitHub outputs, or uploaded as an artifact.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from uuid import UUID
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from jas_si_agent.api_key_registry import (  # noqa: E402
+    ApiKeyError,
+    PostgresApiKeyRegistry,
+)
+from jas_si_agent.postgres_security_event_store import (  # noqa: E402
+    PostgresSecurityEventStore,
+)
+
+TENANT_ID = UUID("277b9f5a-160a-44d6-b47f-706decdfda03")
+# Immutable Vercel Preview deployment URL; do not accept this from workflow input.
+API_BASE_URL = "https://jas-7ai3sptdi-jainulabedinshan-3242.vercel.app"
+
+
+def request_status(path: str, token: str | None) -> int:
+    import json
+
+    body = {
+        "action_id": "jas-si-staging-auth-smoke",
+        "action": "read_staging_health",
+        "resource": "jas-si://staging/authentication-smoke-test",
+    }
+    request = urllib.request.Request(
+        API_BASE_URL + path,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            **({"X-API-Key": token} if token is not None else {}),
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+def main() -> int:
+    dsn = os.getenv("JAS_SI_PROVISIONER_DATABASE_URL", "")
+    pepper = os.getenv("JAS_SI_API_KEY_PEPPER", "")
+    run_id = os.getenv("GITHUB_RUN_ID", "")
+    actor = os.getenv("GITHUB_ACTOR", "github-actions")
+    if not dsn or len(pepper.encode("utf-8")) < 32:
+        print("Provisioning secrets are missing or invalid.")
+        return 2
+    if not run_id.isdigit():
+        print("GitHub run identity is invalid.")
+        return 2
+
+    registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
+    issued = None
+    revoked = False
+    checks: list[tuple[str, bool]] = []
+    try:
+        issued = registry.issue_key_with_audit(
+            tenant_id=TENANT_ID,
+            key_name=f"ci-staging-smoke-{run_id}",
+            scopes=["authorization:check"],
+            created_by=actor,
+            provisioning_run_id=f"github-actions:{run_id}",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+        )
+
+        # Authentication negative cases: missing and malformed/unknown key.
+        checks.append(("missing_key_401", request_status("/v1/authorize", None) == 401))
+        checks.append((
+            "invalid_key_401",
+            request_status("/v1/authorize", "jassi_live_invalid_invalid") == 401,
+        ))
+        # Positive authentication and scope denial use the real Preview API.
+        checks.append((
+            "valid_key_authorized_endpoint_200",
+            request_status("/v1/authorize", issued.token) == 200,
+        ))
+        checks.append((
+            "wrong_scope_denied_403",
+            request_status("/v1/verify", issued.token) == 403,
+        ))
+    except Exception:
+        print("Staging API smoke checks encountered an error.")
+    finally:
+        if issued is not None:
+            try:
+                revoked = registry.revoke_key_with_audit(
+                    key_id=issued.key_id,
+                    revoked_by=actor,
+                    revocation_run_id=f"github-actions-revoke:{run_id}",
+                )
+            except Exception:
+                print(
+                    "CRITICAL: automatic key revocation failed; "
+                    f"key_id={issued.key_id}; manual revocation is required."
+                )
+
+    if issued is None:
+        print("No staging key was issued.")
+        return 1
+    if not revoked:
+        print(f"CRITICAL: key revocation was not confirmed; key_id={issued.key_id}")
+        return 1
+
+    # Verify the revoked credential is rejected by the same independent API.
+    try:
+        checks.append((
+            "revoked_key_rejected_401",
+            request_status("/v1/authorize", issued.token) == 401,
+        ))
+        integrity = PostgresSecurityEventStore(dsn).verify_integrity()
+        checks.append(("audit_chain_valid_after_revoke", integrity.get("valid") is True))
+
+        import psycopg
+
+        with psycopg.connect(dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT event_payload->>'event_type'
+                    FROM jas_si_audit_events
+                    WHERE event_payload->>'key_id' = %s
+                    ORDER BY event_id
+                    """,
+                    (str(issued.key_id),),
+                )
+                event_types = [row[0] for row in cursor.fetchall()]
+        checks.append((
+            "exact_issue_and_revoke_audit_events",
+            event_types == ["api_key_issued", "api_key_revoked"],
+        ))
+    except Exception:
+        print("Independent post-revocation verification failed.")
+        return 1
+
+    for name, passed in checks:
+        print(f"{name}={'PASS' if passed else 'FAIL'}")
+    print(f"revoked_key_id={issued.key_id}")
+    print(f"checks_passed={sum(p for _, p in checks)}/{len(checks)}")
+    return 0 if all(passed for _, passed in checks) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
