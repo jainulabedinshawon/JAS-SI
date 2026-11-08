@@ -98,6 +98,20 @@ class PostgresApiKeyRegistry:
         self._dsn = dsn.strip()
         self._pepper = pepper
 
+    def verify_schema(self) -> bool:
+        """Fail closed unless both tenant registry tables exist."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT
+                         to_regclass('public.jas_si_tenants'),
+                         to_regclass('public.jas_si_api_keys')"""
+                )
+                row = cursor.fetchone()
+                return bool(row and row[0] and row[1])
+
     def create_tenant(self, tenant_name: str) -> uuid.UUID:
         name = tenant_name.strip() if isinstance(tenant_name, str) else ""
         if not name or len(name) > 120:
