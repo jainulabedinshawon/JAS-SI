@@ -36,11 +36,19 @@ API_BASE_URL = "https://jas-7ai3sptdi-jainulabedinshan-3242.vercel.app"
 def request_status(path: str, token: str | None) -> int:
     import json
 
-    body = {
-        "action_id": "jas-si-staging-auth-smoke",
-        "action": "read_staging_health",
-        "resource": "jas-si://staging/authentication-smoke-test",
-    }
+    if path == "/v1/verify":
+        # Supply a valid VerifyRequest so the expected 403 proves scope denial,
+        # not an unrelated request-schema validation failure.
+        body = {
+            "action_id": "jas-si-staging-auth-smoke",
+            "claimed_success": True,
+        }
+    else:
+        body = {
+            "action_id": "jas-si-staging-auth-smoke",
+            "action": "read_staging_health",
+            "resource": "jas-si://staging/authentication-smoke-test",
+        }
     request = urllib.request.Request(
         API_BASE_URL + path,
         data=json.dumps(body).encode("utf-8"),
