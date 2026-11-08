@@ -6,10 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = (
-    ROOT
-    / ".github/workflows/protected-staging-api-key-provisioning.yml"
-)
+WORKFLOW = ROOT / ".github/workflows/protected-staging-api-key-provisioning.yml"
 
 
 class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
@@ -33,14 +30,8 @@ class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
             self.assertNotIn(forbidden, self.trigger_section)
 
     def test_default_branch_and_protected_environment_are_required(self):
-        self.assertIn(
-            "if: github.ref == 'refs/heads/main'",
-            self.source,
-        )
-        self.assertIn(
-            "name: jas-si-staging-provisioning",
-            self.source,
-        )
+        self.assertIn("if: github.ref == 'refs/heads/main'", self.source)
+        self.assertIn("name: jas-si-staging-provisioning", self.source)
 
     def test_permissions_are_read_only_without_oidc(self):
         self.assertIn("contents: read", self.permissions_section)
@@ -48,35 +39,31 @@ class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("id-token:", self.permissions_section)
 
     def test_all_third_party_actions_are_pinned_to_full_sha(self):
-        action_refs = re.findall(
-            r"uses:\s+[^\s@]+@([0-9a-f]+)",
-            self.source,
-        )
-        self.assertGreaterEqual(len(action_refs), 3)
+        action_refs = re.findall(r"uses:\s+[^\s@]+@([0-9a-f]+)", self.source)
+        self.assertEqual(len(action_refs), 2)
         self.assertTrue(all(len(sha) == 40 for sha in action_refs))
 
-    def test_secrets_are_environment_scoped_and_not_printed(self):
+    def test_protected_secrets_are_only_passed_to_smoke_test_step(self):
         self.assertIn("JAS_SI_PROVISIONER_DATABASE_URL", self.source)
         self.assertIn("JAS_SI_API_KEY_PEPPER", self.source)
-        self.assertIn("RECIPIENT_PUBLIC_KEY", self.source)
-        self.assertNotIn("set -x", self.source)
+        self.assertIn("python tools/staging_api_smoke_test.py", self.source)
+        self.assertNotIn("RECIPIENT_PUBLIC_KEY", self.source)
         self.assertNotIn("GITHUB_STEP_SUMMARY", self.source)
         self.assertNotRegex(self.source, r"echo\s+.*(?:API_KEY|token)")
 
-    def test_artifact_is_ciphertext_only_and_short_lived(self):
-        self.assertIn("path: delivery/", self.source)
-        self.assertIn("retention-days: 1", self.source)
-        self.assertIn("if-no-files-found: error", self.source)
-        self.assertIn("api-key.asc", (ROOT / "tools/provision_key_encrypted.py").read_text())
-        self.assertIn("metadata.json", (ROOT / "tools/provision_key_encrypted.py").read_text())
+    def test_no_raw_key_artifact_or_key_output_exists(self):
+        self.assertNotIn("upload-artifact", self.source)
+        self.assertNotIn("GITHUB_OUTPUT", self.source)
+        self.assertNotIn("api-key.asc", self.source)
 
-    def test_failed_artifact_delivery_triggers_atomic_revocation(self):
-        self.assertIn(
-            "if: failure() && steps.provision.outputs.key_id != ''",
-            self.source,
+    def test_cancellation_and_runtime_cleanup_are_documented_in_script(self):
+        script = (ROOT / "tools/staging_api_smoke_test.py").read_text(
+            encoding="utf-8"
         )
-        cli = (ROOT / "tools/api_keys.py").read_text(encoding="utf-8")
-        self.assertIn("revoke_key_with_audit", cli)
+        self.assertIn("finally:", script)
+        self.assertIn("revoke_key_with_audit", script)
+        self.assertIn("timedelta(minutes=30)", script)
+        self.assertNotIn("print(issued.token)", script)
 
 
 if __name__ == "__main__":
