@@ -38,6 +38,7 @@ class TestJASSIRestAPI(unittest.TestCase):
             "settings",
             replace(
                 api.settings,
+                environment="test",
                 api_enabled=True,
                 api_key=TEST_API_KEY,
                 rate_limit_requests=60,

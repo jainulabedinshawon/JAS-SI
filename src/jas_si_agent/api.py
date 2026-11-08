@@ -35,6 +35,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
+from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
@@ -76,23 +77,19 @@ app.state.security_event_store = JsonlSecurityEventStore(
 
 @app.on_event("startup")
 def initialize_security_event_store() -> None:
-    """Require verified PostgreSQL audit storage in deployed environments."""
+    """Require verified PostgreSQL audit and API-key registries in deployed environments."""
 
     if settings.environment not in {"preview", "production"}:
         return
 
-    if not settings.api_enabled or not settings.api_key:
-        raise RuntimeError(
-            "Preview/production requires API enabled and API key configured"
-        )
-
+    if not settings.api_enabled:
+        raise RuntimeError("Preview/production requires API enabled")
+    if not settings.api_key_pepper:
+        raise RuntimeError("Preview/production requires JAS_SI_API_KEY_PEPPER")
     if not settings.database_url:
-        raise RuntimeError(
-            "Preview/production requires JAS_SI_DATABASE_URL"
-        )
+        raise RuntimeError("Preview/production requires JAS_SI_DATABASE_URL")
 
     store = PostgresSecurityEventStore(settings.database_url)
-
     try:
         result = store.verify_integrity()
     except Exception as exc:
@@ -105,8 +102,19 @@ def initialize_security_event_store() -> None:
             "PostgreSQL audit chain is not valid; startup denied"
         )
 
-    app.state.security_event_store = store
+    try:
+        registry = PostgresApiKeyRegistry(
+            settings.database_url,
+            settings.api_key_pepper,
+        )
+        if not registry.verify_schema():
+            raise RuntimeError("API key registry schema is not installed")
+    except Exception as exc:
+        raise RuntimeError(
+            "API key registry readiness check failed; startup denied"
+        ) from exc
 
+    app.state.security_event_store = store
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
@@ -155,6 +163,10 @@ def _log_security_event(
         payload["event_type"] = event_type
 
         if request is not None:
+            for state_field in ("tenant_id", "api_key_id"):
+                state_value = getattr(request.state, state_field, None)
+                if state_value is not None:
+                    payload[state_field] = state_value
             payload["request_id"] = getattr(
                 request.state,
                 "request_id",
@@ -328,11 +340,97 @@ def _require_api_key(
     x_api_key: Optional[str] = Security(api_key_header),
     event_store: SecurityEventStore = Depends(get_security_event_store),
 ) -> None:
-    """Fail closed when API or authentication configuration is invalid."""
+    """Use tenant-scoped registry keys in preview/production; static key only in dev/test."""
     _require_enabled(request)
 
-    configured_key = settings.api_key
+    if settings.environment in {"preview", "production"}:
+        if not x_api_key:
+            _log_security_event(
+                "authentication_failure",
+                request,
+                event_store,
+                status_code=401,
+                reason_code="missing_api_key",
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Missing or invalid API key",
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
 
+        if not settings.database_url or not settings.api_key_pepper:
+            _log_security_event(
+                "configuration_error",
+                request,
+                event_store,
+                status_code=503,
+                reason_code="api_key_registry_not_configured",
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="API key registry is not configured",
+            )
+
+        try:
+            registry = PostgresApiKeyRegistry(
+                settings.database_url,
+                settings.api_key_pepper,
+            )
+            authenticated = registry.authenticate(x_api_key)
+        except Exception:
+            _log_security_event(
+                "authentication_registry_error",
+                request,
+                event_store,
+                status_code=503,
+                reason_code="api_key_registry_unavailable",
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="API key registry is temporarily unavailable",
+            ) from None
+
+        if authenticated is None:
+            _log_security_event(
+                "authentication_failure",
+                request,
+                event_store,
+                status_code=401,
+                reason_code="invalid_or_inactive_api_key",
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Missing or invalid API key",
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
+
+        required_scopes = {
+            "/v1/authorize": "authorization:check",
+            "/v1/verify": "outcomes:submit",
+            "/v1/github/evidence": "github:evidence:verify",
+        }
+        required_scope = required_scopes.get(request.url.path)
+        if required_scope and required_scope not in authenticated.scopes:
+            _log_security_event(
+                "authorization_scope_denied",
+                request,
+                event_store,
+                status_code=403,
+                tenant_id=str(authenticated.tenant_id),
+                key_id=str(authenticated.key_id),
+                required_scope=required_scope,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="API key is not permitted to perform this operation",
+            )
+
+        request.state.tenant_id = str(authenticated.tenant_id)
+        request.state.api_key_id = str(authenticated.key_id)
+        request.state.api_key_scopes = sorted(authenticated.scopes)
+        return
+
+    configured_key = settings.api_key
     if not configured_key:
         _log_security_event(
             "configuration_error",
@@ -346,21 +444,7 @@ def _require_api_key(
             detail="API authentication is not configured",
         )
 
-    if not x_api_key:
-        _log_security_event(
-            "authentication_failure",
-            request,
-            event_store,
-            status_code=401,
-            reason_code="missing_api_key",
-        )
-        raise HTTPException(
-            status_code=401,
-            detail="Missing or invalid API key",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-    if not hmac.compare_digest(
+    if not x_api_key or not hmac.compare_digest(
         x_api_key.encode("utf-8"),
         configured_key.encode("utf-8"),
     ):
@@ -369,14 +453,13 @@ def _require_api_key(
             request,
             event_store,
             status_code=401,
-            reason_code="invalid_api_key",
+            reason_code="invalid_api_key" if x_api_key else "missing_api_key",
         )
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-
 
 @app.get("/health")
 def health() -> dict:
