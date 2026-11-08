@@ -22,10 +22,6 @@ on:
         options:
           - "1"
           - "7"
-      recipient_public_key:
-        description: Operator OpenPGP PUBLIC key armor (never provide a private key)
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -59,29 +55,14 @@ jobs:
       - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock.txt
 
-      - name: Issue and encrypt one-time API key
-        id: provision
+      - name: Run in-memory staging API smoke test and revoke key
         env:
           JAS_SI_PROVISIONER_DATABASE_URL: ${{ secrets.JAS_SI_PROVISIONER_DATABASE_URL }}
           JAS_SI_API_KEY_PEPPER: ${{ secrets.JAS_SI_API_KEY_PEPPER }}
-          JAS_SI_ALLOWED_TENANT_ID: "277b9f5a-160a-44d6-b47f-706decdfda03"
-          RECIPIENT_PUBLIC_KEY: ${{ inputs.recipient_public_key }}
-        run: |
-          python tools/provision_key_encrypted.py \
-            --tenant-id "277b9f5a-160a-44d6-b47f-706decdfda03" \
-            --key-name "${{ inputs.key_name }}" \
-            --scope "${{ inputs.scope }}" \
-            --expires-in-days "${{ inputs.expires_in_days }}" \
-            --run-id "github-actions:${{ github.run_id }}" \
-            --output-dir delivery
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: python tools/staging_api_smoke_test.py
 
-      - name: Upload ciphertext-only delivery artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: jas-si-encrypted-staging-key-${{ github.run_id }}
-          path: delivery/
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Revoke key if artifact delivery failed
         if: failure() && steps.provision.outputs.key_id != ''
