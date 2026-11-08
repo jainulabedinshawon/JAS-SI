@@ -35,6 +35,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
+from jas_si_agent.api_key_registry import ApiKeyError, PostgresApiKeyRegistry
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
