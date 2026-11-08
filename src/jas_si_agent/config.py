@@ -96,6 +96,7 @@ class Settings:
     environment: str = "development"
     api_enabled: bool = False
     api_key: Optional[str] = None
+    api_key_pepper: Optional[bytes] = field(default=None, repr=False)
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
     security_event_log_path: str = (
