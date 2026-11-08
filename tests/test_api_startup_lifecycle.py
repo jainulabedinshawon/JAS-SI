@@ -24,6 +24,7 @@ class TestAPIStartupLifecycle(unittest.TestCase):
             "environment": "preview",
             "api_enabled": True,
             "api_key": "lifecycle-test-key",
+            "api_key_pepper": b"lifecycle-test-pepper-at-least-32-bytes",
             "database_url": "postgresql://test:test@localhost/test",
         }
         values.update(overrides)
@@ -44,13 +45,16 @@ class TestAPIStartupLifecycle(unittest.TestCase):
                 "PostgresSecurityEventStore",
                 return_value=fake_store,
             ),
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
         ):
+            registry.return_value.verify_schema.return_value = True
             with TestClient(api.app) as client:
                 response = client.get("/health")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
         fake_store.verify_integrity.assert_called_once_with()
+        registry.return_value.verify_schema.assert_called_once_with()
         self.assertIs(api.app.state.security_event_store, fake_store)
 
     def test_preview_startup_rejects_missing_database_url(self):
