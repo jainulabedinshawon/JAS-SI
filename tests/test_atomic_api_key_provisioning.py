@@ -143,6 +143,63 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
         )
 
+    def test_database_role_grants_are_least_privilege_when_roles_exist(self):
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        EXISTS (SELECT 1 FROM pg_roles
+                                WHERE rolname = 'jas_si_provisioner'),
+                        EXISTS (SELECT 1 FROM pg_roles
+                                WHERE rolname = 'jas_si_runtime')
+                    """
+                )
+                provisioner_exists, runtime_exists = cursor.fetchone()
+
+                if provisioner_exists:
+                    cursor.execute(
+                        """
+                        SELECT
+                            has_table_privilege(
+                                'jas_si_provisioner',
+                                'jas_si_api_key_provisioning_runs',
+                                'SELECT'
+                            ),
+                            has_table_privilege(
+                                'jas_si_provisioner',
+                                'jas_si_api_key_provisioning_runs',
+                                'INSERT'
+                            ),
+                            has_table_privilege(
+                                'jas_si_provisioner',
+                                'jas_si_api_key_provisioning_runs',
+                                'UPDATE'
+                            ),
+                            has_table_privilege(
+                                'jas_si_provisioner',
+                                'jas_si_api_key_provisioning_runs',
+                                'DELETE'
+                            )
+                        """
+                    )
+                    self.assertEqual(
+                        cursor.fetchone(),
+                        (True, True, False, False),
+                    )
+
+                if runtime_exists:
+                    cursor.execute(
+                        """
+                        SELECT has_table_privilege(
+                            'jas_si_runtime',
+                            'jas_si_api_key_provisioning_runs',
+                            'INSERT'
+                        )
+                        """
+                    )
+                    self.assertFalse(cursor.fetchone()[0])
+
     def test_inactive_tenant_creates_no_key_or_audit(self):
         tenant_id = self._tenant()
         with psycopg.connect(self.dsn) as connection:
