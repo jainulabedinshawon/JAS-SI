@@ -47,7 +47,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Lint backend OpenAPI contract
-        run: npx --yes @stoplight/spectral-cli@6.15.0 lint docs/api/openapi-v1.yaml --ruleset spectral:oas
+        run: npx --yes @stoplight/spectral-cli@6.15.0 lint docs/api/openapi-v1.yaml --ruleset .spectral.yaml
 
   postgres-integration:
     name: PostgreSQL 16 Integration Tests
