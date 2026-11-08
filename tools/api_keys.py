@@ -78,6 +78,7 @@ def main() -> int:
     revoke = sub.add_parser("revoke-key")
     revoke.add_argument("--key-id", required=True)
     revoke.add_argument("--revoked-by", required=True)
+    revoke.add_argument("--run-id", default=None)
 
     args = parser.parse_args()
     try:
@@ -119,14 +120,15 @@ def main() -> int:
 
         if args.command == "revoke-key":
             key_id = UUID(args.key_id)
-            revoked = registry.revoke_key(key_id)
+            revoked = registry.revoke_key_with_audit(
+                key_id=key_id,
+                revoked_by=args.revoked_by,
+                revocation_run_id=(
+                    args.run_id or f"operator-cli-revoke:{uuid.uuid4()}"
+                ),
+            )
             if not revoked:
                 raise ApiKeyError("Active API key was not found")
-            _audit({
-                "event_type": "api_key_revoked",
-                "key_id": str(key_id),
-                "operator_id": args.revoked_by,
-            })
             print(f"revoked_key_id={key_id}")
             return 0
 
