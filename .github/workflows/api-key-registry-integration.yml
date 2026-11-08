@@ -11,6 +11,9 @@ on:
       - "src/jas_si_agent/api.py"
       - "src/jas_si_agent/config.py"
       - "tools/api_keys.py"
+      - "tools/provision_key_encrypted.py"
+      - ".github/workflows/protected-staging-api-key-provisioning.yml"
+      - "tests/test_protected_provisioning_workflow_policy.py"
       - "docs/api/openapi-v1.yaml"
       - "src/jas_si_agent/migrations/**"
       - "tests/test_atomic_api_key_provisioning.py"
@@ -112,6 +115,7 @@ jobs:
             tests.test_postgres_api_key_registry_integration \
             tests.test_atomic_api_key_provisioning \
             tests.test_secure_token_delivery \
+            tests.test_protected_provisioning_workflow_policy \
             tests.test_api_key_authentication \
             tests.test_api_key_registry \
             tests.test_api_startup \
