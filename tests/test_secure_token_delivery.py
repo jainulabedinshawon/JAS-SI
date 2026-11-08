@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import base64
 import shutil
+import sys
 import subprocess
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from jas_si_agent.secure_token_delivery import (
     TokenDeliveryError,
