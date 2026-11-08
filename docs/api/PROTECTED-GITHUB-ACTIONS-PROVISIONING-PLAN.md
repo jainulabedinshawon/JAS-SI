@@ -31,16 +31,19 @@ The workflow must not be enabled for real provisioning until every implementatio
 - Added migration `003_atomic_api_key_provisioning.sql` with a unique provisioning-run ledger and conditional least-privilege grants for the known operator/runtime roles.
 - Updated the operator CLI to use atomic audited issuance.
 - Added PostgreSQL integration tests for successful commit, failure after audit writes, checkpoint-update failure, duplicate and concurrent run IDs, inactive tenants, and role grants; wired the suite into the existing integration workflow.
-- These are code changes on the Draft PR branch only. They have not yet been proven by a completed CI run or a staging database migration/test.
+- PostgreSQL 16 CI run `42490486368` completed successfully on 2026-11-08: 60 integration tests passed, including real registry-backed API authentication checks (valid scoped key 200, missing/invalid key 401, wrong scope 403), key/ledger insert failure injection, checkpoint failure injection, invalid checkpoint fail-closed, duplicate/concurrent idempotency, and role grants.
+- Audit-chain verification was moved inside the key-issuance transaction after locking the singleton checkpoint row, closing the verification-to-issuance race window. All audit appenders serialize on that checkpoint row.
+- Migration 003 is applied to the Neon staging branch and independently checked. The provisioner can read/insert the provisioning ledger and append/update audit metadata; runtime cannot read/insert the ledger or insert/update key lifecycle state, while retaining the required `last_used_at` column update.
+- These changes remain on Draft PR #20. CI success and schema/permission checks do not yet constitute a real staging API-key issuance or Android encrypted-delivery acceptance test.
 
 ## Remaining implementation work
 
-1. Review the atomic issuance changes and obtain a completed passing PostgreSQL 16 CI run.
-2. Expand failure-injection coverage to fail after each individual SQL write and during checkpoint update; verify complete rollback every time.
-3. Add deterministic concurrent duplicate-run tests and confirm exactly one key/event/idempotency row commits.
-4. Add static policy tests for the future privileged workflow before creating that workflow.
-5. Implement the manual-only protected workflow from the trusted default branch, using a protected GitHub Environment, minimal permissions, immutable action pins, concurrency protection, and encrypted delivery.
-6. Add the GitHub Environment setup runbook and verify required reviewers, branch restrictions, and secret scope in GitHub UI.
+1. Complete an independent code review of the atomic issuance and transaction-scoped audit verification implementation.
+2. Add static policy tests for the future privileged workflow before creating that workflow.
+3. Implement and test the OpenPGP encryption/delivery helper, including a generated test key pair and decrypt round-trip; no real token may be issued during this test.
+4. Implement the manual-only protected workflow from the trusted default branch, using a protected GitHub Environment, minimal permissions, immutable action pins, concurrency protection, and ciphertext-only artifact delivery.
+5. Add the GitHub Environment setup runbook and verify required reviewers, branch restrictions, and secret scope in GitHub UI.
+6. Run a controlled staging issuance only after encrypted delivery has been independently tested on the operator's Android device; then verify audit, authenticate, and revoke the test key.
 7. Keep the provisioning workflow unavailable for real issuance until the Environment configuration and encrypted delivery path have been independently tested.
 
 ## Test plan and release gates
@@ -92,5 +95,5 @@ The workflow must not be enabled for real provisioning until every implementatio
 
 - GitHub connector access available to this implementation can read repository/workflow data and commit files, but cannot manage GitHub Environment secrets or dispatch workflows. Those actions require an authorized operator in GitHub UI.
 - No end-to-end test has been run from the operator's Android device. Encrypted artifact delivery is therefore a design proposal, not yet validated.
-- Atomic issuance code is present on the Draft PR branch, but has not yet passed a completed CI run or a staging PostgreSQL failure-injection test. It is not approved for real credential issuance.
+- Atomic issuance and transaction-scoped audit verification pass the PostgreSQL 16 CI suite, including injected SQL failures and concurrency. A real staging issuance, Android decryption, and end-to-end revoke test remain unperformed; no customer or staging API key has been issued.
 - No API key is issued by this design document. No production branch, deployment, database, or customer credential is changed.
