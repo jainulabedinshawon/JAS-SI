@@ -30,9 +30,10 @@ def main() -> int:
         print("Cleanup configuration is invalid.")
         return 2
 
-    registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
     provisioning_run_id = f"github-actions:{run_id}"
     try:
+        registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
+        print("cleanup_constructor=PASS")
         with psycopg.connect(dsn) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
