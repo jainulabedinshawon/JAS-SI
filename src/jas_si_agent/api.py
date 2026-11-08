@@ -108,6 +108,18 @@ def initialize_security_event_store() -> None:
 
     app.state.security_event_store = store
 
+    try:
+        registry = PostgresApiKeyRegistry(
+            settings.database_url,
+            settings.api_key_pepper,
+        )
+        if not registry.verify_schema():
+            raise RuntimeError("API key registry schema is not installed")
+    except Exception as exc:
+        raise RuntimeError(
+            "API key registry readiness check failed; startup denied"
+        ) from exc
+
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
