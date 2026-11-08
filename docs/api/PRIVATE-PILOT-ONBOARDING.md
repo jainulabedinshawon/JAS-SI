@@ -17,21 +17,27 @@ Status: internal operator runbook. Not a public signup flow. Do not send a custo
 
 ## Operator provisioning (internal only)
 
-After applying migrations 001 and 002 to the pilot PostgreSQL database, configure the operator shell with the database DSN and a separately stored pepper (at least 32 random bytes):
+Use two separate Neon credentials. The API runtime credential must never be used by the operator CLI.
+
+- `JAS_SI_DATABASE_URL`: least-privilege runtime role used by the API service.
+- `JAS_SI_PROVISIONER_DATABASE_URL`: separate operator role used only from a trusted administrative shell.
+- `JAS_SI_API_KEY_PEPPER`: independently generated secret of at least 32 random bytes; store in an approved secret manager.
+
+Example shell configuration:
 
 ```bash
-export JAS_SI_DATABASE_URL="postgresql://<operator-role>:<password>@<host>/<database>"
+export JAS_SI_PROVISIONER_DATABASE_URL="postgresql://<provisioner-role>:<password>@<host>/<database>"
 export JAS_SI_API_KEY_PEPPER="<secret-manager-value-at-least-32-bytes>"
 
 python tools/api_keys.py create-tenant --name "Pilot Customer" --created-by "operator-id"
 # Copy the returned tenant_id, then:
-python tools/api_keys.py issue-key \\
-  --tenant-id "<tenant-uuid>" \\
-  --name "pilot-staging" \\
-  --created-by "operator-id" \\
-  --scope authorization:check \\
-  --scope outcomes:submit \\
-  --scope github:evidence:verify \\
+python tools/api_keys.py issue-key \
+  --tenant-id "<tenant-uuid>" \
+  --name "pilot-staging" \
+  --created-by "operator-id" \
+  --scope authorization:check \
+  --scope outcomes:submit \
+  --scope github:evidence:verify \
   --expires-in-days 30
 ```
 
@@ -105,7 +111,8 @@ This checks Git blob integrity at an immutable commit; it does not establish sem
 ## Pilot operator checklist
 
 - [ ] Private staging host uses valid HTTPS.
-- [ ] PostgreSQL migration 001 and 002 applied and backed up.
+- [ ] PostgreSQL migrations 001 and 002 are applied and backed up.
+- [ ] Runtime and provisioner database credentials are separate and least-privileged.
 - [ ] Key registry and pepper are enabled; no legacy shared key in preview/production.
 - [ ] Tenant/key scopes and expiry are confirmed.
 - [ ] Customer has received the API URL and one-time key through an approved channel.
@@ -113,4 +120,4 @@ This checks Git blob integrity at an immutable commit; it does not establish sem
 - [ ] Authentication failures, rate limits, and key revocation have been tested.
 - [ ] Audit events contain key IDs only, never raw API keys.
 - [ ] Pilot scope, data handling, support, and expiry are agreed.
-
+```
