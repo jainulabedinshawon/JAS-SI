@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -132,6 +133,72 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         result = PostgresSecurityEventStore(self.dsn).verify_integrity()
         self.assertTrue(result["valid"])
         self.assertEqual(result["verified_event_count"], 0)
+
+    def test_checkpoint_update_failure_rolls_back_all_writes(self):
+        tenant_id = self._tenant()
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE OR REPLACE FUNCTION jas_si_test_fail_checkpoint_update()
+                    RETURNS trigger
+                    LANGUAGE plpgsql
+                    AS $
+                    BEGIN
+                        RAISE EXCEPTION 'injected checkpoint update failure';
+                    END;
+                    $
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TRIGGER jas_si_test_fail_checkpoint_update
+                    BEFORE UPDATE ON jas_si_audit_chain_state
+                    FOR EACH ROW
+                    EXECUTE FUNCTION jas_si_test_fail_checkpoint_update()
+                    """
+                )
+
+        try:
+            with self.assertRaises(ApiKeyError):
+                self._issue(tenant_id, "test:checkpoint-failure")
+        finally:
+            with psycopg.connect(self.dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DROP TRIGGER IF EXISTS "
+                        "jas_si_test_fail_checkpoint_update "
+                        "ON jas_si_audit_chain_state"
+                    )
+                    cursor.execute(
+                        "DROP FUNCTION IF EXISTS "
+                        "jas_si_test_fail_checkpoint_update()"
+                    )
+
+        self.assertEqual(self._counts(), (0, 0, 0))
+        result = PostgresSecurityEventStore(self.dsn).verify_integrity()
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["verified_event_count"], 0)
+
+    def test_concurrent_duplicate_run_id_commits_exactly_once(self):
+        tenant_id = self._tenant()
+
+        def issue():
+            try:
+                self._issue(tenant_id, "test:concurrent-duplicate")
+                return "issued"
+            except ApiKeyError:
+                return "rejected"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = list(executor.map(lambda _: issue(), range(2)))
+
+        self.assertEqual(outcomes.count("issued"), 1)
+        self.assertEqual(outcomes.count("rejected"), 1)
+        self.assertEqual(self._counts(), (1, 1, 1))
+        self.assertTrue(
+            PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
+        )
 
     def test_duplicate_run_id_cannot_create_second_key(self):
         tenant_id = self._tenant()
