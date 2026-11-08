@@ -47,6 +47,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthorizeResponse'
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -224,6 +225,11 @@ components:
       properties:
         detail: { type: string }
   responses:
+    Forbidden:
+      description: API key is valid but does not have the required endpoint scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     Unauthorized:
       description: Missing or invalid API key
       headers:
