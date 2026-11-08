@@ -9,7 +9,7 @@
   },
   "autoload": {
     "psr-4": {
-      "JASSI\\\\": "sdks/php/src/"
+      "JASSI\\": "sdks/php/src/"
     }
   }
 }
