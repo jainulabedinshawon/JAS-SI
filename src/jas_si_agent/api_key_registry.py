@@ -212,12 +212,6 @@ class PostgresApiKeyRegistry:
             raise ApiKeyError(
                 "Atomic provisioning schema is missing; apply migrations first"
             )
-        audit_store = PostgresSecurityEventStore(self._dsn)
-        if not audit_store.verify_integrity().get("valid"):
-            raise ApiKeyError(
-                "Audit chain integrity check failed; provisioning stopped"
-            )
-
         key_id = uuid.uuid4()
         secret = secrets.token_bytes(KEY_SECRET_BYTES)
         token = f"{KEY_PREFIX}{key_id.hex}_{_encode_secret(secret)}"
@@ -227,6 +221,38 @@ class PostgresApiKeyRegistry:
         try:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
+                    # Serialize all audit writers, then verify the exact chain
+                    # snapshot that this transaction will extend.
+                    cursor.execute(
+                        """
+                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
+                        VALUES (TRUE, %s)
+                        ON CONFLICT (singleton) DO NOTHING
+                        """,
+                        ("0" * 64,),
+                    )
+                    cursor.execute(
+                        """
+                        SELECT last_hash
+                        FROM jas_si_audit_chain_state
+                        WHERE singleton = TRUE
+                        FOR UPDATE
+                        """
+                    )
+                    if cursor.fetchone() is None:
+                        raise ApiKeyError(
+                            "Audit checkpoint unavailable; provisioning stopped"
+                        )
+                    integrity = (
+                        PostgresSecurityEventStore.verify_integrity_in_transaction(
+                            connection
+                        )
+                    )
+                    if integrity.get("valid") is not True:
+                        raise ApiKeyError(
+                            "Audit chain integrity check failed; provisioning stopped"
+                        )
+
                     cursor.execute(
                         """
                         SELECT status
