@@ -90,7 +90,7 @@ class TestAPIStartup(unittest.TestCase):
             ),
             patch.object(api, "PostgresSecurityEventStore") as postgres,
         ):
-            with self.assertRaisesRegex(RuntimeError, "API enabled"):
+            with self.assertRaisesRegex(RuntimeError, "API_KEY_PEPPER"):
                 api.initialize_security_event_store()
 
         postgres.assert_not_called()
@@ -133,10 +133,12 @@ class TestAPIStartup(unittest.TestCase):
                 "PostgresSecurityEventStore",
                 return_value=fake_store,
             ),
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
         ):
             api.initialize_security_event_store()
 
         fake_store.verify_integrity.assert_called_once_with()
+        registry.return_value.verify_schema.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
@@ -157,6 +159,7 @@ class TestAPIStartup(unittest.TestCase):
                 "PostgresSecurityEventStore",
                 return_value=fake_store,
             ) as postgres,
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
         ):
             api.initialize_security_event_store()
 
@@ -164,6 +167,7 @@ class TestAPIStartup(unittest.TestCase):
             "postgresql://test:test@localhost/test"
         )
         fake_store.verify_integrity.assert_called_once_with()
+        registry.return_value.verify_schema.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
