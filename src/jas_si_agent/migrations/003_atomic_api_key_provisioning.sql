@@ -23,7 +23,20 @@ CREATE INDEX IF NOT EXISTS idx_jas_si_provisioning_runs_tenant_created
 
 -- Only the operator role may read/append provisioning idempotency metadata.
 -- The runtime role has no need to access this table.
-GRANT SELECT, INSERT ON jas_si_api_key_provisioning_runs
-    TO jas_si_provisioner;
-REVOKE ALL ON jas_si_api_key_provisioning_runs
-    FROM jas_si_runtime;
+DO $
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_provisioner'
+    ) THEN
+        GRANT SELECT, INSERT ON jas_si_api_key_provisioning_runs
+            TO jas_si_provisioner;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_runtime'
+    ) THEN
+        REVOKE ALL ON jas_si_api_key_provisioning_runs
+            FROM jas_si_runtime;
+    END IF;
+END
+$;
