@@ -157,6 +157,33 @@ class TestInMemoryCreditLedger(unittest.TestCase):
                 source_reference="usage",
             )
 
+    def test_capture_must_match_its_own_reservation_source(self) -> None:
+        self.ledger.grant(
+            self.tenant_id, 10,
+            idempotency_key="grant-source",
+            source_reference="order",
+        )
+        self.ledger.reserve(
+            self.tenant_id, 4,
+            idempotency_key="reserve-source-a",
+            source_reference="usage-a",
+        )
+        self.ledger.reserve(
+            self.tenant_id, 4,
+            idempotency_key="reserve-source-b",
+            source_reference="usage-b",
+        )
+        with self.assertRaises(BillingInvariantError):
+            self.ledger.capture(
+                self.tenant_id, 5,
+                idempotency_key="capture-wrong-source",
+                source_reference="usage-a",
+            )
+        self.assertEqual(
+            self.ledger.balance(self.tenant_id),
+            CreditBalance(available=2, reserved=8),
+        )
+
     def test_duplicate_idempotent_operation_does_not_duplicate_credits(
         self,
     ) -> None:
