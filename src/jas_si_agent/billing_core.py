@@ -252,14 +252,16 @@ class InMemoryCreditLedger:
             raise BillingInvariantError("IDEMPOTENCY_KEY_REQUIRED")
         if not isinstance(source_reference, str) or not source_reference.strip():
             raise BillingInvariantError("SOURCE_REFERENCE_REQUIRED")
+        normalized_idempotency_key = idempotency_key.strip()
+        normalized_source_reference = source_reference.strip()
 
-        key = (tenant_id, idempotency_key)
+        key = (tenant_id, normalized_idempotency_key)
         candidate = CreditEntry(
             tenant_id=tenant_id,
             entry_type=entry_type,
             quantity=quantity,
-            idempotency_key=idempotency_key,
-            source_reference=source_reference,
+            idempotency_key=normalized_idempotency_key,
+            source_reference=normalized_source_reference,
             available_delta=available_delta,
             reserved_delta=reserved_delta,
         )
