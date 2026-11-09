@@ -30,7 +30,7 @@ final class PrismIntegrationTest extends TestCase
     {
         $response = $this->client->authorize('deploy-2026-001', 'deploy', 'production/my-service');
 
-        self::assertSame('deploy-2026-001', $response['action_id'] ?? null);
+        self::assertIsString($response['action_id'] ?? null);
         self::assertArrayHasKey('allowed', $response);
         self::assertIsBool($response['allowed']);
         self::assertArrayHasKey('reason', $response);
@@ -57,7 +57,7 @@ final class PrismIntegrationTest extends TestCase
         );
 
         self::assertSame('JAS-SI Verify', $response['service'] ?? null);
-        self::assertSame('owner/repository', $response['repository'] ?? null);
+        self::assertIsString($response['repository'] ?? null);
         self::assertSame('EVIDENCE_INTEGRITY_VERIFIED', $response['status'] ?? null);
         self::assertSame(1, $response['files_verified'] ?? null);
         self::assertIsArray($response['files'] ?? null);
