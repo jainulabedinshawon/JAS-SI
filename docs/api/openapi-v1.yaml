@@ -2,6 +2,9 @@ openapi: 3.1.0
 info:
   title: JAS-SI API
   version: 0.1.0
+  contact:
+    name: JAS-SI API Maintainers
+    url: https://github.com/jainulabedinshawon/JAS-SI
   description: >-
     Contract for the currently implemented JAS-SI API. The API evaluates
     authorization and submitted outcomes and checks GitHub blob integrity.
@@ -15,7 +18,10 @@ paths:
   /health:
     get:
       security: []
+      operationId: healthCheck
+      tags: [Health]
       summary: Liveness check
+      description: Returns non-sensitive service liveness and API-enabled status.
       responses:
         '200':
           description: Service liveness
@@ -30,6 +36,7 @@ paths:
                   api_enabled: { type: boolean }
   /v1/authorize:
     post:
+      tags: [Authorization]
       summary: Evaluate an action authorization request
       description: Returns a decision only. It does not execute or enforce the action.
       operationId: authorize
@@ -53,6 +60,7 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/verify:
     post:
+      tags: [Outcomes]
       summary: Evaluate a caller-submitted outcome claim
       description: >-
         Evidence references supplied by the caller are not independently fetched
@@ -78,6 +86,7 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /v1/github/evidence:
     post:
+      tags: [GitHub Evidence]
       summary: Verify GitHub commit and file blob integrity
       description: >-
         Reads GitHub content at an immutable commit SHA and recomputes Git blob
