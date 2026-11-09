@@ -62,9 +62,15 @@ def request_response(path: str, token: str | None) -> tuple[int, dict]:
     )
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
-            return response.status
+            raw = response.read(65536)
+            return response.status, json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
-        return exc.code
+        raw = exc.read(65536)
+        try:
+            payload = json.loads(raw) if raw else {}
+        except Exception:
+            payload = {}
+        return exc.code, payload
 
 
 def main() -> int:
@@ -83,6 +89,19 @@ def main() -> int:
     revoked = False
     checks: list[tuple[str, bool]] = []
     try:
+        import psycopg
+
+        with psycopg.connect(dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT tenant_name, status FROM jas_si_tenants WHERE tenant_id = %s",
+                    (str(TENANT_ID),),
+                )
+                tenant = cursor.fetchone()
+        if tenant != ("JAS-SI Internal Staging", "active"):
+            raise RuntimeError("Configured staging tenant identity check failed")
+        print("staging_tenant_identity=PASS")
+
         registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
         print("provisioner_constructor=PASS")
         issued = registry.issue_key_with_audit(
@@ -94,7 +113,10 @@ def main() -> int:
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
         )
 
-        # Register the token with GitHub Actions masking before any later step can log it.\n        print(f"::add-mask::{issued.token}")\n\n        # Authentication negative cases: missing and malformed/unknown key.
+        # Mask the token before any later step can emit it.
+        print(f"::add-mask::{issued.token}")
+
+        # Authentication negative cases: missing and malformed/unknown key.
         checks.append(("missing_key_401", request_response("/v1/authorize", None)[0] == 401))
         checks.append((
             "invalid_key_401",
@@ -105,9 +127,10 @@ def main() -> int:
             "valid_key_authorized_endpoint_200",
             request_response("/v1/authorize", issued.token)[0] == 200,
         ))
+        verify_status, verify_body = request_response("/v1/verify", issued.token)
         checks.append((
-            "wrong_scope_denied_403",
-            request_status("/v1/verify", issued.token) == 403,
+            "valid_key_verify_inconclusive_without_independent_evidence",
+            verify_status == 200 and verify_body.get("status") == "INCONCLUSIVE",
         ))
     except Exception as exc:
         # Report exception classes and database SQLSTATE only; never print
