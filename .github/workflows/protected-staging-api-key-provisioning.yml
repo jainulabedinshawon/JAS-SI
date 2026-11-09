@@ -44,7 +44,7 @@ jobs:
           JAS_SI_API_KEY_PEPPER: ${{ secrets.JAS_SI_API_KEY_PEPPER }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_ACTOR: ${{ github.actor }}
-          JAS_SI_PREVIEW_BASE_URL: https://jas-r19fnvdum-jainulabedinshan-3242.vercel.app
+          JAS_SI_PREVIEW_BASE_URL: https://jas-si-git-feat-developer-console-b54d92-jainulabedinshan-3242.vercel.app
         run: python tools/staging_api_smoke_test.py
 
       - name: Ensure this run has no active staging key
