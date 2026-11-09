@@ -93,7 +93,7 @@ final class Client
         return $this->post('/v1/github/evidence', [
             'repository' => $repository,
             'commit_sha' => $commitSha,
-            'paths' => array_values($paths),
+            'paths' => $paths,
         ]);
     }
 
@@ -133,7 +133,7 @@ final class Client
         $statusCode = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
         curl_close($handle);
 
-        if ($responseBody === false) {
+        if (!is_string($responseBody)) {
             throw new RuntimeException('JAS-SI transport error: ' . $curlError);
         }
         try {
