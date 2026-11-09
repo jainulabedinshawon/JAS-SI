@@ -40,6 +40,7 @@ class TestPostgresApiKeyRegistry(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/001_create_audit_tables.sql",
             ROOT / "src/jas_si_agent/migrations/002_create_tenant_api_keys.sql",
             ROOT / "src/jas_si_agent/migrations/003_atomic_api_key_provisioning.sql",
+            ROOT / "src/jas_si_agent/migrations/004_tenant_status_lock_helper.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
@@ -62,6 +63,22 @@ class TestPostgresApiKeyRegistry(unittest.TestCase):
 
     def _tenant(self):
         return self.registry.create_tenant("Pilot Customer")
+
+    def test_provisioner_can_lock_tenant_without_tenant_update_privilege(self):
+        tenant_id = self._tenant()
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL ROLE jas_si_provisioner")
+                cursor.execute(
+                    "SELECT public.jas_si_lock_tenant_status(%s)",
+                    (tenant_id,),
+                )
+                self.assertEqual(cursor.fetchone()[0], "active")
+                cursor.execute(
+                    "SELECT has_table_privilege(current_user, "
+                    "'public.jas_si_tenants', 'UPDATE')"
+                )
+                self.assertFalse(cursor.fetchone()[0])
 
     def test_issue_and_authenticate_returns_tenant_and_scopes(self):
         tenant_id = self._tenant()
