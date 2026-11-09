@@ -23,55 +23,65 @@
 
 ## 1. Executive decision
 
-Build one provider-neutral Billing Core shared by all markets, with separate payment-provider adapters and one authoritative internal money/credit ledger.
+**JAS Platform is the sole commerce and financial authority. JAS-SI is a metered intelligence service that consumes platform-issued entitlements.** These are separate deployable systems with a narrow authenticated integration contract; they must not share or duplicate financial ownership.
 
-The Billing Core is responsible for:
+JAS Platform owns:
 - product and price catalog;
-- checkout/order lifecycle;
-- verified payment state;
-- subscription and entitlement lifecycle;
-- credit grants, reservations, captures, releases and reversals;
-- usage metering;
-- refunds, disputes and reconciliation;
-- durable, sanitized billing audit events.
+- checkout/order lifecycle and provider adapters;
+- verified payment state, subscriptions and invoices;
+- authoritative financial/credit ledger;
+- payment refunds, disputes, settlement and reconciliation;
+- authoritative entitlement grants, expiry and revocation.
 
-Payment providers collect money and report provider-side events. They do **not** own JAS-SI customer entitlements or credit balances. Only the Billing Core may grant or remove JAS-SI entitlements, after server-side verification.
+JAS-SI owns:
+- tenant-bound service usage measurement and idempotent usage-event persistence;
+- pre-execution entitlement/quota checks against JAS Platform;
+- final usage reporting and usage dashboard read models;
+- JAS-SI authorization, verification and evidence-integrity decisions;
+- sanitized technical audit records correlated to platform entitlement decisions.
 
-The existing JAS-SI authorization, verification and evidence-integrity engine remains independent of billing. Billing decides whether an account has an active entitlement/quota; existing authorization decides whether an action is permitted. A paid plan must never bypass JAS-SI authorization.
+JAS-SI must not implement a second checkout, payment, subscription, refund, financial ledger or authoritative purchased-credit balance. The PR #26 in-memory credit ledger remains a domain experiment only and is not a production billing component.
+
+A paid entitlement never bypasses JAS-SI authorization. Platform entitlement decides whether the customer has service quota; JAS-SI authorization decides whether a requested action is allowed; independent verification decides whether its reported outcome is supported by evidence.
 
 ## 2. Architecture
 
 ```text
 Customer / Developer Console
           |
-          v
-Billing API + Order/Subscription Services
-          |
-          +---- Product & Price Catalog
-          +---- Entitlement Service
-          +---- Usage Meter / Credit Service
-          +---- Refund & Reconciliation
-          |
-          v
-Provider Adapter Interface
-          |
-          +---- International provider adapter(s)
-          +---- Bangladesh provider adapter(s)
-          |
-          v
-Provider hosted checkout / signed webhook / IPN
-          |
-          v
-Verified Event Inbox -> Idempotent State Transition
-          |
-          v
-PostgreSQL: Orders + Payments + Ledger + Usage + Audit
-          |
-          v
-Tenant entitlement / credit balance consumed by API
+          +------------------------------+
+          |                              |
+          v                              v
+JAS Platform Commerce                JAS-SI API
+Catalog / Checkout / Payments        API Key -> Tenant Context
+Subscriptions / Invoices                  |
+Financial Ledger                          v
+Entitlement Authority               Entitlement Adapter
+          |                         (server-to-server)
+          +------ signed/authenticated decision ------+
+                                                       |
+                                                       v
+                                              Authorization Gate
+                                                       |
+                                                       v
+                                              Metered Service Call
+                                                       |
+                                      +----------------+----------------+
+                                      |                                 |
+                                      v                                 v
+                              Usage Event Store                 Verification / Audit
+                                      |
+                                      v
+                              Usage Dashboard
+
+Payment providers -> JAS Platform only:
+hosted checkout / signed webhook / IPN -> verified payment -> platform ledger
+                                                       |
+                                                       v
+                                            entitlement grant/update
 ```
 
-Provider callbacks are untrusted input until signature/authenticity, merchant account, transaction identity, order reference, amount, currency and expected state are validated.
+Provider callbacks are accepted only by JAS Platform and are untrusted until signature/authenticity, merchant account, transaction identity, order reference, amount, currency and expected state are validated. JAS-SI never consumes a browser redirect or caller-supplied payment claim as proof of payment.
 
 ## 3. Market and provider strategy
 
