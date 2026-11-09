@@ -35,6 +35,7 @@ def main() -> int:
         registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
         print("cleanup_constructor=PASS")
         with psycopg.connect(dsn) as connection:
+            print("cleanup_db_connect=PASS", flush=True)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -43,6 +44,7 @@ def main() -> int:
                            to_regclass('public.jas_si_api_keys') IS NOT NULL
                     """
                 )
+                print("cleanup_schema_query=PASS", flush=True)
                 db_name, runs_ok, keys_ok = cursor.fetchone()
                 print(f"cleanup_database_name={db_name}")
                 print(f"cleanup_schema_preflight={int(runs_ok)}{int(keys_ok)}")
@@ -88,10 +90,15 @@ def main() -> int:
     except Exception as exc:
         # Only exception class and SQLSTATE are safe to log; never print the
         # exception message, DSN, host, or other connection details.
-        print(f"cleanup_error_type={type(exc).__name__}")
-        direct_sqlstate = getattr(exc, "sqlstate", None)
+        print(f"cleanup_error_type={type(exc).__name__}", flush=True)
+        direct_sqlstate = (
+            getattr(exc, "sqlstate", None)
+            or getattr(getattr(exc, "diag", None), "sqlstate", None)
+            or getattr(exc, "pgcode", None)
+        )
+        print(f"cleanup_exception_module={type(exc).__module__}", flush=True)
         if direct_sqlstate:
-            print(f"cleanup_sqlstate={direct_sqlstate}")
+            print(f"cleanup_sqlstate={direct_sqlstate}", flush=True)
         direct_constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
         if direct_constraint:
             print(f"cleanup_constraint={direct_constraint}")
