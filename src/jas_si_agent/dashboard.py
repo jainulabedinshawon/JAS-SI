@@ -40,12 +40,12 @@ main{padding:62px 0 80px}.eyebrow{color:var(--accent);font-size:11px;letter-spac
 <article class="card span4"><div class="cardhead"><h2>Service status</h2><span class="tag">LIVE CHECK</span></div><div class="metric" id="health-value">Checking</div><div class="sub" id="health-detail">Reading the public health endpoint</div><div class="smalllinks"><a class="textlink" href="/health">Health JSON ↗</a><a class="textlink" href="/openapi.json">OpenAPI schema ↗</a></div></article>
 <article class="card span4"><div class="cardhead"><h2>API credentials</h2><span class="tag">CONTROLLED</span></div><div class="metric">Tenant-scoped</div><div class="sub">Scoped keys · expiry · revocation · audit trail</div><div class="notice">Self-service key creation is not exposed in this public console. Use the approved secure provisioning process; never paste a secret into support chats.</div></article>
 <article class="card span4"><div class="cardhead"><h2>Usage & quota</h2><span class="tag">NOT CONNECTED</span></div><div class="metric">—</div><div class="sub">No billing or metering data is currently presented here.</div><div class="smalllinks"><a class="textlink" href="/openapi.json">Inspect API contract ↗</a></div></article>
-<article class="card span7" id="quickstart"><div class="cardhead"><h2>Quickstart</h2><span class="tag">COPY-READY</span></div><div class="muted" style="font-size:12px;margin-bottom:13px">Choose a language. Set your API key in your local environment; do not hard-code it.</div>
+<article class="card span7" id="quickstart"><div class="cardhead"><h2>Quickstart</h2><span class="tag">COPY-READY</span></div><div class="muted" style="font-size:12px;margin-bottom:13px">Set JAS_SI_BASE_URL to this Preview deployment and JAS_SI_API_KEY in your local environment; never hard-code either value.</div>
 <div class="tabs" role="tablist" aria-label="Quickstart language">
 <button class="tab" role="tab" aria-selected="true" data-lang="curl">cURL</button><button class="tab" role="tab" aria-selected="false" data-lang="python">Python</button><button class="tab" role="tab" aria-selected="false" data-lang="php">PHP</button><button class="tab" role="tab" aria-selected="false" data-lang="node">Node.js</button>
 </div>
 <div class="codehead"><span id="snippet-label">POST /v1/authorize · authorization:check</span><button class="copy" id="copy-snippet" type="button">Copy code</button></div>
-<pre><code id="snippet-code">curl https://jas-si.vercel.app/v1/authorize \
+<pre><code id="snippet-code">curl "$JAS_SI_BASE_URL/v1/authorize" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $JAS_SI_API_KEY" \
   -d '{"action_id":"demo-001","action":"read","resource":"jas-si://demo"}'</code></pre>
@@ -65,7 +65,7 @@ main{padding:62px 0 80px}.eyebrow{color:var(--accent);font-size:11px;letter-spac
 <footer class="shell footer"><span>© JAS-SI · Reality-Based Intelligence Architecture</span><span><a class="textlink" href="https://github.com/jainulabedinshawon/JAS-SI">Source</a> · <a class="textlink" href="/docs">API docs</a></span></footer>
 <script>
 const snippets = {
-curl: {label:"POST /v1/authorize · authorization:check",code:`curl https://jas-si.vercel.app/v1/authorize \\
+curl: {label:"POST /v1/authorize · authorization:check",code:`curl "$JAS_SI_BASE_URL/v1/authorize" \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: $JAS_SI_API_KEY" \\
   -d '{"action_id":"demo-001","action":"read","resource":"jas-si://demo"}'`},
@@ -73,7 +73,7 @@ python: {label:"POST /v1/authorize · Python standard library",code:`import json
 import os
 import urllib.request
 
-url = "https://jas-si.vercel.app/v1/authorize"
+url = os.environ["JAS_SI_BASE_URL"].rstrip("/") + "/v1/authorize"
 payload = {
     "action_id": "demo-001",
     "action": "read",
@@ -96,7 +96,7 @@ $payload = [
     "action" => "read",
     "resource" => "jas-si://demo",
 ];
-$ch = curl_init("https://jas-si.vercel.app/v1/authorize");
+$ch = curl_init(rtrim(getenv("JAS_SI_BASE_URL"), "/") . "/v1/authorize");
 curl_setopt_array($ch, [
     CURLOPT_POST => true,
     CURLOPT_RETURNTRANSFER => true,
@@ -111,7 +111,7 @@ if ($result === false) { throw new RuntimeException(curl_error($ch)); }
 echo $result;
 curl_close($ch);`},
 node: {label:"POST /v1/authorize · Node.js fetch",code:`const response = await fetch(
-  "https://jas-si.vercel.app/v1/authorize",
+  `${process.env.JAS_SI_BASE_URL}/v1/authorize`,
   {
     method: "POST",
     headers: {
