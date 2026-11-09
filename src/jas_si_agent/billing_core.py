@@ -265,6 +265,25 @@ class InMemoryCreditLedger:
                     raise IdempotencyConflict("IDEMPOTENCY_KEY_REUSED")
                 return previous
 
+            if entry_type in {CreditEntryType.CAPTURE, CreditEntryType.RELEASE}:
+                source_reserved = sum(
+                    item.quantity
+                    if item.entry_type == CreditEntryType.RESERVE
+                    else -item.quantity
+                    for item in self._entries
+                    if item.tenant_id == tenant_id
+                    and item.source_reference == source_reference
+                    and item.entry_type in {
+                        CreditEntryType.RESERVE,
+                        CreditEntryType.CAPTURE,
+                        CreditEntryType.RELEASE,
+                    }
+                )
+                if quantity > source_reserved:
+                    raise BillingInvariantError(
+                        "INSUFFICIENT_RESERVED_CREDITS_FOR_SOURCE"
+                    )
+
             current = self.balance(tenant_id)
             next_available = current.available + available_delta
             next_reserved = current.reserved + reserved_delta
