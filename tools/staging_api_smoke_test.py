@@ -35,7 +35,7 @@ if not API_BASE_URL.startswith("https://jas-") or not API_BASE_URL.endswith("-ja
     raise RuntimeError("A trusted JAS-SI Preview deployment URL is required.")
 
 
-def request_status(path: str, token: str | None) -> int:
+def request_response(path: str, token: str | None) -> tuple[int, dict]:
     import json
 
     if path == "/v1/verify":
@@ -95,15 +95,15 @@ def main() -> int:
         )
 
         # Register the token with GitHub Actions masking before any later step can log it.\n        print(f"::add-mask::{issued.token}")\n\n        # Authentication negative cases: missing and malformed/unknown key.
-        checks.append(("missing_key_401", request_status("/v1/authorize", None) == 401))
+        checks.append(("missing_key_401", request_response("/v1/authorize", None)[0] == 401))
         checks.append((
             "invalid_key_401",
-            request_status("/v1/authorize", "jassi_live_invalid_invalid") == 401,
+            request_response("/v1/authorize", "jassi_live_invalid_invalid")[0] == 401,
         ))
         # Positive authenticated requests use the real Preview API.
         checks.append((
             "valid_key_authorized_endpoint_200",
-            request_status("/v1/authorize", issued.token) == 200,
+            request_response("/v1/authorize", issued.token)[0] == 200,
         ))
         checks.append((
             "wrong_scope_denied_403",
@@ -149,7 +149,7 @@ def main() -> int:
     try:
         checks.append((
             "revoked_key_rejected_401",
-            request_status("/v1/authorize", issued.token) == 401,
+            request_response("/v1/authorize", issued.token)[0] == 401,
         ))
         integrity = PostgresSecurityEventStore(dsn).verify_integrity()
         checks.append(("audit_chain_valid_after_revoke", integrity.get("valid") is True))
