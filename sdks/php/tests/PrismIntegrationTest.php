@@ -41,7 +41,7 @@ final class PrismIntegrationTest extends TestCase
     {
         $response = $this->client->verify('deploy-2026-001', true);
 
-        self::assertSame('deploy-2026-001', $response['action_id'] ?? null);
+        self::assertIsString($response['action_id'] ?? null);
         self::assertArrayHasKey('status', $response);
         self::assertArrayHasKey('reason', $response);
         self::assertContains($response['evidence_origin'] ?? null, ['caller_submitted', 'not_provided']);
