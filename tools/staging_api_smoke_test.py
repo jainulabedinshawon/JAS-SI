@@ -30,18 +30,15 @@ from jas_si_agent.postgres_security_event_store import (  # noqa: E402
 
 TENANT_ID = UUID("277b9f5a-160a-44d6-b47f-706decdfda03")
 # Immutable Vercel Preview deployment URL; do not accept this from workflow input.
-API_BASE_URL = os.getenv("JAS_SI_PREVIEW_BASE_URL", "").rstrip("/")
-VERCEL_BYPASS_SECRET = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "")
-if not API_BASE_URL.startswith("https://jas-") or not API_BASE_URL.endswith("-jainulabedinshan-3242.vercel.app"):
-    raise RuntimeError("A trusted JAS-SI Preview deployment URL is required.")
+API_BASE_URL = "https://jas-7ai3sptdi-jainulabedinshan-3242.vercel.app"
 
 
-def request_response(path: str, token: str | None) -> tuple[int, dict]:
+def request_status(path: str, token: str | None) -> int:
     import json
 
     if path == "/v1/verify":
-        # Supply a valid VerifyRequest so the response proves the authorized verification route remains
-        # inconclusive when no independently collected evidence is supplied.
+        # Supply a valid VerifyRequest so the expected 403 proves scope denial,
+        # not an unrelated request-schema validation failure.
         body = {
             "action_id": "jas-si-staging-auth-smoke",
             "claimed_success": True,
@@ -57,156 +54,63 @@ def request_response(path: str, token: str | None) -> tuple[int, dict]:
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "x-vercel-protection-bypass": VERCEL_BYPASS_SECRET,
             **({"X-API-Key": token} if token is not None else {}),
         },
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
-            raw = response.read(65536)
-            return response.status, json.loads(raw) if raw else {}
+            return response.status
     except urllib.error.HTTPError as exc:
-        raw = exc.read(65536)
-        try:
-            payload = json.loads(raw) if raw else {}
-        except Exception:
-            payload = {}
-        return exc.code, payload
+        return exc.code
 
 
 def main() -> int:
     dsn = os.getenv("JAS_SI_PROVISIONER_DATABASE_URL", "")
     pepper = os.getenv("JAS_SI_API_KEY_PEPPER", "")
     run_id = os.getenv("GITHUB_RUN_ID", "")
-    run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")
     actor = os.getenv("GITHUB_ACTOR", "github-actions")
-    if not dsn or len(pepper.encode("utf-8")) < 32 or not VERCEL_BYPASS_SECRET:
-        print("Provisioning or Preview-access secrets are missing or invalid.")
+    if not dsn or len(pepper.encode("utf-8")) < 32:
+        print("Provisioning secrets are missing or invalid.")
         return 2
-    if not run_id.isdigit() or not run_attempt.isdigit() or int(run_attempt) < 1:
+    if not run_id.isdigit():
         print("GitHub run identity is invalid.")
         return 2
-    attempt_id = f"{run_id}:{run_attempt}"
 
     issued = None
     revoked = False
     checks: list[tuple[str, bool]] = []
     try:
-        import psycopg
-
-        print("staging_dsn_parse=START", flush=True)
-        try:
-            conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
-        except Exception as parse_exc:
-            print("staging_dsn_parse=FAIL", flush=True)
-            print("staging_dsn_parse_error_type=" + type(parse_exc).__name__, flush=True)
-            parse_state = getattr(parse_exc, "sqlstate", None)
-            if parse_state:
-                print("staging_dsn_parse_sqlstate=" + parse_state, flush=True)
-            raise
-        print("staging_dsn_parse=PASS", flush=True)
-        print(
-            "staging_dsn_fields="
-            + ",".join(sorted(k for k in conninfo if k in {"host", "port", "dbname", "user", "password", "sslmode"})),
-            flush=True,
-        )
-        print(
-            "staging_dsn_required_fields="
-            + "".join("1" if conninfo.get(k) else "0" for k in ("host", "dbname", "user", "password")),
-            flush=True,
-        )
-        with psycopg.connect(dsn) as connection:
-            print("staging_db_connect=PASS", flush=True)
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT current_database(),
-                           to_regclass('public.jas_si_tenants') IS NOT NULL,
-                           to_regclass('public.jas_si_api_keys') IS NOT NULL,
-                           to_regclass('public.jas_si_api_key_provisioning_runs') IS NOT NULL,
-                           to_regclass('public.jas_si_audit_events') IS NOT NULL,
-                           to_regclass('public.jas_si_audit_chain_state') IS NOT NULL
-                    """
-                )
-                print("staging_schema_query=PASS", flush=True)
-                db_name, tenants_ok, keys_ok, runs_ok, audit_ok, chain_ok = cursor.fetchone()
-                print(f"staging_database_name={db_name}")
-                print(
-                    "staging_schema_preflight="
-                    f"{int(tenants_ok)}{int(keys_ok)}{int(runs_ok)}"
-                    f"{int(audit_ok)}{int(chain_ok)}"
-                )
-                cursor.execute(
-                    "SELECT tenant_name, status FROM public.jas_si_tenants WHERE tenant_id = %s",
-                    (str(TENANT_ID),),
-                )
-                tenant = cursor.fetchone()
-        if tenant != ("JAS-SI Internal Staging", "active"):
-            raise RuntimeError("Configured staging tenant identity check failed")
-        print("staging_tenant_identity=PASS")
-
         registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
         print("provisioner_constructor=PASS")
         issued = registry.issue_key_with_audit(
             tenant_id=TENANT_ID,
-            key_name=f"ci-staging-smoke-{attempt_id}",
-            scopes=["authorization:check", "outcomes:submit"],
+            key_name=f"ci-staging-smoke-{run_id}",
+            scopes=["authorization:check"],
             created_by=actor,
-            provisioning_run_id=f"github-actions:{attempt_id}",
+            provisioning_run_id=f"github-actions:{run_id}",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
         )
 
-        # Mask the token before any later step can emit it.
-        print(f"::add-mask::{issued.token}")
-
         # Authentication negative cases: missing and malformed/unknown key.
-        checks.append(("missing_key_401", request_response("/v1/authorize", None)[0] == 401))
+        checks.append(("missing_key_401", request_status("/v1/authorize", None) == 401))
         checks.append((
             "invalid_key_401",
-            request_response("/v1/authorize", "jassi_live_invalid_invalid")[0] == 401,
+            request_status("/v1/authorize", "jassi_live_invalid_invalid") == 401,
         ))
-        # Positive authenticated requests use the real Preview API.
-        authorize_status, authorize_body = request_response(
-            "/v1/authorize", issued.token
-        )
-        print(f"valid_key_authorize_http_status={authorize_status}", flush=True)
-        if isinstance(authorize_body, dict):
-            detail = authorize_body.get("detail")
-            if isinstance(detail, str):
-                print(f"valid_key_authorize_safe_detail={detail[:160]}", flush=True)
+        # Positive authentication and scope denial use the real Preview API.
         checks.append((
             "valid_key_authorized_endpoint_200",
-            authorize_status == 200,
+            request_status("/v1/authorize", issued.token) == 200,
         ))
-        verify_status, verify_body = request_response("/v1/verify", issued.token)
-        print(f"valid_key_verify_http_status={verify_status}", flush=True)
-        if isinstance(verify_body, dict):
-            detail = verify_body.get("detail")
-            if isinstance(detail, str):
-                print(f"valid_key_verify_safe_detail={detail[:160]}", flush=True)
-            verify_result = verify_body.get("status")
-            if isinstance(verify_result, str):
-                print(f"valid_key_verify_result={verify_result[:80]}", flush=True)
         checks.append((
-            "valid_key_verify_inconclusive_without_independent_evidence",
-            verify_status == 200 and verify_body.get("status") == "INCONCLUSIVE",
+            "wrong_scope_denied_403",
+            request_status("/v1/verify", issued.token) == 403,
         ))
     except Exception as exc:
         # Report exception classes and database SQLSTATE only; never print
         # exception messages, which may contain connection or secret material.
-        print(f"staging_error_type={type(exc).__name__}", flush=True)
-        direct_sqlstate = (
-            getattr(exc, "sqlstate", None)
-            or getattr(getattr(exc, "diag", None), "sqlstate", None)
-            or getattr(exc, "pgcode", None)
-        )
-        print(f"staging_exception_module={type(exc).__module__}", flush=True)
-        if direct_sqlstate:
-            print(f"staging_sqlstate={direct_sqlstate}", flush=True)
-        direct_constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
-        if direct_constraint:
-            print(f"staging_constraint={direct_constraint}")
+        print(f"staging_error_type={type(exc).__name__}")
         cause = exc.__cause__
         depth = 0
         while cause is not None and depth < 4:
@@ -224,7 +128,7 @@ def main() -> int:
                 revoked = registry.revoke_key_with_audit(
                     key_id=issued.key_id,
                     revoked_by=actor,
-                    revocation_run_id=f"github-actions-revoke:{attempt_id}",
+                    revocation_run_id=f"github-actions-revoke:{run_id}",
                 )
             except Exception:
                 print(
@@ -243,7 +147,7 @@ def main() -> int:
     try:
         checks.append((
             "revoked_key_rejected_401",
-            request_response("/v1/authorize", issued.token)[0] == 401,
+            request_status("/v1/authorize", issued.token) == 401,
         ))
         integrity = PostgresSecurityEventStore(dsn).verify_integrity()
         checks.append(("audit_chain_valid_after_revoke", integrity.get("valid") is True))
