@@ -5,6 +5,22 @@
 **Scope:** International and Bangladesh customer billing.  
 **Implementation status:** No payment integration, database migration, provider account, secret, or live payment has been created by this document.
 
+> [!IMPORTANT]
+> ## Binding project-ownership decision
+>
+> This document is a cross-project architecture reference, **not authorization to implement a payment or commerce subsystem inside JAS-SI**. The ownership boundary is:
+>
+> - **JAS Platform owns commerce:** customer billing accounts, product/price catalog, checkout, payment-provider integrations, payment verification, subscriptions, invoices, refunds, disputes, settlement, reconciliation and the authoritative financial ledger.
+> - **JAS-SI owns intelligence-service consumption:** tenant-bound AI usage events, metering dimensions, quota/credit consumption requests, authorization/evidence service entitlements, and a narrow integration contract with JAS Platform.
+> - **JAS-SI must not create a second checkout, payment, subscription, refund or financial-ledger authority.** It must never treat a browser redirect or a caller-supplied payment claim as proof of payment.
+> - JAS-SI may enforce a signed/server-authenticated entitlement snapshot or consume an authoritative entitlement decision from JAS Platform. The source of truth for paid status and purchased balance remains JAS Platform.
+> - The in-memory credit ledger in PR #26 is a domain experiment only. It is neither durable nor authoritative and must not be used to collect money, grant paid entitlements, or represent a production customer balance.
+>
+> The provider, order, payment, subscription, refund and settlement sections below are requirements for the **JAS Platform commerce owner** if adopted. For JAS-SI, only the usage-metering and entitlement-integration portions are in scope. Any conflicting statement below is superseded by this ownership decision.
+>
+> **Implementation boundary:** no provider account, checkout endpoint, payment webhook, financial schema, subscription engine or refund workflow is to be added to JAS-SI under this specification.
+
+
 ## 1. Executive decision
 
 Build one provider-neutral Billing Core shared by all markets, with separate payment-provider adapters and one authoritative internal money/credit ledger.
