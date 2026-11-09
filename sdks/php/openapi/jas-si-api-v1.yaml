@@ -14,6 +14,11 @@ servers:
     description: Placeholder; replace with the actual private deployment URL.
 security:
   - ApiKeyAuth: []
+tags:
+  - name: Health
+  - name: Authorization
+  - name: Outcomes
+  - name: GitHub Evidence
 paths:
   /health:
     get:
