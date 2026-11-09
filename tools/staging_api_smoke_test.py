@@ -30,7 +30,9 @@ from jas_si_agent.postgres_security_event_store import (  # noqa: E402
 
 TENANT_ID = UUID("277b9f5a-160a-44d6-b47f-706decdfda03")
 # Immutable Vercel Preview deployment URL; do not accept this from workflow input.
-API_BASE_URL = "https://jas-7ai3sptdi-jainulabedinshan-3242.vercel.app"
+API_BASE_URL = os.getenv("JAS_SI_PREVIEW_BASE_URL", "").rstrip("/")
+if not API_BASE_URL.startswith("https://jas-") or not API_BASE_URL.endswith("-jainulabedinshan-3242.vercel.app"):
+    raise RuntimeError("A trusted JAS-SI Preview deployment URL is required.")
 
 
 def request_status(path: str, token: str | None) -> int:
@@ -86,19 +88,19 @@ def main() -> int:
         issued = registry.issue_key_with_audit(
             tenant_id=TENANT_ID,
             key_name=f"ci-staging-smoke-{run_id}",
-            scopes=["authorization:check"],
+            scopes=["authorization:check", "outcomes:submit"],
             created_by=actor,
             provisioning_run_id=f"github-actions:{run_id}",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
         )
 
-        # Authentication negative cases: missing and malformed/unknown key.
+        # Register the token with GitHub Actions masking before any later step can log it.\n        print(f"::add-mask::{issued.token}")\n\n        # Authentication negative cases: missing and malformed/unknown key.
         checks.append(("missing_key_401", request_status("/v1/authorize", None) == 401))
         checks.append((
             "invalid_key_401",
             request_status("/v1/authorize", "jassi_live_invalid_invalid") == 401,
         ))
-        # Positive authentication and scope denial use the real Preview API.
+        # Positive authenticated requests use the real Preview API.
         checks.append((
             "valid_key_authorized_endpoint_200",
             request_status("/v1/authorize", issued.token) == 200,
