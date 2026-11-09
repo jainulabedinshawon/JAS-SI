@@ -119,23 +119,21 @@ Implement adapter contracts first. Do not create provider accounts, credentials,
 
 All customer-facing billing records are bound to a server-derived JAS-SI tenant. A request body, query parameter or caller-controlled header must never choose the billing tenant.
 
-Proposed tables (names are provisional):
-- `jas_si_billing_accounts`: tenant binding, billing status, legal/customer metadata reference.
-- `jas_si_products`: stable product identity and product type.
-- `jas_si_prices`: market, currency, amount in minor units, billing interval, credit quantity, effective dates.
-- `jas_si_checkout_orders`: immutable order snapshot, tenant, price, quantity, amount, currency, status, expiry and idempotency key.
-- `jas_si_payment_transactions`: provider, provider account, provider transaction ID, amount, currency, status and verified timestamps.
-- `jas_si_provider_customers`: provider customer IDs mapped to billing account; no payment credentials.
-- `jas_si_webhook_events`: provider event ID, payload digest, received/processed state, timestamps and safe diagnostic metadata.
-- `jas_si_subscriptions`: provider subscription ID, plan, period, status, cancel-at-period-end and lifecycle version.
-- `jas_si_entitlements`: tenant, feature/quota, source order/subscription, validity window and status.
-- `jas_si_credit_accounts`: tenant/currency-independent credit unit balance projection and version.
-- `jas_si_credit_ledger`: append-only grants, reservations, captures, releases, expirations and reversals.
-- `jas_si_usage_events`: idempotent usage records, metering dimensions, quantity and calculated charge.
-- `jas_si_refunds`: provider refund ID, original transaction, amount, currency, reason and status.
-- `jas_si_billing_audit_events`: sanitized financial lifecycle events.
+**JAS Platform-owned commerce records (not JAS-SI migrations):**
+- `jas_platform_billing_accounts`: customer billing account and tenant mapping.
+- `jas_platform_products` / `jas_platform_prices`: product catalog, market, currency and immutable price versions.
+- `jas_platform_checkout_orders` / `jas_platform_payment_transactions`: order snapshots and verified provider transactions.
+- `jas_platform_provider_customers` / `jas_platform_webhook_events`: provider references and deduplicated verified-event inbox.
+- `jas_platform_subscriptions` / `jas_platform_entitlements`: commercial lifecycle and authoritative feature/quota grants.
+- `jas_platform_credit_accounts` / `jas_platform_credit_ledger`: authoritative purchased-credit balances and append-only grants/reservations/captures/releases/reversals.
+- `jas_platform_refunds` / `jas_platform_billing_audit_events`: refunds, disputes and financial audit trail.
 
-Use UUID primary keys, foreign keys, unique provider transaction/event constraints and tenant-scoped indexes. Monetary amounts are integer minor units (e.g. paisa/cents), never floating point. The initial provider-neutral domain prototype accepts only `BDT`, `USD`, `EUR` and `GBP`; this is a deliberately narrow implementation allowlist, not a claim that any provider or merchant account supports all four. Expand it only after confirming each currency's minor-unit exponent, provider support and market eligibility. Each order stores an immutable price/currency/credit snapshot so later catalog edits cannot alter an existing purchase.
+**JAS-SI-owned service-consumption records (candidate schema, not yet implemented):**
+- `jas_si_usage_events`: tenant-bound idempotent measurements, metering dimensions, quantity, unit, operation outcome and platform correlation IDs.
+- `jas_si_usage_reservations` (optional local mirror): references to platform reservation IDs and lifecycle state; never an independent credit balance.
+- `jas_si_usage_daily` (derived read model): tenant-scoped dashboard aggregates rebuilt from authoritative usage events.
+
+Do not create the JAS Platform-owned tables in the JAS-SI repository or database. Use UUID primary keys, tenant-scoped indexes and unique idempotency constraints for JAS-SI usage events. Monetary amounts remain integer minor units in JAS Platform only; JAS-SI usage quantities use explicit integer/decimal units with a versioned metering definition and must not invent a monetary charge. The initial provider-neutral domain prototype's `BDT`, `USD`, `EUR` and `GBP` allowlist is a design/test constraint, not proof of merchant or provider support.
 
 ## 5. Order and payment state machine
 
@@ -282,24 +280,38 @@ This protocol is a design requirement, not evidence of an implemented PostgreSQL
 - Separate gross sales, provider fees, refunds, tax withheld, chargebacks and net payout.
 - Payout received in a bank account is distinct from customer payment confirmation.
 
-## 11. API surface (proposed)
+## 11. API and service-to-service contract (proposed; not implemented)
 
-Customer-facing:
+### JAS Platform public commerce API — Platform-owned
+These routes belong in JAS Platform, not in the JAS-SI FastAPI app:
 - `GET /v1/billing/catalog`
 - `POST /v1/billing/checkout-sessions`
 - `GET /v1/billing/orders/{order_id}`
 - `GET /v1/billing/credits`
-- `GET /v1/billing/usage`
 - `GET /v1/billing/subscription`
 - `POST /v1/billing/subscription/cancel`
+- `POST /v1/billing/webhooks/{provider}` (provider-authenticated, not customer API-key authenticated)
 
-Provider-facing:
-- `POST /v1/billing/webhooks/{provider}`
+### JAS-SI customer API — usage visibility only
+Candidate routes:
+- `GET /v1/usage`: authenticated tenant's usage events and period totals.
+- `GET /v1/usage/summary`: tenant-scoped aggregate by feature, period and status.
+- `GET /v1/entitlements`: read-only view of the last successfully confirmed platform entitlement snapshot, with source/version and freshness metadata.
 
-Operator-only (not public API):
-- reconciliation, refund review, product/price administration and controlled adjustments.
+These routes must derive tenant identity from the authenticated API key/session. A caller-supplied tenant ID is never authoritative. Until persisted metering exists, the dashboard must show “unavailable”, not fabricated usage or credits.
 
-All customer endpoints require authenticated tenant context and appropriate scopes. Webhook endpoints use provider signature/authenticity rather than customer API keys. Do not create a public API-key or billing-admin endpoint without a separate threat model.
+### JAS-SI ↔ JAS Platform internal consumption contract
+The exact wire schema and authentication mechanism require a separately reviewed API contract. The minimum logical operations are:
+1. **Authorize/reserve:** JAS-SI sends tenant (derived from auth), feature, requested quantity, idempotency key and request correlation. JAS Platform validates entitlement/quota and returns allow/deny, reservation ID, policy/version, permitted quantity and expiry. JAS-SI does not calculate paid balance.
+2. **Settle usage:** after the service call, JAS-SI reports measured actual quantity, outcome, reservation ID, idempotency key and evidence/audit correlation. JAS Platform applies the authoritative quota/credit settlement.
+3. **Release reservation:** on a failed or cancelled operation, JAS-SI releases unused reservation using the same reservation ID and an idempotent operation key.
+4. **Refresh entitlement:** JAS-SI may refresh a signed/authenticated entitlement snapshot; stale/expired snapshots must follow a documented fail-closed or bounded-grace policy.
+
+The Platform response should include a stable decision ID, tenant binding, feature, allow/deny, quota unit, permitted amount, reservation ID, expiry, entitlement version and policy version. Responses must be authenticated, replay-resistant and idempotent. JAS-SI must persist the decision/reservation references and usage outcome so the two systems can reconcile. Network retries use the same idempotency key; a changed request fingerprint is rejected.
+
+This is a cross-service saga, not a distributed SQL transaction. External network calls must occur outside JAS-SI database transactions. Define timeout recovery and a reconciliation process for reservations whose final usage report was not received. JAS Platform remains the source of truth for entitlements and balances; JAS-SI remains the source of truth for measured service execution and technical evidence.
+
+Operator-only Platform functions (refund review, product/price administration, reconciliation and controlled financial adjustments) remain outside the JAS-SI public API.
 
 ## 12. Security, privacy and audit requirements
 
