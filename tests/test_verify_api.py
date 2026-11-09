@@ -479,7 +479,6 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         response = self.perform_verification(mock_get)
 
         self.assertEqual(response.status_code, 200)
-        events = self.store_patch.get_original() if False else None
         persisted = JsonlSecurityEventStore(
             Path(self.temp_dir.name) / "security-events.jsonl"
         ).load_events()
