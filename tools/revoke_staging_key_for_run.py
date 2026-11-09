@@ -32,7 +32,16 @@ def main() -> int:
 
     provisioning_run_id = f"github-actions:{run_id}"
     try:
-        conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
+        print("cleanup_dsn_parse=START", flush=True)
+        try:
+            conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
+        except Exception as parse_exc:
+            print("cleanup_dsn_parse=FAIL", flush=True)
+            print("cleanup_dsn_parse_error_type=" + type(parse_exc).__name__, flush=True)
+            parse_state = getattr(parse_exc, "sqlstate", None)
+            if parse_state:
+                print("cleanup_dsn_parse_sqlstate=" + parse_state, flush=True)
+            raise
         print("cleanup_dsn_parse=PASS", flush=True)
         print(
             "cleanup_dsn_fields="
