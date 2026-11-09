@@ -102,6 +102,39 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                 events = cursor.fetchone()[0]
         return keys, runs, events
 
+    def test_migrations_004_and_005_are_idempotent(self):
+        migration_paths = [
+            ROOT / "src/jas_si_agent/migrations/004_audit_event_id_identity.sql",
+            ROOT / "src/jas_si_agent/migrations/005_provisioner_tenant_row_lock.sql",
+        ]
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                for _ in range(2):
+                    for migration_path in migration_paths:
+                        cursor.execute(migration_path.read_text(encoding="utf-8"))
+
+                cursor.execute(
+                    """
+                    SELECT is_identity
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='jas_si_audit_events'
+                      AND column_name='event_id'
+                    """
+                )
+                self.assertEqual(cursor.fetchone(), ("YES",))
+
+                cursor.execute(
+                    """
+                    SELECT column_default, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='jas_si_tenants'
+                      AND column_name='provisioning_lock_version'
+                    """
+                )
+                self.assertEqual(cursor.fetchone(), ("0", "NO"))
+
     def test_audit_event_id_has_identity_default(self):
         with psycopg.connect(self.dsn) as connection:
             with connection.cursor() as cursor:
