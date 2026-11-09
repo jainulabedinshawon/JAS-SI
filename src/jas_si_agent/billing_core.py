@@ -279,7 +279,7 @@ class InMemoryCreditLedger:
                     else -item.quantity
                     for item in self._entries
                     if item.tenant_id == tenant_id
-                    and item.source_reference == source_reference
+                    and item.source_reference == normalized_source_reference
                     and item.entry_type in {
                         CreditEntryType.RESERVE,
                         CreditEntryType.CAPTURE,
@@ -295,14 +295,14 @@ class InMemoryCreditLedger:
                     item.quantity
                     for item in self._entries
                     if item.tenant_id == tenant_id
-                    and item.source_reference == source_reference
+                    and item.source_reference == normalized_source_reference
                     and item.entry_type == CreditEntryType.GRANT
                 )
                 source_reversed = sum(
                     item.quantity
                     for item in self._entries
                     if item.tenant_id == tenant_id
-                    and item.source_reference == source_reference
+                    and item.source_reference == normalized_source_reference
                     and item.entry_type == CreditEntryType.REVERSAL
                 )
                 if source_granted == 0 or quantity > source_granted - source_reversed:
