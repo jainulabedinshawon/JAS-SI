@@ -190,6 +190,51 @@ Usage flow:
 
 Prevent overspend under concurrency. A cached balance is a projection only; ledger entries are authoritative. Define a consistent credit unit and pricing version before public sale.
 
+### 8.1 PostgreSQL transaction protocol (implementation requirement)
+
+The in-memory prototype is not a concurrency or durability guarantee. The production design must serialize balance-changing operations per tenant (or per tenant credit account) and commit the ledger entry, idempotency record and balance projection together.
+
+**Minimum database constraints**
+- Unique (tenant_id, idempotency_key) on credit-ledger operations; use a stable operation namespace so unrelated operation types cannot accidentally reuse a key.
+- Unique (provider, provider_account_id, provider_event_id) on the webhook inbox.
+- Unique provider transaction identity within the provider account.
+- Foreign keys from grants/reversals to their source order/payment and from captures/releases to their reservation/usage operation.
+- CHECK constraints for positive operation quantities, valid entry types and nonnegative projection values where applicable.
+- Tenant-scoped foreign keys or equivalent ownership enforcement so a source record from another tenant cannot be referenced.
+
+**Atomic reservation algorithm**
+1. Begin a database transaction.
+2. Resolve the tenant from trusted authentication context; never accept it from the request body.
+3. Insert or claim the idempotency operation. On conflict, load the existing operation: return its prior result only if the canonical request fingerprint matches; otherwise reject with an idempotency conflict.
+4. Lock the tenant's credit-account row using SELECT ... FOR UPDATE. Create it safely if absent, with a unique tenant constraint.
+5. Re-read the authoritative available balance (or a transactionally maintained projection whose every mutation is coupled to ledger insertion). Reject if available credits are insufficient.
+6. Insert the reservation ledger entry and update the balance projection/version in the same transaction.
+7. Commit. Only after commit may the application begin the billable operation.
+
+**Capture and release algorithm**
+- Lock the same tenant credit-account row first, using one consistent lock order across all ledger operations.
+- Lock or otherwise serialize the referenced reservation, then calculate its remaining reservable quantity from its linked reserve/capture/release entries.
+- Reject capture/release greater than that reservation's remaining quantity; partial capture and partial release are permitted only within the remaining amount.
+- Append the capture/release entry and update the projection/version atomically. A retry with the same idempotency key and same canonical request returns the original result; a changed request is rejected.
+- If work fails after reservation, execute an idempotent release. Define and monitor a timeout/recovery worker for abandoned reservations; never silently discard them.
+
+**Payment-to-credit grant algorithm**
+- Verify the provider event outside the database transaction using the adapter's authenticated protocol, then begin a transaction.
+- Insert/claim the unique inbox event; lock the internal order and relevant payment/credit-account rows in the documented global lock order.
+- Revalidate order state, immutable amount/currency snapshot and provider transaction identity inside the transaction.
+- Apply the permitted payment transition, create at most one source-bound credit grant/entitlement, append audit records, and mark the inbox event processed in that same transaction.
+- If any required write fails, roll back all state changes; acknowledge the provider only after durable acceptance. Duplicate deliveries must return the already-processed outcome without repeating grants.
+
+**Isolation, retries and recovery**
+- A tenant-account row lock is the baseline serialization mechanism for a single credit account. If future sharding or multiple credit accounts are introduced, define the lock partition and global lock order before implementation.
+- Use database-enforced unique constraints as the final defense against duplicate operations; application-level check-then-insert is insufficient.
+- Retry serialization failures/deadlocks only by retrying the entire transaction with a bounded policy and the same idempotency key. Never retry only the final ledger insert.
+- Keep external network calls (provider API, model execution) outside database transactions. Persist intent/state, call externally, then finalize with a new idempotent transaction.
+- Treat the balance projection as a cacheable read model, not independent truth. Provide a reconciliation query/job that compares it with ledger-derived totals and raises an alert on mismatch.
+- Add concurrency tests using independent database connections/processes (not only threads or an in-memory lock): many simultaneous reservations against a fixed balance must never produce a negative balance or total reservations above the grant.
+
+This protocol is a design requirement, not evidence of an implemented PostgreSQL schema or tested production behavior. The in-memory prototype remains explicitly non-durable and non-multi-process-safe.
+
 ## 9. Subscription and entitlement rules
 
 - A subscription is a provider-backed commercial contract; an entitlement is the JAS-SI permission/quota resulting from a verified contract state.
