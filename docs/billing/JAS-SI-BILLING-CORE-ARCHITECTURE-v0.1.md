@@ -109,7 +109,7 @@ Proposed tables (names are provisional):
 - `jas_si_refunds`: provider refund ID, original transaction, amount, currency, reason and status.
 - `jas_si_billing_audit_events`: sanitized financial lifecycle events.
 
-Use UUID primary keys, foreign keys, unique provider transaction/event constraints and tenant-scoped indexes. Monetary amounts are integer minor units (e.g. paisa/cents), never floating point. Each order stores an immutable price/currency/credit snapshot so later catalog edits cannot alter an existing purchase.
+Use UUID primary keys, foreign keys, unique provider transaction/event constraints and tenant-scoped indexes. Monetary amounts are integer minor units (e.g. paisa/cents), never floating point. The initial provider-neutral domain prototype accepts only `BDT`, `USD`, `EUR` and `GBP`; this is a deliberately narrow implementation allowlist, not a claim that any provider or merchant account supports all four. Expand it only after confirming each currency's minor-unit exponent, provider support and market eligibility. Each order stores an immutable price/currency/credit snapshot so later catalog edits cannot alter an existing purchase.
 
 ## 5. Order and payment state machine
 
