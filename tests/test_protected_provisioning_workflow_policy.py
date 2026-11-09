@@ -70,7 +70,9 @@ class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
         self.assertIn('"claimed_success": True', script)
         cleanup = (ROOT / "tools/revoke_staging_key_for_run.py").read_text(encoding="utf-8")
         self.assertIn("revoke_key_with_audit", cleanup)
-        self.assertIn("github-actions:{run_id}", cleanup)
+        self.assertIn('run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")', cleanup)
+        self.assertIn('attempt_id = f"{run_id}:{run_attempt}"', cleanup)
+        self.assertIn('provisioning_run_id = f"github-actions:{attempt_id}"', cleanup)
         self.assertIn("if: always()", self.source)
 
 
