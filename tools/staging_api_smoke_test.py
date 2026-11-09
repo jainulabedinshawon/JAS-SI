@@ -91,7 +91,16 @@ def main() -> int:
     try:
         import psycopg
 
-        conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
+        print("staging_dsn_parse=START", flush=True)
+        try:
+            conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
+        except Exception as parse_exc:
+            print("staging_dsn_parse=FAIL", flush=True)
+            print("staging_dsn_parse_error_type=" + type(parse_exc).__name__, flush=True)
+            parse_state = getattr(parse_exc, "sqlstate", None)
+            if parse_state:
+                print("staging_dsn_parse_sqlstate=" + parse_state, flush=True)
+            raise
         print("staging_dsn_parse=PASS", flush=True)
         print(
             "staging_dsn_fields="
