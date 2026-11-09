@@ -58,7 +58,7 @@ const scenarios = {
     observed: "Failure"
   },
   match: {
-    title: "VERIFIED_SUCCESS (ILLUSTRATIVE)",
+    title: "MATCHING_SUCCESS (ILLUSTRATIVE)",
     description: "The report and the synthetic fixture agree on success. In a real deployment, this label would require a trusted, independently obtained evidence source; this browser fixture does not provide one.",
     reported: "Success",
     observed: "Success (synthetic)"
