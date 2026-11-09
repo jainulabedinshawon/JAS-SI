@@ -1,0 +1,268 @@
+openapi: 3.1.0
+info:
+  title: JAS-SI API
+  version: 0.1.0
+  description: >-
+    Contract for the currently implemented JAS-SI API. The API evaluates
+    authorization and submitted outcomes and checks GitHub blob integrity.
+    It does not execute customer actions or claim semantic truth.
+servers:
+  - url: https://api.example.invalid
+    description: Placeholder; replace with the actual private deployment URL.
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Liveness check
+      responses:
+        '200':
+          description: Service liveness
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, status, api_enabled]
+                properties:
+                  service: { type: string }
+                  status: { type: string, const: ok }
+                  api_enabled: { type: boolean }
+  /v1/authorize:
+    post:
+      summary: Evaluate an action authorization request
+      description: Returns a decision only. It does not execute or enforce the action.
+      operationId: authorize
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizeRequest'
+      responses:
+        '200':
+          description: Authorization decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizeResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/verify:
+    post:
+      summary: Evaluate a caller-submitted outcome claim
+      description: >-
+        Evidence references supplied by the caller are not independently fetched
+        by this endpoint. A caller cannot mark its own evidence independent.
+      operationId: verifyOutcome
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+      responses:
+        '200':
+          description: Outcome verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/github/evidence:
+    post:
+      summary: Verify GitHub commit and file blob integrity
+      description: >-
+        Reads GitHub content at an immutable commit SHA and recomputes Git blob
+        identifiers. This is not semantic verification.
+      operationId: verifyGithubEvidence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitHubEvidenceRequest'
+      responses:
+        '200':
+          description: GitHub evidence integrity result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubEvidenceResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Commit or evidence file not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          description: Evidence file exceeds the configured limit
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502':
+          description: Upstream GitHub response error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504':
+          description: Upstream GitHub request timed out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key provisioned out-of-band by a JAS-SI operator.
+  schemas:
+    AuthorizeRequest:
+      type: object
+      additionalProperties: false
+      required: [action_id, action, resource]
+      properties:
+        action_id: { type: string, minLength: 1, maxLength: 128 }
+        action: { type: string, minLength: 1, maxLength: 128 }
+        resource: { type: string, minLength: 1, maxLength: 1024 }
+    AuthorizeResponse:
+      type: object
+      required: [action_id, allowed, reason, executed]
+      properties:
+        action_id: { type: string }
+        allowed: { type: boolean }
+        reason: { type: string }
+        grant_id: { type: [string, 'null'] }
+        executed: { type: boolean, const: false }
+    VerifyRequest:
+      type: object
+      additionalProperties: false
+      required: [action_id, claimed_success]
+      properties:
+        action_id: { type: string, minLength: 1, maxLength: 128 }
+        claimed_success: { type: boolean }
+        observed_state: { type: [string, 'null'], maxLength: 256 }
+        evidence_ref: { type: [string, 'null'], maxLength: 2048 }
+        collected_independently:
+          type: boolean
+          default: false
+          description: Caller-supplied value is not trusted as proof of independence.
+    VerifyResponse:
+      type: object
+      required: [action_id, status, reason, evidence_origin]
+      properties:
+        action_id: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        evidence_origin: { type: string, enum: [caller_submitted, not_provided] }
+    GitHubEvidenceRequest:
+      type: object
+      additionalProperties: false
+      required: [repository, commit_sha, paths]
+      properties:
+        repository:
+          type: string
+          minLength: 3
+          maxLength: 200
+          pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+        commit_sha:
+          type: string
+          minLength: 40
+          maxLength: 40
+          pattern: '^[0-9a-f]{40}$'
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 500 }
+    GitHubEvidenceResponse:
+      type: object
+      required:
+        - service
+        - status
+        - verification_scope
+        - repository
+        - commit_sha
+        - tree_sha
+        - files_verified
+        - files
+        - read_only
+        - semantic_truth_verified
+      properties:
+        service: { type: string, const: JAS-SI Verify }
+        status: { type: string, const: EVIDENCE_INTEGRITY_VERIFIED }
+        verification_scope: { type: string, const: github_commit_and_file_integrity }
+        repository: { type: string }
+        commit_sha: { type: string }
+        tree_sha: { type: string }
+        files_verified: { type: integer, minimum: 1, maximum: 10 }
+        files:
+          type: array
+          items:
+            type: object
+            required: [path, blob_sha, sha256, size_bytes, integrity]
+            properties:
+              path: { type: string }
+              blob_sha: { type: string, pattern: '^[0-9a-f]{40}$' }
+              sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+              size_bytes: { type: integer, minimum: 0 }
+              integrity: { type: string, const: VERIFIED }
+        read_only: { type: boolean, const: true }
+        semantic_truth_verified: { type: boolean, const: false }
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+  responses:
+    Forbidden:
+      description: API key is valid but does not have the required endpoint scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid API key
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Invalid request payload
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                oneOf:
+                  - type: string
+                  - type: array
+                    items: { type: object }
+    RateLimited:
+      description: API rate limit exceeded
+      headers:
+        Retry-After:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: API disabled, authentication unavailable, or durable audit failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
