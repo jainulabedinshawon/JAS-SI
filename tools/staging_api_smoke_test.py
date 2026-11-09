@@ -39,8 +39,8 @@ def request_response(path: str, token: str | None) -> tuple[int, dict]:
     import json
 
     if path == "/v1/verify":
-        # Supply a valid VerifyRequest so the expected 403 proves scope denial,
-        # not an unrelated request-schema validation failure.
+        # Supply a valid VerifyRequest so the response proves the authorized verification route remains
+        # inconclusive when no independently collected evidence is supplied.
         body = {
             "action_id": "jas-si-staging-auth-smoke",
             "claimed_success": True,
