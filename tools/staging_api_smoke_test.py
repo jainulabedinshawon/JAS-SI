@@ -31,6 +31,7 @@ from jas_si_agent.postgres_security_event_store import (  # noqa: E402
 TENANT_ID = UUID("277b9f5a-160a-44d6-b47f-706decdfda03")
 # Immutable Vercel Preview deployment URL; do not accept this from workflow input.
 API_BASE_URL = os.getenv("JAS_SI_PREVIEW_BASE_URL", "").rstrip("/")
+VERCEL_BYPASS_SECRET = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET", "")
 if not API_BASE_URL.startswith("https://jas-") or not API_BASE_URL.endswith("-jainulabedinshan-3242.vercel.app"):
     raise RuntimeError("A trusted JAS-SI Preview deployment URL is required.")
 
@@ -56,6 +57,7 @@ def request_response(path: str, token: str | None) -> tuple[int, dict]:
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
+            "x-vercel-protection-bypass": VERCEL_BYPASS_SECRET,
             **({"X-API-Key": token} if token is not None else {}),
         },
         method="POST",
@@ -78,8 +80,8 @@ def main() -> int:
     pepper = os.getenv("JAS_SI_API_KEY_PEPPER", "")
     run_id = os.getenv("GITHUB_RUN_ID", "")
     actor = os.getenv("GITHUB_ACTOR", "github-actions")
-    if not dsn or len(pepper.encode("utf-8")) < 32:
-        print("Provisioning secrets are missing or invalid.")
+    if not dsn or len(pepper.encode("utf-8")) < 32 or not VERCEL_BYPASS_SECRET:
+        print("Provisioning or Preview-access secrets are missing or invalid.")
         return 2
     if not run_id.isdigit():
         print("GitHub run identity is invalid.")
