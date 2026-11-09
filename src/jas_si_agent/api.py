@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
 from jas_si_agent.dashboard import DASHBOARD_HTML
+from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
@@ -466,6 +467,12 @@ def _require_api_key(
 def developer_console() -> HTMLResponse:
     """Serve the public JAS-SI developer landing page."""
     return HTMLResponse(content=DASHBOARD_HTML)
+
+
+@app.get("/demo", response_class=HTMLResponse, include_in_schema=False)
+def verification_demo() -> HTMLResponse:
+    """Serve an explicitly synthetic, non-interactive-with-backend walkthrough."""
+    return HTMLResponse(content=DEMO_HTML)
 
 
 @app.get("/health")
