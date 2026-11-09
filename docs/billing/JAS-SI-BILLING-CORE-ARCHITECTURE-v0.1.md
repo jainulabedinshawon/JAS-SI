@@ -76,7 +76,7 @@ The architecture must support two market profiles without embedding provider-spe
 
 ### Provider selection record — intentionally not hardcoded
 
-Earlier project direction mentioned Lemon Squeezy for global merchant-of-record and a future bKash/local adapter. A later architecture discussion considered Paddle for international sales and SSLCOMMERZ for Bangladesh. These are candidates, not confirmed merchant integrations.
+The current working candidates are Paddle for international SaaS payments and SSLCOMMERZ for Bangladesh-local payments. Neither is an approved or connected merchant integration. Selection remains conditional on provider onboarding, legal-entity eligibility, payout support, commercial terms and sandbox validation.
 
 Before choosing a provider, compare:
 1. merchant onboarding eligibility for the actual legal entity and country;
