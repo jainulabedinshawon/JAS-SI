@@ -41,11 +41,15 @@ class TestBillingMoneyAndOrders(unittest.TestCase):
         with self.assertRaises(BillingInvariantError):
             Money(-1, "USD")
 
-    def test_currency_must_be_uppercase_three_letter_code(self) -> None:
+    def test_currency_must_be_supported_uppercase_iso_code(self) -> None:
+        self.assertEqual(Money(100, "BDT").currency, "BDT")
+        self.assertEqual(Money(100, "USD").currency, "USD")
         with self.assertRaises(BillingInvariantError):
             Money(100, "usd")
         with self.assertRaises(BillingInvariantError):
             Money(100, "US")
+        with self.assertRaises(BillingInvariantError):
+            Money(100, "ZZZ")
 
     def test_order_state_machine_rejects_skipping_payment_pending(self) -> None:
         with self.assertRaises(BillingInvariantError):
