@@ -254,7 +254,12 @@ class PostgresApiKeyRegistry:
                         )
 
                     cursor.execute(
-                        "SELECT public.jas_si_lock_tenant_status(%s)",
+                        """
+                        SELECT status
+                        FROM jas_si_tenants
+                        WHERE tenant_id = %s
+                        FOR UPDATE
+                        """,
                         (tenant_id,),
                     )
                     tenant_row = cursor.fetchone()
