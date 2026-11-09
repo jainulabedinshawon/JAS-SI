@@ -13,13 +13,13 @@ A PHP 8.1+ client scaffold for the JAS-SI API v1 contract.
 
 ## Source of truth
 
-The API contract is maintained at:
+The canonical runtime contract is maintained at:
 
-- \`sdks/php/openapi/jas-si-api-v1.yaml\`
+- docs/api/openapi-v1.yaml
 
-It defines the \`X-API-Key\` header, request/response schemas, status codes, and the three SDK operations. Backend implementations and SDK changes must conform to this contract. Update the spec first, then regenerate or update tests and implementation.
+The SDK copy at sdks/php/openapi/jas-si-api-v1.yaml is byte-for-byte identical and used by SDK tooling. CI compares both files before linting. The canonical schema documents the actual FastAPI request/response fields, validation limits, authentication errors, rate limits, and service-unavailable behavior. Backend and SDK changes must update the canonical contract and SDK copy together.
 
-The current \`servers\` entry uses the reserved \`.invalid\` domain as a deliberate placeholder. Replace it only when a real deployment URL exists.
+The servers entry uses the reserved .invalid domain as a deliberate placeholder. Replace it only when a real deployment URL exists.
 
 ## Install for repository development
 
@@ -89,23 +89,25 @@ if (($decision['allowed'] ?? false) !== true) {
 
 All routes require \`X-API-Key\`. See the OpenAPI spec for exact schemas and responses.
 
-## Contract tests
+## Contract and backend conformance tests
 
-CI lints the contract with Spectral and starts a Prism mock server from the same OpenAPI file. PHPUnit sends actual HTTP requests through the PHP SDK to test the success response parsing and a schema-validation error response.
+CI lints the canonical OpenAPI contract, verifies the SDK copy is identical, and starts a Prism mock server for deterministic schema-level tests. It also starts the actual FastAPI application in an isolated test-mode process and runs the PHP SDK against it.
 
-Run the mock locally in a separate terminal:
+The backend conformance suite asserts the real authorize/verify response fields and validation boundaries, including the 256-character observed-state limit, lowercase GitHub SHA, 500-character path limit and duplicate-path rejection. The backend process uses a test-only static API key and JSONL audit file; it does not connect to a production database or use production credentials.
 
-\`\`\`bash
-npx --yes @stoplight/prism-cli mock sdks/php/openapi/jas-si-api-v1.yaml --host 127.0.0.1 --port 4010
-\`\`\`
+Run Prism locally in a separate terminal:
 
-Then run:
+```bash
+npx --yes @stoplight/prism-cli mock docs/api/openapi-v1.yaml --host 127.0.0.1 --port 4010
+```
 
-\`\`\`bash
+Then run the Prism tests:
+
+```bash
 JAS_SI_MOCK_URL=http://127.0.0.1:4010 composer test
-\`\`\`
+```
 
-Prism is a contract mock, not the real JAS-SI backend. Passing these tests proves client/contract compatibility against the mock only.
+Prism is a contract mock, not the real JAS-SI backend. Passing Prism tests proves SDK/schema compatibility only. BackendContractTest.php is the separate suite that calls a running FastAPI instance.
 
 ## Verification and security boundaries
 
