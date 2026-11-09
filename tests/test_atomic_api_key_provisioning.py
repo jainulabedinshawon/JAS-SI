@@ -38,27 +38,48 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
     def setUpClass(cls):
         cls.dsn = DATABASE_URL
         cls.pepper = b"atomic-test-only-pepper-minimum-32-bytes"
-        cls.registry = PostgresApiKeyRegistry(cls.dsn, cls.pepper)
+        cls.admin_registry = PostgresApiKeyRegistry(cls.dsn, cls.pepper)
+        from psycopg.conninfo import make_conninfo
+        cls.provisioner_dsn = make_conninfo(
+            cls.dsn,
+            user="jas_si_provisioner",
+            password="test-only-provisioner-password",
+        )
+        cls.registry = PostgresApiKeyRegistry(cls.provisioner_dsn, cls.pepper)
         migrations = [
             ROOT / "src/jas_si_agent/migrations/001_create_audit_tables.sql",
             ROOT / "src/jas_si_agent/migrations/002_create_tenant_api_keys.sql",
             ROOT / "src/jas_si_agent/migrations/003_atomic_api_key_provisioning.sql",
             ROOT / "src/jas_si_agent/migrations/004_audit_event_id_identity.sql",
             ROOT / "src/jas_si_agent/migrations/005_provisioner_tenant_row_lock.sql",
+            ROOT / "src/jas_si_agent/migrations/006_api_key_registry_role_grants.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
-                for role in ("jas_si_provisioner", "jas_si_runtime"):
+                cursor.execute(
+                    "SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_provisioner'"
+                )
+                if cursor.fetchone() is None:
                     cursor.execute(
-                        "SELECT 1 FROM pg_roles WHERE rolname = %s",
-                        (role,),
+                        "CREATE ROLE jas_si_provisioner LOGIN "
+                        "PASSWORD 'test-only-provisioner-password'"
                     )
-                    if cursor.fetchone() is None:
-                        cursor.execute(
-                            f"CREATE ROLE {role} NOLOGIN"
-                        )
+                else:
+                    cursor.execute(
+                        "ALTER ROLE jas_si_provisioner LOGIN "
+                        "PASSWORD 'test-only-provisioner-password'"
+                    )
+                cursor.execute(
+                    "SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_runtime'"
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute("CREATE ROLE jas_si_runtime NOLOGIN")
                 for migration in migrations:
                     cursor.execute(migration.read_text(encoding="utf-8"))
+                role_migration = (
+                    ROOT / "src/jas_si_agent/migrations/006_api_key_registry_role_grants.sql"
+                )
+                cursor.execute(role_migration.read_text(encoding="utf-8"))
 
     def setUp(self):
         # This suite must use a dedicated disposable PostgreSQL test database.
@@ -71,7 +92,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                 cursor.execute("DELETE FROM jas_si_audit_chain_state")
 
     def _tenant(self):
-        return self.registry.create_tenant("Atomic provisioning test tenant")
+        return self.admin_registry.create_tenant("Atomic provisioning test tenant")
 
     def _issue(self, tenant_id, run_id=None):
         return self.registry.issue_key_with_audit(
@@ -419,6 +440,54 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                     )
                     self.assertFalse(cursor.fetchone()[0])
 
+    def test_provisioner_role_executes_real_atomic_issue(self):
+        tenant_id = self._tenant()
+        issued = self._issue(tenant_id, "test:restricted-role-success")
+        self.assertTrue(issued.token.startswith("jassi_live_"))
+        self.assertEqual(self._counts(), (1, 1, 1))
+        self.assertTrue(
+            PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
+        )
+
+    def test_provisioner_cannot_change_tenant_status(self):
+        tenant_id = self._tenant()
+        with psycopg.connect(self.provisioner_dsn) as connection:
+            with connection.cursor() as cursor:
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    cursor.execute(
+                        "UPDATE jas_si_tenants SET status = 'suspended' "
+                        "WHERE tenant_id = %s",
+                        (tenant_id,),
+                    )
+
+    def test_runtime_role_cannot_insert_api_keys(self):
+        from psycopg.conninfo import make_conninfo
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "ALTER ROLE jas_si_runtime LOGIN "
+                    "PASSWORD 'test-only-runtime-password'"
+                )
+        runtime_dsn = make_conninfo(
+            self.dsn,
+            user="jas_si_runtime",
+            password="test-only-runtime-password",
+        )
+        with psycopg.connect(runtime_dsn) as connection:
+            with connection.cursor() as cursor:
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    cursor.execute(
+                        """
+                        INSERT INTO jas_si_api_keys
+                            (key_id, tenant_id, key_name, key_prefix,
+                             secret_digest, pepper_version, scopes, created_by)
+                        VALUES (%s, %s, 'runtime-denied', 'jassi_live_denied',
+                                %s, 1, ARRAY['authorization:check'],
+                                'runtime-test')
+                        """,
+                        (uuid4(), uuid4(), b"x" * 32),
+                    )
+
     def _api_client(self):
         from jas_si_agent import api
 
@@ -498,7 +567,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
     def test_revocation_and_audit_commit_together(self):
         tenant_id = self._tenant()
         issued = self._issue(tenant_id, "test:revoke-success")
-        revoked = self.registry.revoke_key_with_audit(
+        revoked = self.admin_registry.revoke_key_with_audit(
             issued.key_id,
             "integration-test-operator",
             "test:revoke-success-run",
