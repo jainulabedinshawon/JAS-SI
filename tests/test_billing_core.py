@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
@@ -186,6 +187,54 @@ class TestInMemoryCreditLedger(unittest.TestCase):
         self.assertEqual(
             self.ledger.balance(self.tenant_id),
             CreditBalance(available=2, reserved=8),
+        )
+
+    def test_capture_accepts_normalized_reservation_source_reference(self) -> None:
+        self.ledger.grant(
+            self.tenant_id, 10,
+            idempotency_key="grant-normalized-source",
+            source_reference="order-normalized-source",
+        )
+        self.ledger.reserve(
+            self.tenant_id, 5,
+            idempotency_key="reserve-normalized-source",
+            source_reference="usage-normalized-source",
+        )
+        self.ledger.capture(
+            self.tenant_id, 3,
+            idempotency_key="capture-normalized-source",
+            source_reference=" usage-normalized-source ",
+        )
+        self.assertEqual(
+            self.ledger.balance(self.tenant_id),
+            CreditBalance(available=5, reserved=2),
+        )
+
+    def test_concurrent_in_memory_reservations_never_overspend(self) -> None:
+        self.ledger.grant(
+            self.tenant_id, 100,
+            idempotency_key="concurrent-grant",
+            source_reference="concurrent-order",
+        )
+
+        def reserve_one(index: int) -> bool:
+            try:
+                self.ledger.reserve(
+                    self.tenant_id, 1,
+                    idempotency_key=f"concurrent-reserve-{index}",
+                    source_reference=f"concurrent-usage-{index}",
+                )
+                return True
+            except BillingInvariantError:
+                return False
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            outcomes = list(executor.map(reserve_one, range(250)))
+
+        self.assertEqual(sum(outcomes), 100)
+        self.assertEqual(
+            self.ledger.balance(self.tenant_id),
+            CreditBalance(available=0, reserved=100),
         )
 
     def test_duplicate_idempotent_operation_does_not_duplicate_credits(
