@@ -30,11 +30,12 @@ from fastapi import (
     Request,
     Security,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
+from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
@@ -460,6 +461,12 @@ def _require_api_key(
             detail="Missing or invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def developer_console() -> HTMLResponse:
+    """Serve the public JAS-SI developer landing page."""
+    return HTMLResponse(content=DASHBOARD_HTML)
+
 
 @app.get("/health")
 def health() -> dict:
