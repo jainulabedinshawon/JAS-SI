@@ -242,6 +242,34 @@ class TestInMemoryCreditLedger(unittest.TestCase):
         self.assertIsInstance(snapshot, tuple)
         self.assertEqual(len(snapshot), 1)
 
+    def test_reversal_must_match_original_grant_and_cannot_exceed_it(self) -> None:
+        self.ledger.grant(
+            self.tenant_id, 100,
+            idempotency_key="grant-reversal",
+            source_reference="order-reversal",
+        )
+        self.ledger.reverse(
+            self.tenant_id, 60,
+            idempotency_key="reverse-partial",
+            source_reference="order-reversal",
+        )
+        with self.assertRaises(BillingInvariantError):
+            self.ledger.reverse(
+                self.tenant_id, 41,
+                idempotency_key="reverse-excess",
+                source_reference="order-reversal",
+            )
+        with self.assertRaises(BillingInvariantError):
+            self.ledger.reverse(
+                self.tenant_id, 1,
+                idempotency_key="reverse-unknown-source",
+                source_reference="not-a-grant",
+            )
+        self.assertEqual(
+            self.ledger.balance(self.tenant_id),
+            CreditBalance(available=40, reserved=0),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
