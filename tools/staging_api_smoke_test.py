@@ -152,13 +152,13 @@ def main() -> int:
     except Exception as exc:
         # Report exception classes and database SQLSTATE only; never print
         # exception messages, which may contain connection or secret material.
-        print(f"{staging_error_type={type(exc).__name__}}")
+        print(f"staging_error_type={type(exc).__name__}")
         direct_sqlstate = getattr(exc, "sqlstate", None)
         if direct_sqlstate:
-            print(f"{staging_sqlstate={direct_sqlstate}}")
+            print(f"staging_sqlstate={direct_sqlstate}")
         direct_constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
         if direct_constraint:
-            print(f"{staging_constraint={direct_constraint}}")
+            print(f"staging_constraint={direct_constraint}")
         cause = exc.__cause__
         depth = 0
         while cause is not None and depth < 4:
