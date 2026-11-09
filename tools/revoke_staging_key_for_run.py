@@ -32,6 +32,18 @@ def main() -> int:
 
     provisioning_run_id = f"github-actions:{run_id}"
     try:
+        conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
+        print("cleanup_dsn_parse=PASS", flush=True)
+        print(
+            "cleanup_dsn_fields="
+            + ",".join(sorted(k for k in conninfo if k in {"host", "port", "dbname", "user", "password", "sslmode"})),
+            flush=True,
+        )
+        print(
+            "cleanup_dsn_required_fields="
+            + "".join("1" if conninfo.get(k) else "0" for k in ("host", "dbname", "user", "password")),
+            flush=True,
+        )
         registry = PostgresApiKeyRegistry(dsn, pepper.encode("utf-8"))
         print("cleanup_constructor=PASS")
         with psycopg.connect(dsn) as connection:
