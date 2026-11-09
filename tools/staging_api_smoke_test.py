@@ -79,13 +79,15 @@ def main() -> int:
     dsn = os.getenv("JAS_SI_PROVISIONER_DATABASE_URL", "")
     pepper = os.getenv("JAS_SI_API_KEY_PEPPER", "")
     run_id = os.getenv("GITHUB_RUN_ID", "")
+    run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")
     actor = os.getenv("GITHUB_ACTOR", "github-actions")
     if not dsn or len(pepper.encode("utf-8")) < 32 or not VERCEL_BYPASS_SECRET:
         print("Provisioning or Preview-access secrets are missing or invalid.")
         return 2
-    if not run_id.isdigit():
+    if not run_id.isdigit() or not run_attempt.isdigit() or int(run_attempt) < 1:
         print("GitHub run identity is invalid.")
         return 2
+    attempt_id = f"{run_id}:{run_attempt}"
 
     issued = None
     revoked = False
@@ -148,10 +150,10 @@ def main() -> int:
         print("provisioner_constructor=PASS")
         issued = registry.issue_key_with_audit(
             tenant_id=TENANT_ID,
-            key_name=f"ci-staging-smoke-{run_id}",
+            key_name=f"ci-staging-smoke-{attempt_id}",
             scopes=["authorization:check", "outcomes:submit"],
             created_by=actor,
-            provisioning_run_id=f"github-actions:{run_id}",
+            provisioning_run_id=f"github-actions:{attempt_id}",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
         )
 
@@ -222,7 +224,7 @@ def main() -> int:
                 revoked = registry.revoke_key_with_audit(
                     key_id=issued.key_id,
                     revoked_by=actor,
-                    revocation_run_id=f"github-actions-revoke:{run_id}",
+                    revocation_run_id=f"github-actions-revoke:{attempt_id}",
                 )
             except Exception:
                 print(
