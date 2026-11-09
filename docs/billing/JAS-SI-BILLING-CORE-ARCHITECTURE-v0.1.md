@@ -203,7 +203,9 @@ Prevent overspend under concurrency. A cached balance is a projection only; ledg
 ## 10. Refunds, disputes and reconciliation
 
 - Refunds and chargebacks create compensating records; never delete original payment or credit entries.
-- If purchased credits were already consumed, apply a documented debt/suspension policy rather than allowing a negative balance to be hidden.
+- Refund eligibility must be calculated from the original order and its remaining unconsumed purchased-credit grant, not from the tenant's total balance (which may include other purchases or promotional credits).
+- If a refund or chargeback exceeds the unused portion of its original grant, do not silently force the credit balance negative and do not confiscate unrelated grants. Record the provider-side financial event, place the affected billing account/entitlement into a clearly defined review or restricted state, and create a reason-coded recoverable balance/debt record linked to the original order. The exact customer-facing restriction, appeal and recovery policy must be approved before live launch.
+- Partial refunds must be bounded by the original captured payment amount; repeated or out-of-order refund events must be idempotent and reconciled against provider transaction state.
 - Reconcile provider transactions and settlement reports against internal orders/payments daily.
 - Flag missing, duplicated, amount-mismatched, currency-mismatched and orphaned transactions for manual review.
 - Separate gross sales, provider fees, refunds, tax withheld, chargebacks and net payout.
