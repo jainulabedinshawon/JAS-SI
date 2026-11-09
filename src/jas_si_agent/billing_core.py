@@ -33,6 +33,10 @@ class OrderStatus(str, Enum):
     DISPUTED = "disputed"
 
 
+# Initial launch currencies only. Expand after catalog/provider due diligence.
+_SUPPORTED_CURRENCIES = frozenset({"BDT", "USD", "EUR", "GBP"})
+
+
 _ALLOWED_TRANSITIONS = {
     OrderStatus.CREATED: {
         OrderStatus.PENDING_PAYMENT,
@@ -79,8 +83,9 @@ class Money:
             or not self.currency.isascii()
             or not self.currency.isalpha()
             or self.currency.upper() != self.currency
+            or self.currency not in _SUPPORTED_CURRENCIES
         ):
-            raise BillingInvariantError("CURRENCY_MUST_BE_UPPERCASE_ISO_CODE")
+            raise BillingInvariantError("UNSUPPORTED_OR_INVALID_CURRENCY")
 
 
 @dataclass(frozen=True)
