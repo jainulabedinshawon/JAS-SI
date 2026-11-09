@@ -13,7 +13,7 @@ concurrency:
 jobs:
   provision:
     name: Approved staging key issuance
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/developer-console-landing-v0.1'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -44,6 +44,7 @@ jobs:
           JAS_SI_API_KEY_PEPPER: ${{ secrets.JAS_SI_API_KEY_PEPPER }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_ACTOR: ${{ github.actor }}
+          JAS_SI_PREVIEW_BASE_URL: ${{ vars.JAS_SI_PREVIEW_BASE_URL }}
         run: python tools/staging_api_smoke_test.py
 
       - name: Ensure this run has no active staging key
