@@ -7,6 +7,9 @@ on:
     paths:
       - "composer.json"
       - "sdks/php/**"
+      - "docs/api/openapi-v1.yaml"
+      - "src/jas_si_agent/**"
+      - "requirements.lock.txt"
       - "CHANGELOG.md"
       - ".spectral.yaml"
       - ".github/workflows/php-sdk-validation.yml"
