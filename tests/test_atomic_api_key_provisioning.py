@@ -427,6 +427,31 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                         """
                     )
                     self.assertEqual(cursor.fetchone(), (True, False))
+                    cursor.execute(
+                        """
+                        SELECT
+                            has_column_privilege('jas_si_provisioner',
+                                'jas_si_audit_chain_state', 'last_hash', 'SELECT'),
+                            has_column_privilege('jas_si_provisioner',
+                                'jas_si_audit_chain_state', 'singleton', 'INSERT'),
+                            has_column_privilege('jas_si_provisioner',
+                                'jas_si_audit_chain_state', 'last_hash', 'UPDATE'),
+                            has_column_privilege('jas_si_provisioner',
+                                'jas_si_audit_events', 'event_id', 'SELECT'),
+                            has_column_privilege('jas_si_provisioner',
+                                'jas_si_audit_events', 'event_payload', 'INSERT'),
+                            has_column_privilege('jas_si_provisioner',
+                                'jas_si_api_keys', 'key_id', 'INSERT'),
+                            has_table_privilege('jas_si_provisioner',
+                                'jas_si_api_keys', 'UPDATE'),
+                            has_table_privilege('jas_si_provisioner',
+                                'jas_si_tenants', 'UPDATE')
+                        """
+                    )
+                    self.assertEqual(
+                        cursor.fetchone(),
+                        (True, True, True, True, True, True, False, False),
+                    )
 
                 if runtime_exists:
                     cursor.execute(
