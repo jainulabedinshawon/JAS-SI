@@ -1,5 +1,5 @@
 parameters:
     level: 8
     paths:
-        - sdks/php/src
+        - src
     treatPhpDocTypesAsCertain: true
