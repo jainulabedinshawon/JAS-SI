@@ -38,9 +38,21 @@ def main() -> int:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
+                    SELECT current_database(),
+                           to_regclass('public.jas_si_api_key_provisioning_runs') IS NOT NULL,
+                           to_regclass('public.jas_si_api_keys') IS NOT NULL
+                    """
+                )
+                db_name, runs_ok, keys_ok = cursor.fetchone()
+                print(f"cleanup_database_name={db_name}")
+                print(f"cleanup_schema_preflight={int(runs_ok)}{int(keys_ok)}")
+                if not (runs_ok and keys_ok):
+                    raise RuntimeError("Staging cleanup schema preflight failed")
+                cursor.execute(
+                    """
                     SELECT k.key_id, k.status
-                    FROM jas_si_api_key_provisioning_runs AS r
-                    JOIN jas_si_api_keys AS k ON k.key_id = r.key_id
+                    FROM public.jas_si_api_key_provisioning_runs AS r
+                    JOIN public.jas_si_api_keys AS k ON k.key_id = r.key_id
                     WHERE r.run_id = %s
                     """,
                     (provisioning_run_id,),
