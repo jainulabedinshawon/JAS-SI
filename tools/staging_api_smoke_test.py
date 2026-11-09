@@ -91,6 +91,18 @@ def main() -> int:
     try:
         import psycopg
 
+        conninfo = psycopg.conninfo.conninfo_to_dict(dsn)
+        print("staging_dsn_parse=PASS", flush=True)
+        print(
+            "staging_dsn_fields="
+            + ",".join(sorted(k for k in conninfo if k in {"host", "port", "dbname", "user", "password", "sslmode"})),
+            flush=True,
+        )
+        print(
+            "staging_dsn_required_fields="
+            + "".join("1" if conninfo.get(k) else "0" for k in ("host", "dbname", "user", "password")),
+            flush=True,
+        )
         with psycopg.connect(dsn) as connection:
             print("staging_db_connect=PASS", flush=True)
             with connection.cursor() as cursor:
