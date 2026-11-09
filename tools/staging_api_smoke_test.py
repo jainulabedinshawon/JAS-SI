@@ -94,7 +94,24 @@ def main() -> int:
         with psycopg.connect(dsn) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT tenant_name, status FROM jas_si_tenants WHERE tenant_id = %s",
+                    """
+                    SELECT current_database(),
+                           to_regclass('public.jas_si_tenants') IS NOT NULL,
+                           to_regclass('public.jas_si_api_keys') IS NOT NULL,
+                           to_regclass('public.jas_si_api_key_provisioning_runs') IS NOT NULL,
+                           to_regclass('public.jas_si_audit_events') IS NOT NULL,
+                           to_regclass('public.jas_si_audit_chain_state') IS NOT NULL
+                    """
+                )
+                db_name, tenants_ok, keys_ok, runs_ok, audit_ok, chain_ok = cursor.fetchone()
+                print(f"staging_database_name={db_name}")
+                print(
+                    "staging_schema_preflight="
+                    f"{int(tenants_ok)}{int(keys_ok)}{int(runs_ok)}"
+                    f"{int(audit_ok)}{int(chain_ok)}"
+                )
+                cursor.execute(
+                    "SELECT tenant_name, status FROM public.jas_si_tenants WHERE tenant_id = %s",
                     (str(TENANT_ID),),
                 )
                 tenant = cursor.fetchone()
