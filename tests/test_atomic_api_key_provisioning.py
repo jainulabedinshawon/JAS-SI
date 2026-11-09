@@ -76,10 +76,6 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                     cursor.execute("CREATE ROLE jas_si_runtime NOLOGIN")
                 for migration in migrations:
                     cursor.execute(migration.read_text(encoding="utf-8"))
-                role_migration = (
-                    ROOT / "src/jas_si_agent/migrations/006_api_key_registry_role_grants.sql"
-                )
-                cursor.execute(role_migration.read_text(encoding="utf-8"))
 
     def setUp(self):
         # This suite must use a dedicated disposable PostgreSQL test database.
@@ -598,7 +594,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             "test:revoke-success-run",
         )
         self.assertTrue(revoked)
-        self.assertIsNone(self.registry.authenticate(issued.token))
+        self.assertIsNone(self.admin_registry.authenticate(issued.token))
         self.assertTrue(
             PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
         )
@@ -632,13 +628,13 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             side_effect=append_then_fail,
         ):
             with self.assertRaises(ApiKeyError):
-                self.registry.revoke_key_with_audit(
+                self.admin_registry.revoke_key_with_audit(
                     issued.key_id,
                     "integration-test-operator",
                     "test:revoke-rollback-run",
                 )
 
-        self.assertIsNotNone(self.registry.authenticate(issued.token))
+        self.assertIsNotNone(self.admin_registry.authenticate(issued.token))
         self.assertTrue(
             PostgresSecurityEventStore(self.dsn).verify_integrity()["valid"]
         )
