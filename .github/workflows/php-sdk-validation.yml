@@ -78,7 +78,7 @@ jobs:
 
       - name: Start Prism mock server from OpenAPI contract
         run: |
-          npx --yes @stoplight/prism-cli@5.14.0 mock sdks/php/openapi/jas-si-api-v1.yaml --host 127.0.0.1 --port 4010 > /tmp/jas-si-prism.log 2>&1 &
+          npx --yes @stoplight/prism-cli@5.14.2 mock sdks/php/openapi/jas-si-api-v1.yaml --host 127.0.0.1 --port 4010 > /tmp/jas-si-prism.log 2>&1 &
           echo $! > /tmp/jas-si-prism.pid
           for attempt in $(seq 1 30); do
             if curl --silent --output /dev/null http://127.0.0.1:4010/; then
