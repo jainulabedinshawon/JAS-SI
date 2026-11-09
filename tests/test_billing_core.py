@@ -198,8 +198,8 @@ class TestInMemoryCreditLedger(unittest.TestCase):
         )
         second = self.ledger.grant(
             self.tenant_id, 100,
-            idempotency_key="same-event",
-            source_reference="order-1",
+            idempotency_key=" same-event ",
+            source_reference=" order-1 ",
         )
         self.assertEqual(first, second)
         self.assertEqual(len(self.ledger.entries), 1)
