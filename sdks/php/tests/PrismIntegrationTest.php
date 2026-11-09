@@ -30,16 +30,22 @@ final class PrismIntegrationTest extends TestCase
     {
         $response = $this->client->authorize('deploy-2026-001', 'deploy', 'production/my-service');
 
+        self::assertSame('deploy-2026-001', $response['action_id'] ?? null);
         self::assertArrayHasKey('allowed', $response);
         self::assertIsBool($response['allowed']);
+        self::assertArrayHasKey('reason', $response);
+        self::assertFalse($response['executed'] ?? true);
     }
 
     public function testVerifyParsesOpenApiSuccessExample(): void
     {
         $response = $this->client->verify('deploy-2026-001', true);
 
-        self::assertArrayHasKey('accepted', $response);
-        self::assertIsBool($response['accepted']);
+        self::assertSame('deploy-2026-001', $response['action_id'] ?? null);
+        self::assertArrayHasKey('status', $response);
+        self::assertArrayHasKey('reason', $response);
+        self::assertContains($response['evidence_origin'] ?? null, ['caller_submitted', 'not_provided']);
+        self::assertArrayNotHasKey('independently_verified', $response);
     }
 
     public function testGithubEvidenceParsesOpenApiSuccessExample(): void
@@ -50,8 +56,12 @@ final class PrismIntegrationTest extends TestCase
             ['README.md']
         );
 
+        self::assertSame('JAS-SI Verify', $response['service'] ?? null);
         self::assertSame('owner/repository', $response['repository'] ?? null);
-        self::assertIsArray($response['results'] ?? null);
+        self::assertSame('EVIDENCE_INTEGRITY_VERIFIED', $response['status'] ?? null);
+        self::assertSame(1, $response['files_verified'] ?? null);
+        self::assertIsArray($response['files'] ?? null);
+        self::assertFalse($response['semantic_truth_verified'] ?? true);
     }
 
     public function testInvalidAuthorizationRequestSurfacesPrismValidationError(): void
