@@ -25,12 +25,20 @@ def main() -> int:
     dsn = os.getenv("JAS_SI_PROVISIONER_DATABASE_URL", "")
     pepper = os.getenv("JAS_SI_API_KEY_PEPPER", "")
     run_id = os.getenv("GITHUB_RUN_ID", "")
+    run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")
     actor = os.getenv("GITHUB_ACTOR", "github-actions-cleanup")
-    if not dsn or len(pepper.encode("utf-8")) < 32 or not run_id.isdigit():
+    if (
+        not dsn
+        or len(pepper.encode("utf-8")) < 32
+        or not run_id.isdigit()
+        or not run_attempt.isdigit()
+        or int(run_attempt) < 1
+    ):
         print("Cleanup configuration is invalid.")
         return 2
 
-    provisioning_run_id = f"github-actions:{run_id}"
+    attempt_id = f"{run_id}:{run_attempt}"
+    provisioning_run_id = f"github-actions:{attempt_id}"
     try:
         print("cleanup_dsn_parse=START", flush=True)
         try:
@@ -91,7 +99,7 @@ def main() -> int:
             revoked = registry.revoke_key_with_audit(
                 key_id=key_id,
                 revoked_by=actor,
-                revocation_run_id=f"github-actions-cleanup:{run_id}",
+                revocation_run_id=f"github-actions-cleanup:{attempt_id}",
             )
             if not revoked:
                 raise ApiKeyError("Active staging key could not be revoked")
