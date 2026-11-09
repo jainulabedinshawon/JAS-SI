@@ -137,6 +137,8 @@ Do not create the JAS Platform-owned tables in the JAS-SI repository or database
 
 ## 5. Order and payment state machine
 
+**Ownership: JAS Platform only.** These order/payment states and provider-facing transitions must not be implemented in JAS-SI.
+
 Canonical order states:
 - `created`
 - `pending_payment`
@@ -152,6 +154,8 @@ Only explicit, validated transitions are allowed. A payment failure cannot later
 The browser success/cancel redirect is UX only. It must never mark an order paid or grant credits.
 
 ## 6. Provider adapter contract
+
+**Ownership: JAS Platform only.** JAS-SI does not receive or verify payment-provider webhooks.
 
 Each adapter implements a narrow interface:
 - `create_checkout(order_snapshot, customer_reference, return_urls)`
@@ -175,6 +179,8 @@ Never let an adapter grant credits directly. It can only submit a verified norma
 
 ## 7. Webhook/IPN processing and idempotency
 
+**Ownership: JAS Platform only.** This section specifies the Platform's trusted payment-ingestion boundary, not a JAS-SI endpoint.
+
 1. Receive the raw request body and headers over HTTPS.
 2. Verify signature/authenticity before trusting payload fields.
 3. Validate provider account/environment and event identity.
@@ -189,6 +195,8 @@ Never let an adapter grant credits directly. It can only submit a verified norma
 Duplicate or out-of-order events must not duplicate credit. Store only the minimum necessary payload data; prefer payload digest and sanitized normalized fields over retaining sensitive raw payloads.
 
 ## 8. Credit ledger and usage metering
+
+**Ownership split:** the authoritative credit ledger and financial reservations belong to JAS Platform. JAS-SI measures service usage, keeps idempotent technical usage records and reports actual consumption to the Platform. JAS-SI must not implement the financial ledger described in this section.
 
 The credit ledger is append-only. No balance is edited directly and no historical entry is deleted.
 
@@ -261,6 +269,8 @@ This protocol is a design requirement, not evidence of an implemented PostgreSQL
 
 ## 9. Subscription and entitlement rules
 
+**Ownership:** subscription lifecycle and entitlement grants/revocations are JAS Platform responsibilities. JAS-SI only consumes authenticated entitlement decisions/snapshots.
+
 - A subscription is a provider-backed commercial contract; an entitlement is the JAS-SI permission/quota resulting from a verified contract state.
 - Keep subscription status separate from payment status.
 - Grant/renew entitlement only after verified initial payment or verified provider subscription event according to the selected provider's contract.
@@ -270,6 +280,8 @@ This protocol is a design requirement, not evidence of an implemented PostgreSQL
 - Never use a paid plan as authorization to perform an otherwise prohibited action.
 
 ## 10. Refunds, disputes and reconciliation
+
+**Ownership: JAS Platform only.** JAS-SI does not process refunds, disputes, settlement or financial reconciliation.
 
 - Refunds and chargebacks create compensating records; never delete original payment or credit entries.
 - Refund eligibility must be calculated from the original order and its remaining unconsumed purchased-credit grant, not from the tenant's total balance (which may include other purchases or promotional credits).
@@ -351,15 +363,15 @@ Required invariants:
 
 ## 14. Delivery phases
 
-**Phase A — Specification (this document):** domain model, state machines, adapter contract, threat model and acceptance gates.
+**Phase A — Specification (this document):** cross-project ownership, service-consumption contract, threat model and acceptance gates.
 
-**Phase B — Provider-neutral core:** implement catalog, order lifecycle, ledger primitives and test doubles only; no external provider calls.
+**Phase B — JAS Platform commerce core:** Platform team implements catalog, order lifecycle, payment verification, authoritative entitlement/credit ledger and test doubles in the Platform repository; no external provider calls until separately approved.
 
-**Phase C — Usage metering:** tenant-bound reservation/capture and quota enforcement, behind feature flags in isolated test environments.
+**Phase C — JAS-SI usage metering:** implement tenant-bound usage-event persistence, idempotency, metering dimensions and dashboard read models in JAS-SI. Connect to a mock entitlement adapter first; no money or financial balance stored in JAS-SI.
 
-**Phase D — Provider sandboxes:** implement one Bangladesh and one international adapter only after onboarding and provider selection are confirmed.
+**Phase D — JAS Platform provider sandboxes:** implement one Bangladesh and one international adapter in JAS Platform only after merchant onboarding and provider selection are confirmed.
 
-**Phase E — Reconciliation and operational controls:** refunds, disputes, settlement reporting, audit and operator workflows.
+**Phase E — JAS Platform reconciliation and operational controls:** refunds, disputes, settlement reporting and financial operator workflows remain Platform-owned. JAS-SI provides technical usage/evidence correlation.
 
 **Phase F — Controlled live launch:** separate explicit approval for merchant onboarding, live credentials, webhook registration, production migrations and real-money processing.
 
