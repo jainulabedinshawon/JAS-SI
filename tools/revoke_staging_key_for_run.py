@@ -76,7 +76,13 @@ def main() -> int:
     except Exception as exc:
         # Only exception class and SQLSTATE are safe to log; never print the
         # exception message, DSN, host, or other connection details.
-        print(f"cleanup_error_type={type(exc).__name__}")
+        print(f"{cleanup_error_type={type(exc).__name__}}")
+        direct_sqlstate = getattr(exc, "sqlstate", None)
+        if direct_sqlstate:
+            print(f"{cleanup_sqlstate={direct_sqlstate}}")
+        direct_constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+        if direct_constraint:
+            print(f"{cleanup_constraint={direct_constraint}}")
         cause = exc.__cause__
         depth = 0
         while cause is not None and depth < 4:
