@@ -163,11 +163,27 @@ def main() -> int:
             request_response("/v1/authorize", "jassi_live_invalid_invalid")[0] == 401,
         ))
         # Positive authenticated requests use the real Preview API.
+        authorize_status, authorize_body = request_response(
+            "/v1/authorize", issued.token
+        )
+        print(f"valid_key_authorize_http_status={authorize_status}", flush=True)
+        if isinstance(authorize_body, dict):
+            detail = authorize_body.get("detail")
+            if isinstance(detail, str):
+                print(f"valid_key_authorize_safe_detail={detail[:160]}", flush=True)
         checks.append((
             "valid_key_authorized_endpoint_200",
-            request_response("/v1/authorize", issued.token)[0] == 200,
+            authorize_status == 200,
         ))
         verify_status, verify_body = request_response("/v1/verify", issued.token)
+        print(f"valid_key_verify_http_status={verify_status}", flush=True)
+        if isinstance(verify_body, dict):
+            detail = verify_body.get("detail")
+            if isinstance(detail, str):
+                print(f"valid_key_verify_safe_detail={detail[:160]}", flush=True)
+            verify_result = verify_body.get("status")
+            if isinstance(verify_result, str):
+                print(f"valid_key_verify_result={verify_result[:80]}", flush=True)
         checks.append((
             "valid_key_verify_inconclusive_without_independent_evidence",
             verify_status == 200 and verify_body.get("status") == "INCONCLUSIVE",
