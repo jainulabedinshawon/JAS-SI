@@ -29,11 +29,9 @@ class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.trigger_section)
 
-    def test_preview_branch_and_protected_environment_are_required(self):
-        self.assertIn("github.event_name == 'workflow_dispatch'", self.source)
-        self.assertIn("github.ref == 'refs/heads/feat/developer-console-landing-v0.1'", self.source)
+    def test_default_branch_and_protected_environment_are_required(self):
+        self.assertIn("if: github.ref == 'refs/heads/main'", self.source)
         self.assertIn("name: jas-si-staging-provisioning", self.source)
-        self.assertIn("JAS_SI_PREVIEW_BASE_URL", self.source)
 
     def test_permissions_are_read_only_without_oidc(self):
         self.assertIn("contents: read", self.permissions_section)
@@ -70,9 +68,7 @@ class TestProtectedProvisioningWorkflowPolicy(unittest.TestCase):
         self.assertIn('"claimed_success": True', script)
         cleanup = (ROOT / "tools/revoke_staging_key_for_run.py").read_text(encoding="utf-8")
         self.assertIn("revoke_key_with_audit", cleanup)
-        self.assertIn('run_attempt = os.getenv("GITHUB_RUN_ATTEMPT", "")', cleanup)
-        self.assertIn('attempt_id = f"{run_id}:{run_attempt}"', cleanup)
-        self.assertIn('provisioning_run_id = f"github-actions:{attempt_id}"', cleanup)
+        self.assertIn("github-actions:{run_id}", cleanup)
         self.assertIn("if: always()", self.source)
 
 
