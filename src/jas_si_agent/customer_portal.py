@@ -33,6 +33,9 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 <section id="account" hidden><h2>Account</h2><p><strong id="account-email"></strong></p><p id="account-org" class="muted"></p>
 <p>Account session is active. Create and manage your tenant-scoped API keys below.</p>
 <button id="logout" class="secondary">Sign out</button>
+<hr><h3>Plans</h3>
+<div id="plan-list"></div>
+<p id="plan-note" class="muted">Paid plans and manual checkout are not enabled yet. No payment number or price is displayed until verified and approved.</p>
 <hr><h3>Usage</h3>
 <p id="usage-summary" class="muted">Loading technical usage…</p>
 <ul id="usage-operations"></ul>
@@ -70,6 +73,29 @@ function showAccount(data){
  notice.textContent='You are signed in to JAS-SI.';
  loadApiKeys();
  loadUsage();
+ loadPlans();
+}
+async function loadPlans(){
+ const list=document.getElementById('plan-list');list.replaceChildren();
+ try{
+  const response=await fetch('/plans',{credentials:'same-origin'});
+  if(!response.ok)throw new Error('Plan catalogue is not available.');
+  const data=await response.json();
+  for(const plan of data.plans){
+   const card=document.createElement('section');
+   const title=document.createElement('h4');title.textContent=plan.name;card.appendChild(title);
+   const price=document.createElement('p');
+   price.textContent=plan.price_minor===0?'Free':(plan.price_minor===null?'Price not published':'Price: '+(plan.price_minor/100).toFixed(2)+' '+plan.currency);
+   card.appendChild(price);
+   const quota=document.createElement('p');quota.textContent=plan.monthly_units===null?'Usage allowance to be announced':plan.monthly_units+' technical units / UTC month';card.appendChild(quota);
+   const features=document.createElement('ul');
+   for(const feature of plan.features){const item=document.createElement('li');item.textContent=feature;features.appendChild(item)}
+   card.appendChild(features);
+   const status=document.createElement('p');status.textContent=plan.purchasable?'Available':'Preview only — checkout disabled';card.appendChild(status);
+   list.appendChild(card);
+  }
+  document.getElementById('plan-note').textContent=data.disclaimer+' Manual TrxID checkout is not active.';
+ }catch(error){document.getElementById('plan-note').textContent=error.message}
 }
 async function loadUsage(){
  const summary=document.getElementById('usage-summary');
