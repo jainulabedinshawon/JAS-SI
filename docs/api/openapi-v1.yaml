@@ -10,8 +10,8 @@ info:
     authorization and submitted outcomes and checks GitHub blob integrity.
     It does not execute customer actions or claim semantic truth.
 servers:
-  - url: https://api.example.invalid
-    description: Placeholder; replace with the actual private deployment URL.
+  - url: https://jas-si.vercel.app
+    description: JAS-SI hosted application origin. Endpoint availability depends on deployed runtime configuration; customer identity, database-backed API keys and usage require approved secrets and migrations. Billing and payment collection are not connected.
 security:
   - ApiKeyAuth: []
 tags:
