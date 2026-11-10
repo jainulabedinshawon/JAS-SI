@@ -61,6 +61,11 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         )
         cls.registry = PostgresApiKeyRegistry(cls.customer_dsn, cls.pepper)
 
+        if not cls.registry.verify_customer_runtime_role():
+            raise AssertionError("Customer API-key DSN did not assume the dedicated RLS role")
+        if PostgresApiKeyRegistry(DATABASE_URL, cls.pepper).verify_customer_runtime_role():
+            raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
+
     def setUp(self):
         self.tenant_a, self.tenant_b = uuid.uuid4(), uuid.uuid4()
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
