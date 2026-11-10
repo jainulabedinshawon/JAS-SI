@@ -119,15 +119,9 @@ def initialize_security_event_store() -> None:
 
     app.state.security_event_store = store
 
-    try:
-        usage_meter = PostgresUsageMeter(settings.database_url)
-        if not usage_meter.verify_schema():
-            raise RuntimeError("Usage metering schema is not installed")
-    except Exception as exc:
-        raise RuntimeError(
-            "Usage metering readiness check failed; startup denied"
-        ) from exc
-    app.state.usage_meter = usage_meter
+    # Metering is prepared without running a migration at startup.
+    # The approved database migration must precede production deployment.
+    app.state.usage_meter = PostgresUsageMeter(settings.database_url)
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
@@ -323,11 +317,9 @@ async def security_and_rate_limit_middleware(
             operation = operations.get(request.url.path)
             tenant_id = getattr(request.state, "tenant_id", None)
             api_key_id = getattr(request.state, "api_key_id", None)
-            if operation and response.status_code < 400 and tenant_id and api_key_id and settings.database_url:
+            meter = getattr(request.app.state, "usage_meter", None)
+            if operation and response.status_code < 400 and tenant_id and api_key_id and meter is not None:
                 try:
-                    meter = getattr(request.app.state, "usage_meter", None)
-                    if meter is None:
-                        meter = PostgresUsageMeter(settings.database_url)
                     event = meter.record(tenant_id=tenant_id, api_key_id=api_key_id, request_id=request.state.request_id, idempotency_key=request.state.request_id, operation=operation)
                     response.headers["X-JAS-SI-Usage-Event-ID"] = event["event_id"]
                 except Exception:
