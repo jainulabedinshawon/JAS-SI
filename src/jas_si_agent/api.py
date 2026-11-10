@@ -959,6 +959,7 @@ def customer_list_api_keys(request: Request) -> dict:
 def customer_create_api_key(
     payload: CustomerApiKeyCreateRequest,
     request: Request,
+    response: Response,
 ) -> dict:
     account = _require_customer_session(request)
     _require_customer_csrf(request)
@@ -985,6 +986,8 @@ def customer_create_api_key(
             status_code=503,
             detail="Customer API key could not be created",
         ) from None
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     _log_security_event(
         "customer_api_key_issued",
         request,
