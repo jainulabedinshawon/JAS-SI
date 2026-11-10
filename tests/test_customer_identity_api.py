@@ -264,6 +264,9 @@ class TestCustomerIdentityApi(unittest.TestCase):
         response = self.client.get("/customer")
         self.assertEqual(response.status_code, 200)
         self.assertIn("JAS-SI Customer Portal", response.text)
+        self.assertIn("plan-list", response.text)
+        self.assertIn("Manual TrxID checkout is not active", response.text)
+        self.assertIn("create-key", response.text)
 
 
 if __name__ == "__main__":
