@@ -124,7 +124,7 @@ class TestUsageAPI(TestCase):
             api.app.state.usage_meter.records[1]["request_fingerprint"],
         )
 
-    def test_missing_idempotency_header_is_rejected_before_operation(self):
+    def test_missing_idempotency_header_uses_server_request_id(self):
         response = self.client.post(
             "/v1/authorize",
             json={
@@ -133,8 +133,10 @@ class TestUsageAPI(TestCase):
                 "resource": "jas-si://tenant-resource",
             },
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(api.app.state.usage_meter.records, [])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(api.app.state.usage_meter.records), 1)
+        self.assertTrue(api.app.state.usage_meter.records[0]["idempotency_key"])
+        self.assertEqual(len(api.app.state.usage_meter.records[0]["request_fingerprint"]), 64)
 
     def test_invalid_idempotency_header_is_rejected_before_operation(self):
         response = self.client.post(
