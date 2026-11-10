@@ -21,7 +21,7 @@ GRANT SELECT (tenant_id, status)
     ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
 GRANT UPDATE (provisioning_lock_version)
     ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
-GRANT SELECT ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+-- Column-level SELECT above is intentional; do not grant table-wide tenant visibility.
 
 -- Tenant metadata reads are scoped to the session-local tenant context too.
 ALTER TABLE public.jas_si_tenants ENABLE ROW LEVEL SECURITY;
