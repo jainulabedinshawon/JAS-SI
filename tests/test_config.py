@@ -25,6 +25,25 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
         self.assertIsNone(settings.trusted_anchor_hmac_secret)
         self.assertIsNone(settings.trusted_anchor_provider_id)
 
+    def test_vercel_environment_is_used_when_jas_si_override_is_absent(self) -> None:
+        with patch.dict(os.environ, {"VERCEL_ENV": "production"}, clear=True):
+            settings = Settings.from_env()
+
+        self.assertEqual(settings.environment, "production")
+
+    def test_explicit_jas_si_environment_overrides_vercel_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "JAS_SI_ENVIRONMENT": "development",
+                "VERCEL_ENV": "production",
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+
+        self.assertEqual(settings.environment, "development")
+
     def test_valid_anchor_credentials_are_loaded(self) -> None:
         secret = "test-secret-with-at-least-32-bytes-long"
 
