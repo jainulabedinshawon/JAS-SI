@@ -140,9 +140,15 @@ class PostgresApiKeyRegistry:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT rolname, rolsuper, rolbypassrls
-                    FROM pg_roles
-                    WHERE rolname = current_user
+                    SELECT r.rolname, r.rolsuper, r.rolbypassrls,
+                           r.rolcanlogin,
+                           EXISTS (
+                               SELECT 1
+                               FROM pg_auth_members AS membership
+                               WHERE membership.member = r.oid
+                           ) AS has_inherited_role
+                    FROM pg_roles AS r
+                    WHERE r.rolname = current_user
                     """
                 )
                 row = cursor.fetchone()
@@ -151,6 +157,8 @@ class PostgresApiKeyRegistry:
             and row[0] == "jas_si_customer_key_runtime"
             and row[1] is False
             and row[2] is False
+            and row[3] is False
+            and row[4] is False
         )
 
     def create_tenant(self, tenant_name: str) -> uuid.UUID:

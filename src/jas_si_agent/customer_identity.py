@@ -76,6 +76,11 @@ class PostgresCustomerIdentityStore:
         with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 """SELECT current_user, r.rolsuper, r.rolbypassrls,
+                          r.rolcanlogin,
+                          EXISTS (
+                              SELECT 1 FROM pg_auth_members AS membership
+                              WHERE membership.member = r.oid
+                          ) AS has_inherited_role,
                           to_regclass('public.jas_si_customer_accounts'),
                           to_regclass('public.jas_si_customer_auth_tokens'),
                           to_regclass('public.jas_si_customer_sessions'),
@@ -89,7 +94,9 @@ class PostgresCustomerIdentityStore:
                 and row[0] == "jas_si_customer_runtime"
                 and not row[1]
                 and not row[2]
-                and all(row[3:])
+                and not row[3]
+                and not row[4]
+                and all(row[5:])
             )
 
     def register(self, email: str, organization_name: str) -> CustomerLink:
