@@ -9,6 +9,11 @@ from fastapi.testclient import TestClient
 from jas_si_agent import api
 
 
+class FakeEventStore:
+    def append(self, event):
+        return None
+
+
 class FakeUsageMeter:
     def __init__(self):
         self.records = []
@@ -50,6 +55,9 @@ class TestUsageAPI(TestCase):
         self.previous_meter = getattr(api.app.state, "usage_meter", None)
         api.app.state.usage_meter = FakeUsageMeter()
         self.addCleanup(self._restore_meter)
+        self.previous_event_store = api.app.state.security_event_store
+        api.app.state.security_event_store = FakeEventStore()
+        self.addCleanup(self._restore_event_store)
 
         def authenticate(request: Request):
             request.state.tenant_id = self.tenant_id
@@ -60,6 +68,9 @@ class TestUsageAPI(TestCase):
         api.app.dependency_overrides[api._require_api_key] = authenticate
         self.addCleanup(self._restore_override)
         self.client = TestClient(api.app)
+
+    def _restore_event_store(self):
+        api.app.state.security_event_store = self.previous_event_store
 
     def _restore_meter(self):
         if self.previous_meter is None:
@@ -106,6 +117,7 @@ class TestUsageAPI(TestCase):
             first.headers["X-JAS-SI-Usage-Event-ID"],
             second.headers["X-JAS-SI-Usage-Event-ID"],
         )
+        self.assertEqual(second.headers["X-JAS-SI-Usage-Replayed"], "true")
 
     def test_invalid_idempotency_header_is_rejected_before_operation(self):
         response = self.client.post(
