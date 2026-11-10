@@ -198,12 +198,22 @@ def _get_customer_rate_limiter(request: Request) -> PostgresCustomerRateLimiter:
 
 
 def _customer_client_ip(request: Request) -> str:
-    # Vercel supplies X-Forwarded-For at its trusted edge. Use the first
-    # address only after strict IP parsing; never persist the raw address.
-    forwarded = request.headers.get("x-forwarded-for")
+    # Prefer Vercel's preserved client address. Fall back only to the
+    # x-forwarded-for header overwritten by Vercel's trusted edge.
+    # Never trust request.client in preview/production: it may be an
+    # internal runtime peer rather than the public caller.
+    forwarded = request.headers.get("x-vercel-forwarded-for")
+    if not forwarded:
+        forwarded = request.headers.get("x-forwarded-for")
     candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
-    if not candidate and request.client is not None:
-        candidate = request.client.host
+    if not candidate:
+        if settings.environment in {"preview", "production"}:
+            raise HTTPException(
+                status_code=503,
+                detail="Trusted customer client address is unavailable",
+            )
+        if request.client is not None:
+            candidate = request.client.host
     try:
         return ipaddress.ip_address(candidate).compressed
     except ValueError:
@@ -211,7 +221,6 @@ def _customer_client_ip(request: Request) -> str:
             status_code=503,
             detail="Customer client address could not be verified",
         ) from None
-
 
 def _enforce_customer_email_rate_limit(request: Request) -> None:
     limiter = _get_customer_rate_limiter(request)

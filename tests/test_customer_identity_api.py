@@ -286,5 +286,46 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertIn("create-key", response.text)
 
 
+    def test_vercel_preserved_client_ip_takes_precedence_over_generic_forwarded_header(self):
+        request = SimpleNamespace(
+            headers={
+                "x-vercel-forwarded-for": "198.51.100.44",
+                "x-forwarded-for": "203.0.113.99",
+            },
+            client=None,
+        )
+        self.assertEqual(api._customer_client_ip(request), "198.51.100.44")
+
+    def test_invalid_vercel_client_ip_fails_closed_instead_of_trusting_xff(self):
+        request = SimpleNamespace(
+            headers={
+                "x-vercel-forwarded-for": "not-an-ip",
+                "x-forwarded-for": "203.0.113.99",
+            },
+            client=None,
+        )
+        with self.assertRaises(api.HTTPException) as raised:
+            api._customer_client_ip(request)
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_missing_trusted_ip_headers_fail_closed_in_preview_and_production(self):
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="10.0.0.8"))
+        for environment in ("preview", "production"):
+            with self.subTest(environment=environment), patch.object(
+                api, "settings", replace(api.settings, environment=environment)
+            ):
+                with self.assertRaises(api.HTTPException) as raised:
+                    api._customer_client_ip(request)
+                self.assertEqual(raised.exception.status_code, 503)
+
+    def test_local_environment_may_use_direct_peer_when_proxy_headers_are_absent(self):
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+        with patch.object(
+            api, "settings", replace(api.settings, environment="development")
+        ):
+            self.assertEqual(api._customer_client_ip(request), "127.0.0.1")
+
+
+
 if __name__ == "__main__":
     unittest.main()
