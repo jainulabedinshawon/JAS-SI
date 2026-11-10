@@ -125,6 +125,7 @@ class Settings:
         repr=False,
     )
     customer_database_url: Optional[str] = field(default=None, repr=False)
+    customer_api_key_database_url: Optional[str] = field(default=None, repr=False)
     customer_token_pepper: Optional[bytes] = field(default=None, repr=False)
     customer_smtp_host: Optional[str] = None
     customer_smtp_port: int = 587
@@ -193,6 +194,9 @@ class Settings:
             ),
             customer_database_url=(
                 os.getenv("JAS_SI_CUSTOMER_DATABASE_URL") or None
+            ),
+            customer_api_key_database_url=(
+                os.getenv("JAS_SI_CUSTOMER_API_KEY_DATABASE_URL") or None
             ),
             customer_token_pepper=customer_token_pepper,
             customer_smtp_host=os.getenv("JAS_SI_CUSTOMER_SMTP_HOST") or None,
