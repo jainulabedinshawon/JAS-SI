@@ -692,6 +692,11 @@ def _get_customer_api_key_registry() -> PostgresApiKeyRegistry:
             status_code=503,
             detail="Customer API key management is unavailable",
         ) from None
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer API key management is temporarily unavailable",
+        ) from None
 
 
 def _require_customer_session(request: Request):
