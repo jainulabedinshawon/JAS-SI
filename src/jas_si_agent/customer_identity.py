@@ -87,7 +87,7 @@ class PostgresCustomerIdentityStore:
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
                 cur.execute("INSERT INTO jas_si_tenants (tenant_id, tenant_name) VALUES (%s, %s)", (tenant_id, tenant_label))
-                cur.execute("INSERT INTO jas_si_customer_accounts (account_id, tenant_id, email, email_normalized, organization_name, status) VALUES (%s, %s, %s, %s, %s, 'pending')", (account_id, tenant_id, email.strip(), normalized, organization))
+                cur.execute("INSERT INTO jas_si_customer_accounts (account_id, tenant_id, email, email_normalized, organization_name) VALUES (%s, %s, %s, %s, %s)", (account_id, tenant_id, email.strip(), normalized, organization))
                 cur.execute("INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)", (token_id, account_id, self._digest(token), expires))
         except Exception as exc:
             try:
