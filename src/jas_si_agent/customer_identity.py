@@ -13,6 +13,10 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 class CustomerIdentityError(ValueError):
     """Invalid customer identity or failed identity operation."""
 
+
+class CustomerIdentityConflict(CustomerIdentityError):
+    """A customer identity already exists or conflicts with registration."""
+
 @dataclass(frozen=True)
 class CustomerLink:
     account_id: uuid.UUID
@@ -86,8 +90,34 @@ class PostgresCustomerIdentityStore:
                 cur.execute("INSERT INTO jas_si_customer_accounts (account_id, tenant_id, email, email_normalized, organization_name, status) VALUES (%s, %s, %s, %s, %s, 'pending')", (account_id, tenant_id, email.strip(), normalized, organization))
                 cur.execute("INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)", (token_id, account_id, self._digest(token), expires))
         except Exception as exc:
+            try:
+                import psycopg
+                if isinstance(exc, psycopg.errors.UniqueViolation):
+                    raise CustomerIdentityConflict("Customer registration conflicts with an existing account") from None
+            except ImportError:
+                pass
+            if isinstance(exc, CustomerIdentityError):
+                raise
             raise CustomerIdentityError("Customer registration could not be completed") from exc
         return CustomerLink(account_id, normalized, "verify_email", token, expires)
+
+    def issue_verification_link(self, email: str) -> CustomerLink | None:
+        normalized, token_id, token = normalize_email(email), uuid.uuid4(), self._new_token()
+        expires = datetime.now(timezone.utc) + self._verification_ttl
+        import psycopg
+        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='pending' FOR UPDATE",
+                (normalized,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cur.execute(
+                "INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)",
+                (token_id, row[0], self._digest(token), expires),
+            )
+        return CustomerLink(row[0], normalized, "verify_email", token, expires)
 
     def issue_login_link(self, email: str) -> CustomerLink | None:
         normalized, token_id, token = normalize_email(email), uuid.uuid4(), self._new_token()
