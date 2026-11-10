@@ -17,6 +17,7 @@ Tokens are placed in the URL fragment, not query parameters, so browsers do not 
 ## Required isolated configuration
 
 - `JAS_SI_CUSTOMER_DATABASE_URL`: connection URL for the dedicated `jas_si_customer_runtime` database role. Do not reuse the general application or API-key provisioner role.
+- `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`: connection URL for the separate `jas_si_customer_key_runtime` role. This role is only for tenant-scoped API-key self-service; it must not be reused by the API-key authenticator or operator provisioner.
 - `JAS_SI_CUSTOMER_TOKEN_PEPPER`: independent random secret with at least 32 UTF-8 bytes.
 - `JAS_SI_CUSTOMER_SMTP_HOST`, `JAS_SI_CUSTOMER_SMTP_PORT`, `JAS_SI_CUSTOMER_SMTP_SENDER`.
 - `JAS_SI_CUSTOMER_SMTP_USERNAME` and `JAS_SI_CUSTOMER_SMTP_PASSWORD`: both set or both omitted, according to provider requirements.
@@ -34,7 +35,15 @@ GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_runtime;
 GRANT USAGE ON SCHEMA public TO jas_si_customer_runtime;
 ```
 
-Apply the existing tenant foundation migration first, then `20261110_customer_identity.sql`, using a migration/admin role. The dedicated customer role receives only the tenant insert/select and customer account/token/session operations required by this flow. It receives no API-key, usage-event, audit-event, or tenant-status mutation privileges.
+Apply the existing tenant and audit migrations in the repository's documented order, then `20261110_customer_identity.sql` and `007_customer_api_key_self_service.sql`, using a migration/admin role. Before applying the latter, create the dedicated key-management login role and grant only database connection/schema usage:
+
+```sql
+CREATE ROLE jas_si_customer_key_runtime LOGIN PASSWORD '<managed-secret>';
+GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_key_runtime;
+GRANT USAGE ON SCHEMA public TO jas_si_customer_key_runtime;
+```
+
+The customer identity role receives only tenant insert/select and customer account/token/session operations. The separate customer key role receives tenant-scoped key metadata and audited issue/revoke privileges; PostgreSQL row-level security restricts its key operations to the transaction-local `jas_si.tenant_id`. It receives no usage-event, tenant-status, or general audit mutation privileges. Do not use the key-management role for API-key authentication or operator provisioning.
 
 Do not run these commands against Production until the user explicitly approves the migration and the database owner has reviewed the target role and grants.
 
@@ -47,9 +56,12 @@ Do not run these commands against Production until the user explicitly approves 
 - `POST /v1/customer/session`: consume one-time login token and set cookies.
 - `GET /v1/customer/me`: current customer session.
 - `POST /v1/customer/logout`: revoke session; CSRF header required.
+- `GET /v1/customer/api-keys`: list the signed-in tenant's non-secret API-key metadata.
+- `POST /v1/customer/api-keys`: issue a scoped API key; token is returned once and expires within 1–365 days.
+- `POST /v1/customer/api-keys/{key_id}/revoke`: revoke only a key belonging to the signed-in tenant; CSRF header required.
 
 All customer endpoints are covered by the existing per-IP `/v1/` rate limiter. A distributed limiter and abuse monitoring remain follow-up hardening before broad public launch.
 
 ## Explicitly not included yet
 
-Self-service API-key listing/creation/revocation, customer usage dashboard, billing plan changes, checkout, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. API-key provisioning remains operator-controlled until a separately reviewed tenant-scoped provisioning design is ready.
+The API-key self-service endpoints, PostgreSQL RLS migration and customer portal controls are now implemented on this branch, but remain unmerged and not deployed. Customer usage dashboard, billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Customer API-key self-service remains disabled until the dedicated database role, migration and pepper are configured and reviewed.
