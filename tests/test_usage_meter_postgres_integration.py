@@ -33,13 +33,15 @@ class TestPostgresUsageMeter(unittest.TestCase):
         cls.dsn = DATABASE_URL
         with psycopg.connect(cls.dsn) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM pg_roles WHERE rolname='jas_si_runtime'")
-                if cur.fetchone() is None:
-                    cur.execute("CREATE ROLE jas_si_runtime NOLOGIN")
+                for role in ("jas_si_runtime", "jas_si_provisioner"):
+                    cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
+                    if cur.fetchone() is None:
+                        cur.execute(f"CREATE ROLE {role} NOLOGIN")
                 for name in (
                     "002_create_tenant_api_keys.sql",
                     "20261110_usage_metering.sql",
                     "20261110_usage_idempotency_fingerprint.sql",
+                    "20261111_usage_append_only_role_grants.sql",
                 ):
                     path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                     cur.execute(path.read_text(encoding="utf-8"))
@@ -95,10 +97,18 @@ class TestPostgresUsageMeter(unittest.TestCase):
                          has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'INSERT'),
                          has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'UPDATE'),
                          has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'DELETE'),
-                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'TRUNCATE')"""
+                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'TRUNCATE'),
+                         has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'SELECT'),
+                         has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'INSERT'),
+                         has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'UPDATE'),
+                         has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'DELETE'),
+                         has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'TRUNCATE')"""
                 )
                 privileges = cur.fetchone()
-        self.assertEqual(privileges, (True, True, False, False, False))
+        self.assertEqual(
+            privileges,
+            (True, True, False, False, False, False, False, False, False, False),
+        )
 
     def test_idempotent_replay_returns_original_event(self):
         args = dict(
