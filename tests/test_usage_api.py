@@ -41,6 +41,17 @@ class FakeUsageMeter:
             "note": "Technical usage only.",
         }
 
+    def quota_status(self, *, tenant_id, monthly_limit):
+        return {
+            "period": "utc_calendar_month",
+            "period_start": "2026-11-01T00:00:00+00:00",
+            "resets_at": "2026-12-01T00:00:00+00:00",
+            "monthly_limit": monthly_limit,
+            "used_units": 3,
+            "remaining_units": monthly_limit - 3,
+            "exhausted": False,
+        }
+
 
 class TestUsageAPI(TestCase):
     def setUp(self):
@@ -97,6 +108,9 @@ class TestUsageAPI(TestCase):
         self.assertEqual(response.json()["tenant_id"], self.tenant_id)
         self.assertEqual(response.json()["units"], 3)
         self.assertEqual(response.json()["billing_status"], "not_connected")
+        self.assertEqual(response.json()["quota"]["monthly_limit"], 100)
+        self.assertEqual(response.json()["quota"]["used_units"], 3)
+        self.assertEqual(response.json()["quota"]["remaining_units"], 97)
 
     def test_naive_since_timestamp_is_rejected(self):
         response = self.client.get("/v1/usage?since=2026-11-01T00:00:00")
