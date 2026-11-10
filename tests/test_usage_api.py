@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from jas_si_agent import api
 from jas_si_agent.usage_meter import UsageQuotaExceeded
-from jas_si_agent.usage_meter import UsageQuotaExceeded
 
 
 class FakeEventStore:
