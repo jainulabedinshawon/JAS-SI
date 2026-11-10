@@ -15,11 +15,12 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 import threading
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Deque, Dict, Optional
 
@@ -38,6 +39,7 @@ from jas_si_agent.config import Settings
 from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
+from jas_si_agent.usage_meter import PostgresUsageMeter
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
@@ -117,6 +119,10 @@ def initialize_security_event_store() -> None:
         ) from exc
 
     app.state.security_event_store = store
+
+    # Metering is prepared without running a migration at startup.
+    # The approved database migration must precede production deployment.
+    app.state.usage_meter = PostgresUsageMeter(settings.database_url)
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
@@ -286,6 +292,12 @@ async def security_and_rate_limit_middleware(
             request.client.host if request.client is not None else "unknown"
         )
         allowed, remaining, retry_after = _rate_limit_decision(client_ip)
+        idempotency_key = request.headers.get("Idempotency-Key")
+        metered_paths = {
+            "/v1/authorize": "authorization.evaluate",
+            "/v1/verify": "outcome.submit",
+            "/v1/github/evidence": "github.evidence.verify",
+        }
 
         if not allowed:
             _log_security_event(
@@ -304,8 +316,55 @@ async def security_and_rate_limit_middleware(
                     "X-RateLimit-Remaining": "0",
                 },
             )
+        elif (
+            request.url.path in metered_paths
+            and idempotency_key is not None
+            and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idempotency_key) is None
+        ):
+            response = JSONResponse(
+                status_code=400,
+                content={
+                    "detail": (
+                        "Idempotency-Key must be 1-128 characters using "
+                        "letters, numbers, dot, underscore, colon, or hyphen"
+                    )
+                },
+            )
+            response.headers["X-RateLimit-Limit"] = str(settings.rate_limit_requests)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
         else:
             response = await call_next(request)
+            # This is technical usage telemetry, not an entitlement or money charge.
+            operation = metered_paths.get(request.url.path)
+            tenant_id = getattr(request.state, "tenant_id", None)
+            api_key_id = getattr(request.state, "api_key_id", None)
+            meter = getattr(request.app.state, "usage_meter", None)
+            if operation and response.status_code < 400 and tenant_id and api_key_id and meter is not None:
+                try:
+                    event = meter.record(
+                        tenant_id=tenant_id,
+                        api_key_id=api_key_id,
+                        request_id=request.state.request_id,
+                        idempotency_key=idempotency_key or request.state.request_id,
+                        operation=operation,
+                    )
+                    response.headers["X-JAS-SI-Usage-Event-ID"] = event["event_id"]
+                    if event.get("replayed"):
+                        response.headers["X-JAS-SI-Usage-Replayed"] = "true"
+                except Exception:
+                    _log_security_event(
+                        "usage_metering_failure", request,
+                        reason_code="usage_event_not_persisted",
+                    )
+                    response = JSONResponse(
+                        status_code=503,
+                        content={
+                            "detail": (
+                                "Usage could not be durably recorded; "
+                                "the request result is withheld"
+                            )
+                        },
+                    )
             response.headers["X-RateLimit-Limit"] = str(
                 settings.rate_limit_requests
             )
@@ -410,6 +469,7 @@ def _require_api_key(
             "/v1/authorize": "authorization:check",
             "/v1/verify": "outcomes:submit",
             "/v1/github/evidence": "github:evidence:verify",
+            "/v1/usage": "usage:read",
         }
         required_scope = required_scopes.get(request.url.path)
         if required_scope and required_scope not in authenticated.scopes:
@@ -484,6 +544,25 @@ def health() -> dict:
         "api_enabled": settings.api_enabled,
     }
 
+
+@app.get("/v1/usage", dependencies=[Depends(_require_api_key)])
+def usage_summary(request: Request, since: Optional[datetime] = None) -> dict:
+    """Return only the authenticated tenant technical usage totals."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Tenant-scoped API key authentication is required")
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="Usage storage is not configured")
+    window_start = since or (datetime.now(timezone.utc) - timedelta(days=30))
+    if window_start.tzinfo is None:
+        raise HTTPException(status_code=422, detail="since must include a timezone")
+    try:
+        meter = getattr(request.app.state, "usage_meter", None)
+        if meter is None:
+            meter = PostgresUsageMeter(settings.database_url)
+        return meter.summary(tenant_id=tenant_id, since=window_start)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Tenant usage summary is temporarily unavailable") from None
 
 @app.post(
     "/v1/authorize",

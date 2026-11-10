@@ -22,6 +22,7 @@ ALLOWED_SCOPES = frozenset({
     "authorization:check",
     "outcomes:submit",
     "github:evidence:verify",
+    "usage:read",
 })
 
 
