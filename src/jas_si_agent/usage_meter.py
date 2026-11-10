@@ -28,7 +28,8 @@ class PostgresUsageMeter:
 
     def record(
         self, *, tenant_id: str, api_key_id: str, request_id: str,
-        idempotency_key: str, operation: str, units: int = 1,
+        idempotency_key: str, operation: str, request_fingerprint: str,
+        units: int = 1,
     ) -> dict[str, Any]:
         allowed = {
             "authorization.evaluate", "outcome.submit",
@@ -38,6 +39,12 @@ class PostgresUsageMeter:
             raise ValueError("Unsupported operation or units")
         if not idempotency_key or len(idempotency_key) > 128:
             raise ValueError("A 1-128 character idempotency key is required")
+        if (
+            not isinstance(request_fingerprint, str)
+            or len(request_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in request_fingerprint)
+        ):
+            raise ValueError("A lowercase SHA-256 request fingerprint is required")
         try:
             tenant = uuid.UUID(tenant_id)
             key_id = uuid.UUID(api_key_id)
@@ -48,29 +55,38 @@ class PostgresUsageMeter:
         occurred_at = datetime.now(timezone.utc)
         try:
             import psycopg
-            from psycopg.types.json import Jsonb
             with psycopg.connect(self._dsn) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """INSERT INTO jas_si_usage_events
                            (event_id, tenant_id, api_key_id, request_id,
-                            idempotency_key, operation, units, occurred_at)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                            idempotency_key, operation, units, occurred_at,
+                            request_fingerprint)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                            ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-                           RETURNING event_id, operation, units, occurred_at""",
+                           RETURNING event_id, api_key_id, operation, units,
+                                     request_fingerprint, occurred_at""",
                         (event_id, tenant, key_id, request_id[:64],
-                         idempotency_key, operation, units, occurred_at),
+                         idempotency_key, operation, units, occurred_at,
+                         request_fingerprint),
                     )
                     row = cur.fetchone()
                     if row is None:
                         cur.execute(
-                            """SELECT event_id, operation, units, occurred_at
+                            """SELECT event_id, api_key_id, operation, units,
+                                      request_fingerprint, occurred_at
                                FROM jas_si_usage_events
                                WHERE tenant_id=%s AND idempotency_key=%s""",
                             (tenant, idempotency_key),
                         )
                         row = cur.fetchone()
-                        if row is None or row[1] != operation or row[2] != units:
+                        if (
+                            row is None
+                            or row[1] != key_id
+                            or row[2] != operation
+                            or row[3] != units
+                            or row[4] != request_fingerprint
+                        ):
                             raise UsageMeterError(
                                 "Idempotency key conflicts with a different usage event"
                             )
@@ -78,8 +94,8 @@ class PostgresUsageMeter:
                     else:
                         replayed = False
             return {
-                "event_id": str(row[0]), "operation": row[1], "units": row[2],
-                "occurred_at": row[3].isoformat(), "replayed": replayed,
+                "event_id": str(row[0]), "operation": row[2], "units": row[3],
+                "occurred_at": row[5].isoformat(), "replayed": replayed,
             }
         except UsageMeterError:
             raise
