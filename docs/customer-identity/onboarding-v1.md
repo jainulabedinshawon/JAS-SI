@@ -56,6 +56,7 @@ Do not run these commands against Production until the user explicitly approves 
 - `POST /v1/customer/session`: consume one-time login token and set cookies.
 - `GET /v1/customer/me`: current customer session.
 - `POST /v1/customer/logout`: revoke session; CSRF header required.
+- `GET /v1/customer/usage`: read the signed-in tenant's last-30-day technical usage and current Free quota; no monetary balance is inferred.
 - `GET /v1/customer/api-keys`: list the signed-in tenant's non-secret API-key metadata.
 - `POST /v1/customer/api-keys`: issue a scoped API key; token is returned once and expires within 1–365 days.
 - `POST /v1/customer/api-keys/{key_id}/revoke`: revoke only a key belonging to the signed-in tenant; CSRF header required.
@@ -64,4 +65,4 @@ All customer endpoints are covered by the existing per-IP `/v1/` rate limiter. A
 
 ## Explicitly not included yet
 
-The API-key self-service endpoints, PostgreSQL RLS migration and customer portal controls are now implemented on this branch, but remain unmerged and not deployed. Customer usage dashboard, billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Customer API-key self-service remains disabled until the dedicated database role, migration and pepper are configured and reviewed.
+The API-key self-service endpoints, PostgreSQL RLS migration, customer usage endpoint and portal controls are implemented on this branch, but remain unmerged and not deployed. Billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Customer API-key self-service remains disabled until the dedicated database role, migration and pepper are configured and reviewed.
