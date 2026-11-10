@@ -38,10 +38,17 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname='jas_si_customer_runtime'")
             if cur.fetchone() is None:
                 cur.execute("CREATE ROLE jas_si_customer_runtime NOLOGIN")
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
+                if cur.fetchone() is None:
+                    cur.execute(f"CREATE ROLE {role} NOLOGIN")
             for name in (
                 "002_create_tenant_api_keys.sql",
                 "20261110_customer_identity.sql",
                 "20261110_customer_rate_limits.sql",
+                "20261110_usage_metering.sql",
+                "20261110_usage_idempotency_fingerprint.sql",
+                "20261111_usage_append_only_role_grants.sql",
             ):
                 path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(path.read_text(encoding="utf-8"))
