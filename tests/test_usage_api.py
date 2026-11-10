@@ -7,6 +7,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 
 from jas_si_agent import api
+from jas_si_agent.usage_meter import UsageQuotaExceeded
 
 
 class FakeEventStore:
@@ -23,6 +24,10 @@ class FakeUsageMeter:
         return {
             "event_id": "00000000-0000-0000-0000-000000000033",
             "replayed": len(self.records) > 1,
+            "monthly_limit": 100,
+            "used_units": len(self.records),
+            "remaining_units": 100 - len(self.records),
+            "resets_at": "2026-12-01T00:00:00+00:00",
         }
 
     def summary(self, *, tenant_id, since):
@@ -34,6 +39,17 @@ class FakeUsageMeter:
             "by_operation": [],
             "billing_status": "not_connected",
             "note": "Technical usage only.",
+        }
+
+    def quota_status(self, *, tenant_id, monthly_limit):
+        return {
+            "period": "utc_calendar_month",
+            "period_start": "2026-11-01T00:00:00+00:00",
+            "resets_at": "2026-12-01T00:00:00+00:00",
+            "monthly_limit": monthly_limit,
+            "used_units": 3,
+            "remaining_units": monthly_limit - 3,
+            "exhausted": False,
         }
 
 
@@ -62,7 +78,8 @@ class TestUsageAPI(TestCase):
         def authenticate(request: Request):
             request.state.tenant_id = self.tenant_id
             request.state.api_key_id = self.key_id
-            request.state.api_key_scopes = ["usage:read"]
+            request.state.api_key_scopes = ["usage:read", "authorization:check"]
+            api._record_usage_for_authenticated_tenant(request)
 
         self.previous_override = api.app.dependency_overrides.get(api._require_api_key)
         api.app.dependency_overrides[api._require_api_key] = authenticate
@@ -91,6 +108,9 @@ class TestUsageAPI(TestCase):
         self.assertEqual(response.json()["tenant_id"], self.tenant_id)
         self.assertEqual(response.json()["units"], 3)
         self.assertEqual(response.json()["billing_status"], "not_connected")
+        self.assertEqual(response.json()["quota"]["monthly_limit"], 100)
+        self.assertEqual(response.json()["quota"]["used_units"], 3)
+        self.assertEqual(response.json()["quota"]["remaining_units"], 97)
 
     def test_naive_since_timestamp_is_rejected(self):
         response = self.client.get("/v1/usage?since=2026-11-01T00:00:00")
@@ -118,6 +138,25 @@ class TestUsageAPI(TestCase):
             second.headers["X-JAS-SI-Usage-Event-ID"],
         )
         self.assertEqual(second.headers["X-JAS-SI-Usage-Replayed"], "true")
+        self.assertEqual(len(api.app.state.usage_meter.records[0]["request_fingerprint"]), 64)
+        self.assertEqual(
+            api.app.state.usage_meter.records[0]["request_fingerprint"],
+            api.app.state.usage_meter.records[1]["request_fingerprint"],
+        )
+
+    def test_missing_idempotency_header_uses_server_request_id(self):
+        response = self.client.post(
+            "/v1/authorize",
+            json={
+                "action_id": "idem-missing",
+                "action": "read",
+                "resource": "jas-si://tenant-resource",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(api.app.state.usage_meter.records), 1)
+        self.assertTrue(api.app.state.usage_meter.records[0]["idempotency_key"])
+        self.assertEqual(len(api.app.state.usage_meter.records[0]["request_fingerprint"]), 64)
 
     def test_invalid_idempotency_header_is_rejected_before_operation(self):
         response = self.client.post(
@@ -131,3 +170,27 @@ class TestUsageAPI(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(api.app.state.usage_meter.records, [])
+
+
+    def test_quota_exhaustion_denies_before_authorization_handler(self):
+        class ExhaustedMeter:
+            def record(self, **kwargs):
+                raise UsageQuotaExceeded(
+                    monthly_limit=100, used_units=100, requested_units=1,
+                    resets_at=datetime(2026, 12, 1, tzinfo=timezone.utc),
+                )
+        api.app.state.usage_meter = ExhaustedMeter()
+        with patch.object(api._sdk, "authorize") as authorize:
+            response = self.client.post(
+                "/v1/authorize",
+                json={"action_id": "quota", "action": "read", "resource": "x"},
+            )
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json()["detail"]["code"], "monthly_quota_exceeded")
+        self.assertEqual(response.headers["X-JAS-SI-Quota-Remaining"], "0")
+        authorize.assert_not_called()
+
+    def test_public_plan_catalog_endpoint(self):
+        response = self.client.get("/plans")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["payment_status"], "not_connected")

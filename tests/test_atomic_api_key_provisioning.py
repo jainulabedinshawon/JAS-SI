@@ -27,6 +27,7 @@ from jas_si_agent.api_key_registry import ApiKeyError, PostgresApiKeyRegistry
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
 )
+from jas_si_agent.usage_meter import PostgresUsageMeter
 
 
 @unittest.skipUnless(
@@ -53,6 +54,8 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/004_audit_event_id_identity.sql",
             ROOT / "src/jas_si_agent/migrations/005_provisioner_tenant_row_lock.sql",
             ROOT / "src/jas_si_agent/migrations/006_api_key_registry_role_grants.sql",
+            ROOT / "src/jas_si_agent/migrations/20261110_usage_metering.sql",
+            ROOT / "src/jas_si_agent/migrations/20261110_usage_idempotency_fingerprint.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
@@ -530,6 +533,14 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         )
         store_patch.start()
         self.addCleanup(store_patch.stop)
+        meter_patch = patch.object(
+            api.app.state,
+            "usage_meter",
+            PostgresUsageMeter(self.dsn),
+            create=True,
+        )
+        meter_patch.start()
+        self.addCleanup(meter_patch.stop)
         with api._rate_limit_lock:
             api._rate_limit_buckets.clear()
         return TestClient(api.app)

@@ -12,6 +12,7 @@ The in-memory rate limiter is per process, not distributed.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import logging
@@ -40,7 +41,8 @@ from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.live_demo import LIVE_GITHUB_DEMO_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
-from jas_si_agent.usage_meter import PostgresUsageMeter
+from jas_si_agent.usage_meter import PostgresUsageMeter, UsageQuotaExceeded
+from jas_si_agent.billing_catalog import get_free_monthly_units, get_plan_catalog
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
@@ -299,6 +301,8 @@ async def security_and_rate_limit_middleware(
             "/v1/verify": "outcome.submit",
             "/v1/github/evidence": "github.evidence.verify",
         }
+        operation = metered_paths.get(request.url.path)
+        meter = getattr(request.app.state, "usage_meter", None)
 
         if not allowed:
             _log_security_event(
@@ -318,7 +322,7 @@ async def security_and_rate_limit_middleware(
                 },
             )
         elif (
-            request.url.path in metered_paths
+            operation is not None
             and idempotency_key is not None
             and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idempotency_key) is None
         ):
@@ -334,38 +338,31 @@ async def security_and_rate_limit_middleware(
             response.headers["X-RateLimit-Limit"] = str(settings.rate_limit_requests)
             response.headers["X-RateLimit-Remaining"] = str(remaining)
         else:
+            if operation is not None:
+                request_body = await request.body()
+                request.state.request_fingerprint = hashlib.sha256(request_body).hexdigest()
+
+                # Replay the body for FastAPI after calculating its digest.
+                body_sent = False
+
+                async def receive_body():
+                    nonlocal body_sent
+                    if body_sent:
+                        return {"type": "http.request", "body": b"", "more_body": False}
+                    body_sent = True
+                    return {"type": "http.request", "body": request_body, "more_body": False}
+
+                request._receive = receive_body
             response = await call_next(request)
-            # This is technical usage telemetry, not an entitlement or money charge.
-            operation = metered_paths.get(request.url.path)
-            tenant_id = getattr(request.state, "tenant_id", None)
-            api_key_id = getattr(request.state, "api_key_id", None)
-            meter = getattr(request.app.state, "usage_meter", None)
-            if operation and response.status_code < 400 and tenant_id and api_key_id and meter is not None:
-                try:
-                    event = meter.record(
-                        tenant_id=tenant_id,
-                        api_key_id=api_key_id,
-                        request_id=request.state.request_id,
-                        idempotency_key=idempotency_key or request.state.request_id,
-                        operation=operation,
-                    )
-                    response.headers["X-JAS-SI-Usage-Event-ID"] = event["event_id"]
-                    if event.get("replayed"):
-                        response.headers["X-JAS-SI-Usage-Replayed"] = "true"
-                except Exception:
-                    _log_security_event(
-                        "usage_metering_failure", request,
-                        reason_code="usage_event_not_persisted",
-                    )
-                    response = JSONResponse(
-                        status_code=503,
-                        content={
-                            "detail": (
-                                "Usage could not be durably recorded; "
-                                "the request result is withheld"
-                            )
-                        },
-                    )
+            event = getattr(request.state, "usage_event", None)
+            if event is not None:
+                response.headers["X-JAS-SI-Usage-Event-ID"] = event["event_id"]
+                response.headers["X-JAS-SI-Quota-Limit"] = str(event["monthly_limit"])
+                response.headers["X-JAS-SI-Quota-Used"] = str(event["used_units"])
+                response.headers["X-JAS-SI-Quota-Remaining"] = str(event["remaining_units"])
+                response.headers["X-JAS-SI-Quota-Resets-At"] = event["resets_at"]
+                if event.get("replayed"):
+                    response.headers["X-JAS-SI-Usage-Replayed"] = "true"
             response.headers["X-RateLimit-Limit"] = str(
                 settings.rate_limit_requests
             )
@@ -395,6 +392,61 @@ def _require_enabled(request: Request) -> None:
             status_code=503,
             detail="JAS-SI API is disabled by configuration",
         )
+
+
+def _record_usage_for_authenticated_tenant(request: Request) -> None:
+    """Atomically reserve one monthly Free-plan unit before executing the API handler."""
+    operations = {
+        "/v1/authorize": "authorization.evaluate",
+        "/v1/verify": "outcome.submit",
+        "/v1/github/evidence": "github.evidence.verify",
+    }
+    operation = operations.get(request.url.path)
+    tenant_id = getattr(request.state, "tenant_id", None)
+    api_key_id = getattr(request.state, "api_key_id", None)
+    if operation is None or not tenant_id or not api_key_id:
+        return
+    meter = getattr(request.app.state, "usage_meter", None)
+    fingerprint = getattr(request.state, "request_fingerprint", None)
+    if meter is None or fingerprint is None:
+        _log_security_event("usage_quota_unavailable", request, reason_code="durable_quota_meter_not_ready")
+        raise HTTPException(status_code=503, detail="Usage quota service is not ready; request denied")
+    try:
+        request.state.usage_event = meter.record(
+            tenant_id=tenant_id,
+            api_key_id=api_key_id,
+            request_id=request.state.request_id,
+            idempotency_key=request.headers.get("Idempotency-Key") or request.state.request_id,
+            operation=operation,
+            request_fingerprint=fingerprint,
+            monthly_limit=get_free_monthly_units(),
+        )
+    except UsageQuotaExceeded as exc:
+        retry_after = max(1, int((exc.resets_at - datetime.now(timezone.utc)).total_seconds() + 0.999))
+        _log_security_event(
+            "usage_quota_exceeded", request, reason_code="free_monthly_quota_exhausted",
+            monthly_limit=exc.monthly_limit, used_units=exc.used_units,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "monthly_quota_exceeded",
+                "message": "The Free monthly API quota has been exhausted",
+                "monthly_limit": exc.monthly_limit,
+                "used_units": exc.used_units,
+                "resets_at": exc.resets_at.isoformat(),
+            },
+            headers={
+                "Retry-After": str(retry_after),
+                "X-JAS-SI-Quota-Limit": str(exc.monthly_limit),
+                "X-JAS-SI-Quota-Used": str(exc.used_units),
+                "X-JAS-SI-Quota-Remaining": "0",
+                "X-JAS-SI-Quota-Resets-At": exc.resets_at.isoformat(),
+            },
+        ) from None
+    except Exception:
+        _log_security_event("usage_metering_failure", request, reason_code="usage_event_not_persisted")
+        raise HTTPException(status_code=503, detail="Usage quota could not be durably recorded; request denied") from None
 
 
 def _require_api_key(
@@ -491,6 +543,7 @@ def _require_api_key(
         request.state.tenant_id = str(authenticated.tenant_id)
         request.state.api_key_id = str(authenticated.key_id)
         request.state.api_key_scopes = sorted(authenticated.scopes)
+        _record_usage_for_authenticated_tenant(request)
         return
 
     configured_key = settings.api_key
@@ -542,6 +595,12 @@ def live_github_demo() -> HTMLResponse:
     return HTMLResponse(content=LIVE_GITHUB_DEMO_HTML)
 
 
+@app.get("/plans")
+def public_plan_catalog() -> dict:
+    """Expose public plan metadata without enabling paid checkout."""
+    return get_plan_catalog()
+
+
 @app.get("/health")
 def health() -> dict:
     """Public liveness endpoint; never return secret configuration."""
@@ -567,7 +626,12 @@ def usage_summary(request: Request, since: Optional[datetime] = None) -> dict:
         meter = getattr(request.app.state, "usage_meter", None)
         if meter is None:
             meter = PostgresUsageMeter(settings.database_url)
-        return meter.summary(tenant_id=tenant_id, since=window_start)
+        result = meter.summary(tenant_id=tenant_id, since=window_start)
+        result["quota"] = meter.quota_status(
+            tenant_id=tenant_id,
+            monthly_limit=get_free_monthly_units(),
+        )
+        return result
     except Exception:
         raise HTTPException(status_code=503, detail="Tenant usage summary is temporarily unavailable") from None
 

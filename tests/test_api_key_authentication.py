@@ -20,11 +20,29 @@ from jas_si_agent.api_key_registry import AuthenticatedApiKey
 from jas_si_agent.security_event_store import JsonlSecurityEventStore
 
 
+class FakeQuotaMeter:
+    def record(self, **event):
+        return {
+            "event_id": "00000000-0000-0000-0000-000000000099",
+            "operation": event["operation"],
+            "units": 1,
+            "replayed": False,
+            "monthly_limit": event["monthly_limit"],
+            "used_units": 1,
+            "remaining_units": event["monthly_limit"] - 1,
+            "resets_at": "2026-12-01T00:00:00+00:00",
+        }
+
+
+
 class TestTenantApiKeyAuthentication(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.original_store = api.app.state.security_event_store
+        self.original_meter = getattr(api.app.state, "usage_meter", None)
+        api.app.state.usage_meter = FakeQuotaMeter()
+        self.addCleanup(self._restore_meter)
         api.app.state.security_event_store = JsonlSecurityEventStore(
             Path(self.temp.name) / "audit.jsonl"
         )
@@ -51,6 +69,13 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
         self.tenant_id = uuid4()
         self.key_id = uuid4()
         self.token = "jassi_live_test-token-value"
+
+    def _restore_meter(self):
+        if self.original_meter is None:
+            if hasattr(api.app.state, "usage_meter"):
+                delattr(api.app.state, "usage_meter")
+        else:
+            api.app.state.usage_meter = self.original_meter
 
     def _auth_result(self, scopes):
         return AuthenticatedApiKey(

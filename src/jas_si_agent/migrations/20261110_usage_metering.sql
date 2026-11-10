@@ -51,3 +51,17 @@ END;
 $$;
 
 REVOKE UPDATE, DELETE, TRUNCATE ON jas_si_usage_events FROM PUBLIC;
+
+-- The API process connects with the least-privilege runtime role. It needs
+-- to append usage events and read the tenant's aggregate; it must never
+-- mutate or delete historical usage records.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_runtime'
+    ) THEN
+        EXECUTE 'GRANT SELECT, INSERT ON TABLE public.jas_si_usage_events TO jas_si_runtime';
+        EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.jas_si_usage_events FROM jas_si_runtime';
+    END IF;
+END;
+$$;
