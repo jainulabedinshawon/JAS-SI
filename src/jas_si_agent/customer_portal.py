@@ -51,7 +51,7 @@ const auth=document.getElementById('auth');
 const account=document.getElementById('account');
 async function request(path,body){
  const headers={'Content-Type':'application/json'};
- if(path.endsWith('/logout')){
+ if(path.endsWith('/logout')||path.includes('/customer/api-keys')){
   const csrf=document.cookie.split('; ').find(item=>item.startsWith('jassi_customer_csrf='));
   if(csrf)headers['X-JAS-SI-CSRF']=decodeURIComponent(csrf.split('=').slice(1).join('='));
  }
