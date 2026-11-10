@@ -60,8 +60,8 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_runtime'
     ) THEN
-        GRANT SELECT, INSERT ON TABLE public.jas_si_usage_events TO jas_si_runtime;
-        REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.jas_si_usage_events FROM jas_si_runtime;
+        EXECUTE 'GRANT SELECT, INSERT ON TABLE public.jas_si_usage_events TO jas_si_runtime';
+        EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.jas_si_usage_events FROM jas_si_runtime';
     END IF;
 END;
 $$;
