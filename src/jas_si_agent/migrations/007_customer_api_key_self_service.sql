@@ -37,13 +37,6 @@ DROP POLICY IF EXISTS jas_si_api_keys_runtime_last_used ON public.jas_si_api_key
 CREATE POLICY jas_si_api_keys_runtime_last_used ON public.jas_si_api_keys
     FOR UPDATE TO jas_si_runtime USING (true) WITH CHECK (true);
 
--- Operator provisioning is also scoped to a transaction-local tenant context.
-DROP POLICY IF EXISTS jas_si_api_keys_provisioner_tenant ON public.jas_si_api_keys;
-CREATE POLICY jas_si_api_keys_provisioner_tenant ON public.jas_si_api_keys
-    FOR ALL TO jas_si_provisioner
-    USING (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid)
-    WITH CHECK (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid);
-
 DROP POLICY IF EXISTS jas_si_api_keys_customer_tenant ON public.jas_si_api_keys;
 CREATE POLICY jas_si_api_keys_customer_tenant ON public.jas_si_api_keys
     FOR ALL TO jas_si_customer_key_runtime
