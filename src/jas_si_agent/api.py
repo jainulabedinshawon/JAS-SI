@@ -56,7 +56,11 @@ from jas_si_agent.customer_portal import CUSTOMER_PORTAL_HTML
 from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.live_demo import LIVE_GITHUB_DEMO_HTML
-from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
+from jas_si_agent.api_key_registry import (
+    ALLOWED_SCOPES,
+    ApiKeyError,
+    PostgresApiKeyRegistry,
+)
 from jas_si_agent.usage_meter import PostgresUsageMeter, UsageQuotaExceeded
 from jas_si_agent.billing_catalog import get_free_monthly_units, get_plan_catalog
 from jas_si_agent.sdk import JASSI
@@ -636,6 +640,12 @@ class CustomerTokenRequest(BaseModel):
     token: str = Field(min_length=32, max_length=128)
 
 
+class CustomerApiKeyCreateRequest(BaseModel):
+    key_name: str = Field(min_length=1, max_length=120)
+    scopes: list[str] = Field(min_length=1, max_length=4)
+    expires_in_days: int = Field(default=90, ge=1, le=365)
+
+
 def _get_customer_identity_store(request: Request) -> PostgresCustomerIdentityStore:
     store = getattr(request.app.state, "customer_identity_store", None)
     if store is not None:
@@ -659,6 +669,50 @@ def _get_customer_identity_store(request: Request) -> PostgresCustomerIdentitySt
             status_code=503,
             detail="Customer identity service is temporarily unavailable",
         ) from None
+
+
+def _get_customer_api_key_registry() -> PostgresApiKeyRegistry:
+    if not settings.customer_api_key_database_url or not settings.api_key_pepper:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer API key management is not configured",
+        )
+    try:
+        return PostgresApiKeyRegistry(
+            settings.customer_api_key_database_url,
+            settings.api_key_pepper,
+        )
+    except ApiKeyError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer API key management is unavailable",
+        ) from None
+
+
+def _require_customer_session(request: Request):
+    session_token = request.cookies.get("jassi_customer_session")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Customer session is required")
+    store = _get_customer_identity_store(request)
+    try:
+        account = store.authenticate_session(session_token)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer session service is unavailable",
+        ) from None
+    if account is None:
+        raise HTTPException(status_code=401, detail="Customer session is invalid or expired")
+    request.state.tenant_id = str(account.tenant_id)
+    request.state.customer_account_id = str(account.account_id)
+    return account
+
+
+def _require_customer_csrf(request: Request) -> None:
+    cookie = request.cookies.get("jassi_customer_csrf")
+    header = request.headers.get("X-JAS-SI-CSRF")
+    if not cookie or not header or not hmac.compare_digest(cookie, header):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
 
 
 def _get_customer_email_sender() -> SmtpCustomerEmailSender:
@@ -880,6 +934,105 @@ def customer_logout(
     response.delete_cookie("jassi_customer_session", path="/", httponly=True, samesite="strict")
     response.delete_cookie("jassi_customer_csrf", path="/", samesite="strict")
     return {"signed_out": True}
+
+
+@app.get("/v1/customer/api-keys")
+def customer_list_api_keys(request: Request) -> dict:
+    account = _require_customer_session(request)
+    registry = _get_customer_api_key_registry()
+    try:
+        keys = registry.list_tenant_keys(account.tenant_id)
+    except ApiKeyError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer API keys are temporarily unavailable",
+        ) from None
+    return {"items": keys, "count": len(keys)}
+
+
+@app.post("/v1/customer/api-keys", status_code=201)
+def customer_create_api_key(
+    payload: CustomerApiKeyCreateRequest,
+    request: Request,
+) -> dict:
+    account = _require_customer_session(request)
+    _require_customer_csrf(request)
+    name = payload.key_name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Key name is required")
+    scopes = frozenset(payload.scopes)
+    if not scopes or not scopes.issubset(ALLOWED_SCOPES):
+        raise HTTPException(status_code=422, detail="One or more API key scopes are invalid")
+    registry = _get_customer_api_key_registry()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days)
+    try:
+        issued = registry.issue_key_with_audit(
+            tenant_id=account.tenant_id,
+            key_name=name,
+            scopes=scopes,
+            created_by=f"customer:{account.account_id}",
+            provisioning_run_id=f"customer-api:{uuid.uuid4()}",
+            expires_at=expires_at,
+            tenant_scope=account.tenant_id,
+        )
+    except ApiKeyError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer API key could not be created",
+        ) from None
+    _log_security_event(
+        "customer_api_key_issued",
+        request,
+        tenant_id=str(account.tenant_id),
+        account_id=str(account.account_id),
+        key_id=str(issued.key_id),
+        scopes=sorted(scopes),
+    )
+    return {
+        "key_id": str(issued.key_id),
+        "key_name": name,
+        "key_prefix": issued.prefix,
+        "token": issued.token,
+        "scopes": sorted(scopes),
+        "expires_at": issued.expires_at.isoformat() if issued.expires_at else None,
+        "warning": "Copy this API key now. It will not be shown again.",
+    }
+
+
+@app.post("/v1/customer/api-keys/{key_id}/revoke")
+def customer_revoke_api_key(
+    key_id: str,
+    request: Request,
+) -> dict:
+    account = _require_customer_session(request)
+    _require_customer_csrf(request)
+    try:
+        parsed_key_id = uuid.UUID(key_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="API key not found") from None
+    registry = _get_customer_api_key_registry()
+    try:
+        revoked = registry.revoke_key_with_audit(
+            key_id=parsed_key_id,
+            revoked_by=f"customer:{account.account_id}",
+            revocation_run_id=f"customer-revoke:{uuid.uuid4()}",
+            tenant_scope=account.tenant_id,
+        )
+    except ApiKeyError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer API key revocation is temporarily unavailable",
+        ) from None
+    if not revoked:
+        raise HTTPException(status_code=404, detail="API key not found")
+    _log_security_event(
+        "customer_api_key_revoked",
+        request,
+        tenant_id=str(account.tenant_id),
+        account_id=str(account.account_id),
+        key_id=str(parsed_key_id),
+    )
+    return {"revoked": True, "key_id": str(parsed_key_id)}
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
