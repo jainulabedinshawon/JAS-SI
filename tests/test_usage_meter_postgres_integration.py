@@ -165,7 +165,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                     )
 
 
-
+    def test_quota_rejects_new_event_after_limit(self):
         base = dict(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
             operation="authorization.evaluate", monthly_limit=1,
