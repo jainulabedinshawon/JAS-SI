@@ -174,8 +174,13 @@ class PostgresApiKeyRegistry:
         created_by: str,
         provisioning_run_id: str,
         expires_at: datetime | None = None,
+        tenant_scope: uuid.UUID | None = None,
     ) -> IssuedApiKey:
-        """Issue a key, append its audit event, and record idempotency atomically."""
+        """Issue a key, append its audit event, and record idempotency atomically.
+
+        When tenant_scope is supplied, PostgreSQL RLS constrains this transaction
+        to that tenant. The caller must use the dedicated customer-key role.
+        """
         import re
         import psycopg
         from jas_si_agent.postgres_security_event_store import (
@@ -222,6 +227,13 @@ class PostgresApiKeyRegistry:
         try:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
+                    if tenant_scope is not None:
+                        if tenant_scope != tenant_id:
+                            raise ApiKeyError("Customer tenant scope mismatch")
+                        cursor.execute(
+                            "SELECT set_config('jas_si.tenant_id', %s, true)",
+                            (str(tenant_scope),),
+                        )
                     # Serialize all audit writers, then verify the exact chain
                     # snapshot that this transaction will extend.
                     cursor.execute(
@@ -362,6 +374,50 @@ class PostgresApiKeyRegistry:
                     scopes=frozenset(scopes),
                 )
 
+
+    def list_tenant_keys(self, tenant_id: uuid.UUID) -> list[dict]:
+        """List non-secret key metadata for one tenant under PostgreSQL RLS."""
+        import psycopg
+
+        if not isinstance(tenant_id, uuid.UUID):
+            raise ApiKeyError("A valid tenant UUID is required")
+        try:
+            with psycopg.connect(self._dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT set_config('jas_si.tenant_id', %s, true)",
+                        (str(tenant_id),),
+                    )
+                    cursor.execute(
+                        """
+                        SELECT key_id, key_name, key_prefix, scopes, status,
+                               created_at, expires_at, last_used_at, revoked_at
+                        FROM jas_si_api_keys
+                        WHERE tenant_id = %s
+                        ORDER BY created_at DESC, key_id
+                        """,
+                        (tenant_id,),
+                    )
+                    rows = cursor.fetchall()
+            return [
+                {
+                    "key_id": str(row[0]),
+                    "key_name": row[1],
+                    "key_prefix": row[2],
+                    "scopes": list(row[3]),
+                    "status": row[4],
+                    "created_at": row[5].isoformat(),
+                    "expires_at": row[6].isoformat() if row[6] else None,
+                    "last_used_at": row[7].isoformat() if row[7] else None,
+                    "revoked_at": row[8].isoformat() if row[8] else None,
+                }
+                for row in rows
+            ]
+        except ApiKeyError:
+            raise
+        except Exception as exc:
+            raise ApiKeyError("Unable to list customer API keys") from exc
+
     def revoke_key(self, key_id: uuid.UUID) -> bool:
         """Compatibility wrapper; revocation and audit are one transaction."""
         return self.revoke_key_with_audit(
@@ -375,8 +431,13 @@ class PostgresApiKeyRegistry:
         key_id: uuid.UUID,
         revoked_by: str,
         revocation_run_id: str,
+        tenant_scope: uuid.UUID | None = None,
     ) -> bool:
-        """Revoke a key and append its audit event atomically."""
+        """Revoke a key and append its audit event atomically.
+
+        When tenant_scope is supplied, PostgreSQL RLS and the explicit predicate
+        restrict the operation to the authenticated customer's tenant.
+        """
         import re
         import psycopg
         from jas_si_agent.postgres_security_event_store import (
@@ -403,6 +464,11 @@ class PostgresApiKeyRegistry:
         try:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
+                    if tenant_scope is not None:
+                        cursor.execute(
+                            "SELECT set_config('jas_si.tenant_id', %s, true)",
+                            (str(tenant_scope),),
+                        )
                     cursor.execute(
                         """
                         INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
@@ -437,9 +503,10 @@ class PostgresApiKeyRegistry:
                         UPDATE jas_si_api_keys
                         SET status = 'revoked', revoked_at = NOW()
                         WHERE key_id = %s AND status = 'active'
+                          AND (%s IS NULL OR tenant_id = %s)
                         RETURNING tenant_id
                         """,
-                        (key_id,),
+                        (key_id, tenant_scope, tenant_scope),
                     )
                     row = cursor.fetchone()
                     if row is None:
