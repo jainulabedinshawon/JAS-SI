@@ -33,6 +33,9 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 <section id="account" hidden><h2>Account</h2><p><strong id="account-email"></strong></p><p id="account-org" class="muted"></p>
 <p>Account session is active. Create and manage your tenant-scoped API keys below.</p>
 <button id="logout" class="secondary">Sign out</button>
+<hr><h3>Usage</h3>
+<p id="usage-summary" class="muted">Loading technical usage…</p>
+<ul id="usage-operations"></ul>
 <hr><h3>API keys</h3>
 <form id="create-key">
 <label for="key-name">Key name</label><input id="key-name" maxlength="120" required>
@@ -66,6 +69,22 @@ function showAccount(data){
  auth.hidden=true;account.hidden=false;
  notice.textContent='You are signed in to JAS-SI.';
  loadApiKeys();
+ loadUsage();
+}
+async function loadUsage(){
+ const summary=document.getElementById('usage-summary');
+ const operations=document.getElementById('usage-operations');operations.replaceChildren();
+ try{
+  const response=await fetch('/v1/customer/usage',{credentials:'same-origin'});
+  if(!response.ok)throw new Error('Usage reporting is not available yet.');
+  const data=await response.json();const q=data.quota;
+  summary.textContent='Last 30 days: '+data.units+' units across '+data.events+' events. Current UTC month: '+q.used_units+' / '+q.monthly_limit+' units; '+q.remaining_units+' remaining. Resets '+q.resets_at+'. Billing is not connected; these are technical usage units, not money.';
+  for(const op of data.by_operation){
+   const item=document.createElement('li');
+   item.textContent=op.operation+': '+op.units+' units ('+op.events+' events)';
+   operations.appendChild(item);
+  }
+ }catch(error){summary.textContent=error.message}
 }
 async function loadApiKeys(){
  const list=document.getElementById('key-list');list.replaceChildren();
