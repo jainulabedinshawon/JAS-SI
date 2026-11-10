@@ -135,14 +135,144 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /v1/customer/api-keys:
+    get:
+      security:
+        - CustomerSessionAuth: []
+      operationId: listCustomerApiKeys
+      tags: [Customer API Keys]
+      summary: List API-key metadata for the signed-in tenant
+      description: Returns only the authenticated customer's key metadata. Raw tokens and stored digests are never returned.
+      responses:
+        '200':
+          description: Customer API-key metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerApiKeyListResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      security:
+        - CustomerSessionAuth: []
+      operationId: createCustomerApiKey
+      tags: [Customer API Keys]
+      summary: Create a tenant-scoped API key
+      description: Requires the customer session cookie and matching X-JAS-SI-CSRF cookie/header. The raw token is returned once only.
+      parameters:
+        - in: header
+          name: X-JAS-SI-CSRF
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerApiKeyCreateRequest' }
+      responses:
+        '201':
+          description: API key created; copy the raw token now
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerApiKeyCreateResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/api-keys/{key_id}/revoke:
+    post:
+      security:
+        - CustomerSessionAuth: []
+      operationId: revokeCustomerApiKey
+      tags: [Customer API Keys]
+      summary: Revoke one API key belonging to the signed-in tenant
+      description: Requires the customer session cookie and matching X-JAS-SI-CSRF cookie/header. Cross-tenant key IDs are not disclosed.
+      parameters:
+        - in: path
+          name: key_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-JAS-SI-CSRF
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: API key revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerApiKeyRevocationResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Key not found in the authenticated tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 components:
   securitySchemes:
+    CustomerSessionAuth:
+      type: apiKey
+      in: cookie
+      name: jassi_customer_session
+      description: First-party customer session cookie issued after one-time email sign-in.
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
       description: API key provisioned out-of-band by a JAS-SI operator.
   schemas:
+    CustomerApiKeyCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [key_name, scopes]
+      properties:
+        key_name: { type: string, minLength: 1, maxLength: 120 }
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [authorization:check, outcomes:submit, github:evidence:verify, usage:read]
+        expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
+    CustomerApiKeyCreateResponse:
+      type: object
+      required: [key_id, key_name, key_prefix, token, scopes, expires_at, warning]
+      properties:
+        key_id: { type: string, format: uuid }
+        key_name: { type: string }
+        key_prefix: { type: string }
+        token: { type: string, description: Raw token; returned once only. }
+        scopes: { type: array, items: { type: string } }
+        expires_at: { type: string, format: date-time }
+        warning: { type: string }
+    CustomerApiKeyMetadata:
+      type: object
+      required: [key_id, key_name, key_prefix, scopes, status, created_at]
+      properties:
+        key_id: { type: string, format: uuid }
+        key_name: { type: string }
+        key_prefix: { type: string }
+        scopes: { type: array, items: { type: string } }
+        status: { type: string, enum: [active, revoked] }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+    CustomerApiKeyListResponse:
+      type: object
+      required: [items, count]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CustomerApiKeyMetadata' } }
+        count: { type: integer, minimum: 0 }
+    CustomerApiKeyRevocationResponse:
+      type: object
+      required: [revoked, key_id]
+      properties:
+        revoked: { type: boolean, const: true }
+        key_id: { type: string, format: uuid }
     AuthorizeRequest:
       type: object
       additionalProperties: false
@@ -244,6 +374,11 @@ components:
   responses:
     Forbidden:
       description: API key is valid but does not have the required endpoint scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    CustomerUnauthorized:
+      description: Missing or invalid customer session cookie
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
