@@ -169,6 +169,36 @@ class PostgresUsageMeter:
         except Exception as exc:
             raise UsageMeterError("Unable to persist and enforce tenant usage quota") from exc
 
+    def quota_status(self, *, tenant_id: str, monthly_limit: int) -> dict[str, Any]:
+        """Return the caller tenant's current UTC-month quota status."""
+        if not isinstance(monthly_limit, int) or isinstance(monthly_limit, bool) or not 1 <= monthly_limit <= 1_000_000:
+            raise ValueError("Monthly quota must be between 1 and 1000000 units")
+        tenant = uuid.UUID(tenant_id)
+        period_start, period_end = _utc_month_window(datetime.now(timezone.utc))
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT COALESCE(SUM(units), 0)
+                           FROM jas_si_usage_events
+                           WHERE tenant_id=%s AND occurred_at >= %s
+                             AND occurred_at < %s""",
+                        (tenant, period_start, period_end),
+                    )
+                    used = int(cur.fetchone()[0])
+            return {
+                "period": "utc_calendar_month",
+                "period_start": period_start.isoformat(),
+                "resets_at": period_end.isoformat(),
+                "monthly_limit": monthly_limit,
+                "used_units": used,
+                "remaining_units": max(0, monthly_limit - used),
+                "exhausted": used >= monthly_limit,
+            }
+        except Exception as exc:
+            raise UsageMeterError("Unable to read tenant quota status") from exc
+
     def summary(self, *, tenant_id: str, since: datetime) -> dict[str, Any]:
         tenant = uuid.UUID(tenant_id)
         try:
