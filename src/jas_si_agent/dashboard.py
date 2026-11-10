@@ -26,7 +26,7 @@ main{padding:62px 0 80px}.eyebrow{color:var(--accent);font-size:11px;letter-spac
 <body>
 <header class="topbar"><div class="shell nav">
 <a class="brand" href="/"><span class="mark">J</span><span>JAS-SI <span class="muted">/ Console</span></span></a>
-<nav class="navlinks" aria-label="Main navigation"><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="/demo">Interactive Demo</a><a href="/docs">API Reference</a></nav>
+<nav class="navlinks" aria-label="Main navigation"><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="/demo">Synthetic Demo</a><a href="/live-demo">Live GitHub Check</a><a href="/docs">API Reference</a></nav>
 <div class="navright"><span class="status" id="system-status"><i class="dot"></i><span>Checking status…</span></span></div>
 </div></header>
 <main class="shell">
@@ -34,7 +34,7 @@ main{padding:62px 0 80px}.eyebrow{color:var(--accent);font-size:11px;letter-spac
 <div class="eyebrow">Developer platform · API v1</div>
 <h1>JAS-SI Reality-Based<br>Intelligence Architecture</h1>
 <p>Build systems that distinguish reported outcomes from evidence-supported reality. JAS-SI evaluates authorization and verifies outcomes; it does not execute actions on your behalf.</p>
-<div class="heroactions"><a class="button primary" href="/demo">Try interactive demo ↗</a><a class="button" href="#quickstart">Start building ↗</a><a class="button" href="/docs">Explore API docs ↗</a><a class="button" href="https://github.com/jainulabedinshawon/JAS-SI">GitHub ↗</a></div>
+<div class="heroactions"><a class="button primary" href="/live-demo">Run live GitHub check ↗</a><a class="button" href="/demo">Synthetic demo ↗</a><a class="button" href="#quickstart">Start building ↗</a><a class="button" href="/docs">Explore API docs ↗</a><a class="button" href="https://github.com/jainulabedinshawon/JAS-SI">GitHub ↗</a></div>
 </section>
 <section id="overview" class="grid">
 <article class="card span4"><div class="cardhead"><h2>Service status</h2><span class="tag">LIVE CHECK</span></div><div class="metric" id="health-value">Checking</div><div class="sub" id="health-detail">Reading the public health endpoint</div><div class="smalllinks"><a class="textlink" href="/health">Health JSON ↗</a><a class="textlink" href="/openapi.json">OpenAPI schema ↗</a></div></article>

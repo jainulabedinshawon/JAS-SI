@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from jas_si_agent.config import Settings
 from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.demo import DEMO_HTML
+from jas_si_agent.live_demo import LIVE_GITHUB_DEMO_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.usage_meter import PostgresUsageMeter
 from jas_si_agent.sdk import JASSI
@@ -533,6 +534,12 @@ def developer_console() -> HTMLResponse:
 def verification_demo() -> HTMLResponse:
     """Serve an explicitly synthetic, non-interactive-with-backend walkthrough."""
     return HTMLResponse(content=DEMO_HTML)
+
+
+@app.get("/live-demo", response_class=HTMLResponse, include_in_schema=False)
+def live_github_demo() -> HTMLResponse:
+    """Serve a live, read-only GitHub evidence API console."""
+    return HTMLResponse(content=LIVE_GITHUB_DEMO_HTML)
 
 
 @app.get("/health")
