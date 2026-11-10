@@ -56,7 +56,7 @@ BEGIN
         EXECUTE 'GRANT SELECT ON TABLE public.jas_si_tenants TO jas_si_customer_runtime';
         EXECUTE 'GRANT INSERT (tenant_id, tenant_name) ON TABLE public.jas_si_tenants TO jas_si_customer_runtime';
         EXECUTE 'GRANT SELECT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
-        EXECUTE 'GRANT INSERT (account_id, tenant_id, email, email_normalized, organization_name, status) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
+        EXECUTE 'GRANT INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
         EXECUTE 'GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
         EXECUTE 'GRANT SELECT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime';
         EXECUTE 'GRANT INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime';
