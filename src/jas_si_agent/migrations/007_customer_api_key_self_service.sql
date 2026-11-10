@@ -37,8 +37,9 @@ DROP POLICY IF EXISTS jas_si_tenants_provisioner ON public.jas_si_tenants;
 CREATE POLICY jas_si_tenants_provisioner ON public.jas_si_tenants
     FOR ALL TO jas_si_provisioner USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS jas_si_tenants_customer_identity ON public.jas_si_tenants;
-CREATE POLICY jas_si_tenants_customer_identity ON public.jas_si_tenants
-    FOR ALL TO jas_si_customer_runtime USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity_insert ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity_insert ON public.jas_si_tenants
+    FOR INSERT TO jas_si_customer_runtime WITH CHECK (true);
 
 GRANT SELECT (key_id, tenant_id, key_name, key_prefix, scopes, status, created_at, expires_at, last_used_at, revoked_at)
     ON TABLE public.jas_si_api_keys TO jas_si_customer_key_runtime;
