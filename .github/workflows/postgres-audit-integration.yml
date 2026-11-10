@@ -9,6 +9,7 @@ on:
       - "src/jas_si_agent/migrations/**"
       - "tests/test_postgres_security_event_store.py"
       - "tests/test_postgres_security_event_store_integration.py"
+      - "tests/test_usage_meter_postgres_integration.py"
       - "requirements.lock.txt"
       - ".github/workflows/postgres-audit-integration.yml"
 
@@ -80,4 +81,5 @@ jobs:
           python -m unittest \
             tests.test_postgres_security_event_store \
             tests.test_postgres_security_event_store_integration \
+            tests.test_usage_meter_postgres_integration \
             -v
