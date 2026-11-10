@@ -19,6 +19,24 @@ GRANT SELECT (tenant_id, status)
     ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
 GRANT UPDATE (provisioning_lock_version)
     ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+GRANT SELECT ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+
+-- Tenant metadata reads are scoped to the session-local tenant context too.
+ALTER TABLE public.jas_si_tenants ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS jas_si_tenants_customer_key_scope ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_key_scope ON public.jas_si_tenants
+    FOR ALL TO jas_si_customer_key_runtime
+    USING (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid);
+DROP POLICY IF EXISTS jas_si_tenants_runtime_auth ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_runtime_auth ON public.jas_si_tenants
+    FOR SELECT TO jas_si_runtime USING (true);
+DROP POLICY IF EXISTS jas_si_tenants_provisioner ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_provisioner ON public.jas_si_tenants
+    FOR ALL TO jas_si_provisioner USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity ON public.jas_si_tenants
+    FOR ALL TO jas_si_customer_runtime USING (true) WITH CHECK (true);
 
 GRANT SELECT (key_id, tenant_id, key_name, key_prefix, scopes, status, created_at, expires_at, last_used_at, revoked_at)
     ON TABLE public.jas_si_api_keys TO jas_si_customer_key_runtime;
