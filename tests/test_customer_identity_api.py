@@ -153,6 +153,39 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertEqual(logout.status_code, 200)
         self.assertTrue(self.store.revoked)
 
+    def test_vercel_preserved_client_ip_takes_precedence_over_generic_forwarded_header(self):
+        request = SimpleNamespace(
+            headers={
+                "x-vercel-forwarded-for": "198.51.100.44",
+                "x-forwarded-for": "203.0.113.99",
+            },
+            client=None,
+        )
+        self.assertEqual(api._customer_client_ip(request), "198.51.100.44")
+
+    def test_invalid_vercel_client_ip_fails_closed_instead_of_trusting_xff(self):
+        request = SimpleNamespace(
+            headers={
+                "x-vercel-forwarded-for": "not-an-ip",
+                "x-forwarded-for": "203.0.113.99",
+            },
+            client=None,
+        )
+        with self.assertRaises(api.HTTPException) as raised:
+            api._customer_client_ip(request)
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_shared_rate_limit_failure_fails_closed_before_sending_email(self):
+        self.limiter.check = lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        )
+        response = self.client.post(
+            "/v1/customer/login",
+            json={"email": "user@example.test"},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.sender.sent, [])
+
     def test_customer_email_requests_have_a_dedicated_ip_rate_limit(self):
         for _ in range(api._CUSTOMER_EMAIL_LIMIT):
             response = self.client.post(
