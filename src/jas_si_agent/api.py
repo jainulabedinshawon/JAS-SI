@@ -350,7 +350,25 @@ async def security_and_rate_limit_middleware(
         else:
             request_fingerprint = None
             if operation is not None and meter is not None:
-                request_fingerprint = hashlib.sha256(await request.body()).hexdigest()
+                request_body = await request.body()
+                request_fingerprint = hashlib.sha256(request_body).hexdigest()
+
+                # BaseHTTPMiddleware builds a downstream Request. Replay the
+                # consumed body so FastAPI still receives the original payload.
+                body_sent = False
+
+                async def receive_body():
+                    nonlocal body_sent
+                    if body_sent:
+                        return {"type": "http.request", "body": b"", "more_body": False}
+                    body_sent = True
+                    return {
+                        "type": "http.request",
+                        "body": request_body,
+                        "more_body": False,
+                    }
+
+                request._receive = receive_body
             response = await call_next(request)
             # This is technical usage telemetry, not an entitlement or money charge.
             tenant_id = getattr(request.state, "tenant_id", None)
