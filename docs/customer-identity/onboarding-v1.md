@@ -27,25 +27,33 @@ The SMTP adapter uses STARTTLS on normal SMTP ports and SMTP-over-TLS on port 46
 
 ## Database migration order and role
 
-The identity migration depends on the tenant table from `002_create_tenant_api_keys.sql`. Create the dedicated login role before applying `20261110_customer_identity.sql`, so its conditional least-privilege grants are applied:
+The identity migration depends on the tenant table from `002_create_tenant_api_keys.sql`. The migration creates `jas_si_customer_runtime` and `jas_si_customer_key_runtime` as **NOLOGIN group roles** and grants table privileges to those group roles. Do not create either group role as LOGIN before applying the migrations.
+
+Use a separate, managed LOGIN principal for each application connection. For the identity service:
 
 ```sql
-CREATE ROLE jas_si_customer_runtime LOGIN PASSWORD '<managed-secret>';
-GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_runtime;
-GRANT USAGE ON SCHEMA public TO jas_si_customer_runtime;
+CREATE ROLE jas_si_customer_identity_login LOGIN PASSWORD '<managed-secret>';
+GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_identity_login;
+GRANT USAGE ON SCHEMA public TO jas_si_customer_identity_login;
+GRANT jas_si_customer_runtime TO jas_si_customer_identity_login;
 ```
 
-Apply the existing tenant and audit migrations in the repository's documented order, then apply `20261110_customer_identity.sql` followed by `20261110_customer_rate_limits.sql`, using a migration/admin role. The shared rate-limit migration depends on the identity migration and grants the customer identity runtime only SELECT, INSERT and UPDATE on its bucket table. Before applying `007_customer_api_key_self_service.sql`, create the dedicated key-management login role and grant only database connection/schema usage:
+For API-key self-service, use a different LOGIN principal:
 
 ```sql
-CREATE ROLE jas_si_customer_key_runtime LOGIN PASSWORD '<managed-secret>';
-GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_key_runtime;
-GRANT USAGE ON SCHEMA public TO jas_si_customer_key_runtime;
+CREATE ROLE jas_si_customer_key_login LOGIN PASSWORD '<managed-secret>';
+GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_key_login;
+GRANT USAGE ON SCHEMA public TO jas_si_customer_key_login;
+GRANT jas_si_customer_key_runtime TO jas_si_customer_key_login;
 ```
 
-The customer identity role receives only tenant insert/select and customer account/token/session operations. The separate customer key role receives tenant-scoped key metadata and audited issue/revoke privileges; PostgreSQL row-level security restricts its key operations to the transaction-local `jas_si.tenant_id`. It receives no usage-event, tenant-status, or general audit mutation privileges. Do not use the key-management role for API-key authentication or operator provisioning.
+Configure each DSN to assume its NOLOGIN group role on connection (for example, PostgreSQL connection option `options=-c role=jas_si_customer_runtime` or `options=-c role=jas_si_customer_key_runtime`, correctly URL-encoded). Verify from the application connection that `current_user` is exactly the expected group role, and that it is neither SUPERUSER nor BYPASSRLS. The login principal must not be a member of `jas_si_provisioner`, `jas_si_runtime`, an owner role, or any other privileged role. Do not share either login credential between services.
 
-Do not run these commands against Production until the user explicitly approves the migration and the database owner has reviewed the target role and grants.
+Apply the existing tenant and audit migrations in the repository's documented order, then apply `20261110_customer_identity.sql` followed by `20261110_customer_rate_limits.sql`. Apply `007_customer_api_key_self_service.sql` only after its prerequisite tenant, audit-chain, API-key registry and provisioning tables/columns exist. Use a migration/admin role for all DDL; never run migrations from an HTTP request or application startup.
+
+The customer identity group role receives only tenant insert and customer account/token/session operations. The separate customer key group role receives tenant-scoped key metadata and audited issue/revoke privileges. Its RLS tenant context is transaction-local and server-derived from a verified customer session. The custom GUC is defense-in-depth, not independent tenant authentication against arbitrary SQL run with this trusted role. Never expose either DSN or SQL execution to customers; never accept tenant IDs from request payloads.
+
+Do not run these commands against Production until the user explicitly approves the migration and the database owner has reviewed the target roles and grants. Apply and verify on an isolated Staging branch first, including membership, effective `current_user`, RLS policies, grants, cross-tenant denial, and rollback readiness.
 
 ## API
 
