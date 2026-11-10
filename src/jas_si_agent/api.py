@@ -19,7 +19,7 @@ import threading
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Deque, Dict, Optional
 
@@ -38,6 +38,7 @@ from jas_si_agent.config import Settings
 from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
+from jas_si_agent.usage_meter import PostgresUsageMeter
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
@@ -117,6 +118,16 @@ def initialize_security_event_store() -> None:
         ) from exc
 
     app.state.security_event_store = store
+
+    try:
+        usage_meter = PostgresUsageMeter(settings.database_url)
+        if not usage_meter.verify_schema():
+            raise RuntimeError("Usage metering schema is not installed")
+    except Exception as exc:
+        raise RuntimeError(
+            "Usage metering readiness check failed; startup denied"
+        ) from exc
+    app.state.usage_meter = usage_meter
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
@@ -306,6 +317,22 @@ async def security_and_rate_limit_middleware(
             )
         else:
             response = await call_next(request)
+            # Record successful tenant operations as technical usage telemetry.
+            # This does not represent entitlement consumption or a monetary charge.
+            operations = {"/v1/authorize": "authorization.evaluate", "/v1/verify": "outcome.submit"}
+            operation = operations.get(request.url.path)
+            tenant_id = getattr(request.state, "tenant_id", None)
+            api_key_id = getattr(request.state, "api_key_id", None)
+            if operation and response.status_code < 400 and tenant_id and api_key_id and settings.database_url:
+                try:
+                    meter = getattr(request.app.state, "usage_meter", None)
+                    if meter is None:
+                        meter = PostgresUsageMeter(settings.database_url)
+                    event = meter.record(tenant_id=tenant_id, api_key_id=api_key_id, request_id=request.state.request_id, idempotency_key=request.state.request_id, operation=operation)
+                    response.headers["X-JAS-SI-Usage-Event-ID"] = event["event_id"]
+                except Exception:
+                    _log_security_event("usage_metering_failure", request, reason_code="usage_event_not_persisted")
+                    response = JSONResponse(status_code=503, content={"detail": "Usage could not be durably recorded; the request result is withheld"})
             response.headers["X-RateLimit-Limit"] = str(
                 settings.rate_limit_requests
             )
@@ -410,6 +437,7 @@ def _require_api_key(
             "/v1/authorize": "authorization:check",
             "/v1/verify": "outcomes:submit",
             "/v1/github/evidence": "github:evidence:verify",
+            "/v1/usage": "usage:read",
         }
         required_scope = required_scopes.get(request.url.path)
         if required_scope and required_scope not in authenticated.scopes:
@@ -484,6 +512,25 @@ def health() -> dict:
         "api_enabled": settings.api_enabled,
     }
 
+
+@app.get("/v1/usage", dependencies=[Depends(_require_api_key)])
+def usage_summary(request: Request, since: Optional[datetime] = None) -> dict:
+    """Return only the authenticated tenant technical usage totals."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="Tenant-scoped API key authentication is required")
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="Usage storage is not configured")
+    window_start = since or (datetime.now(timezone.utc) - timedelta(days=30))
+    if window_start.tzinfo is None:
+        raise HTTPException(status_code=422, detail="since must include a timezone")
+    try:
+        meter = getattr(request.app.state, "usage_meter", None)
+        if meter is None:
+            meter = PostgresUsageMeter(settings.database_url)
+        return meter.summary(tenant_id=tenant_id, since=window_start)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Tenant usage summary is temporarily unavailable") from None
 
 @app.post(
     "/v1/authorize",
