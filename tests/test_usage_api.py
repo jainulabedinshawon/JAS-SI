@@ -181,27 +181,3 @@ class TestUsageAPI(TestCase):
         response = self.client.get("/plans")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["payment_status"], "not_connected")
-
-
-    def test_quota_exhaustion_denies_before_authorization_handler(self):
-        class ExhaustedMeter:
-            def record(self, **kwargs):
-                raise UsageQuotaExceeded(
-                    monthly_limit=100, used_units=100, requested_units=1,
-                    resets_at=datetime(2026, 12, 1, tzinfo=timezone.utc),
-                )
-        api.app.state.usage_meter = ExhaustedMeter()
-        with patch.object(api._sdk, "authorize") as authorize:
-            response = self.client.post(
-                "/v1/authorize",
-                json={"action_id": "quota", "action": "read", "resource": "x"},
-            )
-        self.assertEqual(response.status_code, 429)
-        self.assertEqual(response.json()["detail"]["code"], "monthly_quota_exceeded")
-        self.assertEqual(response.headers["X-JAS-SI-Quota-Remaining"], "0")
-        authorize.assert_not_called()
-
-    def test_public_plan_catalog_endpoint(self):
-        response = self.client.get("/plans")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["payment_status"], "not_connected")
