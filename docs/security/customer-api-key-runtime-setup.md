@@ -47,13 +47,19 @@ new `20261110_customer_rate_limits.sql` migration before enabling these
 endpoints. The limiter fails closed with HTTP 503 if the database or schema is
 unavailable; it does not fall back to per-process memory.
 
-Vercel's documented `x-forwarded-for` request header is overwritten by the
-Vercel edge with the public client IP to prevent caller IP spoofing. The API
-parses the first address as an IP literal and stores only an HMAC-SHA256 digest
-using the customer token pepper, never the raw address. This trust assumption
-is specific to requests served through Vercel; if the application is moved
-behind another proxy or exposed directly, the proxy must be configured to
-overwrite the forwarding header before this IP-based control is relied upon.
+Vercel documents that its edge overwrites `x-forwarded-for` with the
+public client IP to prevent spoofing. It also documents
+`x-vercel-forwarded-for` as the preserved client address when another proxy
+may overwrite the generic header. The API prefers `x-vercel-forwarded-for`
+and falls back to Vercel's edge-overwritten `x-forwarded-for`; it strictly
+parses one IP literal and stores only an HMAC-SHA256 digest using the customer
+token pepper, never the raw address. Requests that provide a malformed
+preferred Vercel header fail closed rather than falling back to a different
+caller-controlled header. This trust assumption is specific to requests
+served through Vercel; if the application is moved behind another proxy or
+exposed directly, the proxy must be configured to overwrite the forwarding
+header before this IP-based control is relied upon. See
+https://vercel.com/docs/headers/request-headers for the provider contract.
 
 The table retains one row per observed client-IP digest. An operator-managed
 retention cleanup should delete rows whose `updated_at` is older than the
