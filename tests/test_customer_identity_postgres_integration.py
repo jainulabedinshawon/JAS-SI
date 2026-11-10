@@ -45,8 +45,16 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
                 if cur.fetchone() is None:
                     cur.execute(f'CREATE ROLE "{role}" NOLOGIN')
+            # Build the same tenant/RLS foundation used by the customer
+            # application before exercising its dedicated runtime role.
             for name in (
+                "001_create_audit_tables.sql",
                 "002_create_tenant_api_keys.sql",
+                "003_atomic_api_key_provisioning.sql",
+                "004_audit_event_id_identity.sql",
+                "005_provisioner_tenant_row_lock.sql",
+                "006_api_key_registry_role_grants.sql",
+                "007_customer_api_key_self_service.sql",
                 "20261110_customer_identity.sql",
                 "20261110_customer_rate_limits.sql",
                 "20261110_usage_metering.sql",
