@@ -104,7 +104,8 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_tenants', 'SELECT'),
                      has_column_privilege('jas_si_customer_runtime', 'jas_si_tenants', 'tenant_id', 'INSERT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'SELECT'),
-                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'INSERT'),
+                     has_column_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'account_id', 'INSERT'),
+                     has_column_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'status', 'INSERT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_auth_tokens', 'SELECT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_sessions', 'SELECT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_api_keys', 'INSERT'),
@@ -112,7 +113,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_usage_events', 'INSERT')"""
             )
             privileges = cur.fetchone()
-        self.assertEqual(privileges, (True, True, True, True, True, True, False, False, False))
+        self.assertEqual(privileges, (True, True, True, True, False, True, True, False, False, False))
 
 
 if __name__ == "__main__":
