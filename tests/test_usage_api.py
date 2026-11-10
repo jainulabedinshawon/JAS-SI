@@ -118,6 +118,23 @@ class TestUsageAPI(TestCase):
             second.headers["X-JAS-SI-Usage-Event-ID"],
         )
         self.assertEqual(second.headers["X-JAS-SI-Usage-Replayed"], "true")
+        self.assertEqual(len(api.app.state.usage_meter.records[0]["request_fingerprint"]), 64)
+        self.assertEqual(
+            api.app.state.usage_meter.records[0]["request_fingerprint"],
+            api.app.state.usage_meter.records[1]["request_fingerprint"],
+        )
+
+    def test_missing_idempotency_header_is_rejected_before_operation(self):
+        response = self.client.post(
+            "/v1/authorize",
+            json={
+                "action_id": "idem-missing",
+                "action": "read",
+                "resource": "jas-si://tenant-resource",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(api.app.state.usage_meter.records, [])
 
     def test_invalid_idempotency_header_is_rejected_before_operation(self):
         response = self.client.post(
