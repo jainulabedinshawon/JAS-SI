@@ -102,34 +102,52 @@ class PostgresCustomerIdentityStore:
         return CustomerLink(account_id, normalized, "verify_email", token, expires)
 
     def issue_verification_link(self, email: str) -> CustomerLink | None:
-        normalized, token_id, token = normalize_email(email), uuid.uuid4(), self._new_token()
+        normalized = normalize_email(email)
+        token_id, token = uuid.uuid4(), self._new_token()
         expires = datetime.now(timezone.utc) + self._verification_ttl
         import psycopg
-        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='pending' FOR UPDATE",
-                (normalized,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            cur.execute(
-                "INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)",
-                (token_id, row[0], self._digest(token), expires),
-            )
-        return CustomerLink(row[0], normalized, "verify_email", token, expires)
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='pending' FOR UPDATE",
+                    (normalized,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                cur.execute(
+                    "INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)",
+                    (token_id, row[0], self._digest(token), expires),
+                )
+            return CustomerLink(row[0], normalized, "verify_email", token, expires)
+        except CustomerIdentityError:
+            raise
+        except Exception as exc:
+            raise CustomerIdentityError("Customer verification link could not be issued") from exc
 
     def issue_login_link(self, email: str) -> CustomerLink | None:
-        normalized, token_id, token = normalize_email(email), uuid.uuid4(), self._new_token()
+        normalized = normalize_email(email)
+        token_id, token = uuid.uuid4(), self._new_token()
         expires = datetime.now(timezone.utc) + self._login_ttl
         import psycopg
-        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-            cur.execute("SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='active' FOR UPDATE", (normalized,))
-            row = cur.fetchone()
-            if row is None:
-                return None
-            cur.execute("INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'login', %s)", (token_id, row[0], self._digest(token), expires))
-        return CustomerLink(row[0], normalized, "login", token, expires)
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='active' FOR UPDATE",
+                    (normalized,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                cur.execute(
+                    "INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'login', %s)",
+                    (token_id, row[0], self._digest(token), expires),
+                )
+            return CustomerLink(row[0], normalized, "login", token, expires)
+        except CustomerIdentityError:
+            raise
+        except Exception as exc:
+            raise CustomerIdentityError("Customer sign-in link could not be issued") from exc
 
     def verify_email(self, token: str) -> CustomerAccount:
         result = self._consume_link(token, "verify_email", create_session=False)
