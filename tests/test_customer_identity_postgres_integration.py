@@ -37,20 +37,14 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
     def setUpClass(cls):
         cls.admin_dsn = DATABASE_URL
         with psycopg.connect(cls.admin_dsn) as conn, conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='jas_si_customer_runtime'")
-            if cur.fetchone() is None:
-                cur.execute("CREATE ROLE jas_si_customer_runtime NOLOGIN")
-            # CI connects as the database owner; grant only test-time SET ROLE
-            # membership so the application store exercises the same role
-            # enforced by production configuration.
-            cur.execute("GRANT jas_si_customer_runtime TO CURRENT_USER")
-        cls.dsn = make_conninfo(
-            cls.admin_dsn, options="-c role=jas_si_customer_runtime"
-        )
-            for role in ("jas_si_runtime", "jas_si_provisioner"):
+            for role in (
+                "jas_si_customer_runtime",
+                "jas_si_runtime",
+                "jas_si_provisioner",
+            ):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
                 if cur.fetchone() is None:
-                    cur.execute(f"CREATE ROLE {role} NOLOGIN")
+                    cur.execute(f'CREATE ROLE "{role}" NOLOGIN')
             for name in (
                 "002_create_tenant_api_keys.sql",
                 "20261110_customer_identity.sql",
@@ -59,17 +53,23 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261110_usage_idempotency_fingerprint.sql",
                 "20261111_usage_append_only_role_grants.sql",
             ):
-                path = ROOT / "src" / "jas_si_agent" / "migrations" / name
-                cur.execute(path.read_text(encoding="utf-8"))
-        cls.store = PostgresCustomerIdentityStore(
-            cls.dsn, b"customer-identity-test-pepper-32-bytes-minimum"
+                migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
+                cur.execute(migration_path.read_text(encoding="utf-8"))
+            # The CI owner may SET ROLE only inside this test connection.
+            cur.execute("GRANT jas_si_customer_runtime TO CURRENT_USER")
+        cls.dsn = make_conninfo(
+            cls.admin_dsn, options="-c role=jas_si_customer_runtime"
         )
+        cls.pepper = b"customer-identity-test-pepper-32-bytes-minimum"
+        cls.store = PostgresCustomerIdentityStore(cls.dsn, cls.pepper)
         if not cls.store.verify_schema():
-            raise AssertionError("Customer identity DSN did not assume the dedicated least-privilege role")
-        if PostgresCustomerIdentityStore(
-            cls.admin_dsn, b"customer-identity-test-pepper-32-bytes-minimum"
-        ).verify_schema():
-            raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
+            raise AssertionError(
+                "Customer identity DSN did not assume the dedicated least-privilege role"
+            )
+        if PostgresCustomerIdentityStore(cls.admin_dsn, cls.pepper).verify_schema():
+            raise AssertionError(
+                "Administrative test DSN unexpectedly passed the customer role guard"
+            )
 
     def setUp(self):
         self.email = f"customer-{uuid.uuid4().hex}@example.test"
@@ -126,7 +126,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         first = PostgresCustomerRateLimiter(self.dsn, pepper)
         second = PostgresCustomerRateLimiter(self.dsn, pepper)
         ip = "203.0.113.77"
-        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 "DELETE FROM jas_si_customer_rate_limits WHERE bucket_key = %s",
                 (first._bucket_key(ip),),
