@@ -1,6 +1,7 @@
 """PostgreSQL integration tests for tenant usage metering."""
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import unittest
@@ -32,16 +33,28 @@ class TestPostgresUsageMeter(unittest.TestCase):
         cls.dsn = DATABASE_URL
         with psycopg.connect(cls.dsn) as conn:
             with conn.cursor() as cur:
-                for name in ("002_create_tenant_api_keys.sql", "20261110_usage_metering.sql"):
+                for name in (
+                    "002_create_tenant_api_keys.sql",
+                    "20261110_usage_metering.sql",
+                    "20261110_usage_idempotency_fingerprint.sql",
+                ):
                     path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                     cur.execute(path.read_text(encoding="utf-8"))
         cls.meter = PostgresUsageMeter(cls.dsn)
+
+    def _record(self, **kwargs):
+        kwargs.setdefault(
+            "request_fingerprint",
+            hashlib.sha256(b"usage-meter-integration-test").hexdigest(),
+        )
+        return self.meter.record(**kwargs)
 
     def setUp(self):
         self.tenant_a = uuid.uuid4()
         self.tenant_b = uuid.uuid4()
         self.key_a = uuid.uuid4()
         self.key_b = uuid.uuid4()
+        self.key_c = uuid.uuid4()
         with psycopg.connect(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute("TRUNCATE jas_si_usage_events")
@@ -58,6 +71,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                 for key_id, tenant_id, prefix in (
                     (self.key_a, self.tenant_a, "jassi_test_a"),
                     (self.key_b, self.tenant_b, "jassi_test_b"),
+                    (self.key_c, self.tenant_a, "jassi_test_c"),
                 ):
                     cur.execute(
                         """INSERT INTO jas_si_api_keys
@@ -89,6 +103,26 @@ class TestPostgresUsageMeter(unittest.TestCase):
         self.meter.record(**base)
         with self.assertRaises(UsageMeterError):
             self.meter.record(**dict(base, operation="outcome.submit"))
+
+    def test_same_key_rejects_changed_request_fingerprint(self):
+        base = dict(
+            tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
+            request_id="request-fingerprint", idempotency_key="idem-fingerprint",
+            operation="authorization.evaluate",
+        )
+        self._record(**base, request_fingerprint=hashlib.sha256(b"payload-a").hexdigest())
+        with self.assertRaises(UsageMeterError):
+            self._record(**base, request_fingerprint=hashlib.sha256(b"payload-b").hexdigest())
+
+    def test_same_key_rejects_replay_from_different_api_key(self):
+        base = dict(
+            tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
+            request_id="request-key", idempotency_key="idem-key",
+            operation="authorization.evaluate",
+        )
+        self._record(**base)
+        with self.assertRaises(UsageMeterError):
+            self._record(**dict(base, api_key_id=str(self.key_c)))
 
     def test_tenant_summary_does_not_leak_other_tenant(self):
         self.meter.record(
