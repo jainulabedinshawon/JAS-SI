@@ -13,6 +13,7 @@ The in-memory rate limiter is per process, not distributed.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import hmac
 import json
 import logging
@@ -41,6 +42,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
+from jas_si_agent.customer_rate_limit import PostgresCustomerRateLimiter
 from jas_si_agent.customer_identity import (
     CustomerIdentityConflict,
     CustomerIdentityError,
@@ -164,27 +166,68 @@ def get_security_event_store(request: Request) -> SecurityEventStore:
 _rate_limit_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
 
-# Additional anti-abuse limit for email-triggering customer auth endpoints.
-_customer_email_attempts: Dict[str, Deque[float]] = defaultdict(deque)
+# Customer email rate limits are stored in PostgreSQL so limits are shared
+# across serverless instances. Raw client IP addresses are never persisted.
 _CUSTOMER_EMAIL_LIMIT = 5
 _CUSTOMER_EMAIL_WINDOW_SECONDS = 15 * 60
 
 
-def _customer_email_rate_limit_decision(client_ip: str) -> tuple[bool, int]:
-    now = time.monotonic()
-    with _rate_limit_lock:
-        bucket = _customer_email_attempts[client_ip]
-        while bucket and now - bucket[0] >= _CUSTOMER_EMAIL_WINDOW_SECONDS:
-            bucket.popleft()
-        if len(bucket) >= _CUSTOMER_EMAIL_LIMIT:
-            return False, max(1, ceil(_CUSTOMER_EMAIL_WINDOW_SECONDS - (now - bucket[0])))
-        bucket.append(now)
-        return True, 0
+def _get_customer_rate_limiter(request: Request) -> PostgresCustomerRateLimiter:
+    limiter = getattr(request.app.state, "customer_rate_limiter", None)
+    if limiter is not None:
+        return limiter
+    if not settings.customer_database_url or not settings.customer_token_pepper:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer abuse protection is not configured",
+        )
+    try:
+        limiter = PostgresCustomerRateLimiter(
+            settings.customer_database_url,
+            settings.customer_token_pepper,
+        )
+        if not limiter.verify_schema():
+            raise RuntimeError("Customer rate-limit schema is not installed")
+        request.app.state.customer_rate_limiter = limiter
+        return limiter
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer abuse protection is temporarily unavailable",
+        ) from None
+
+
+def _customer_client_ip(request: Request) -> str:
+    # Vercel supplies X-Forwarded-For at its trusted edge. Use the first
+    # address only after strict IP parsing; never persist the raw address.
+    forwarded = request.headers.get("x-forwarded-for")
+    candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
+    if not candidate and request.client is not None:
+        candidate = request.client.host
+    try:
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer client address could not be verified",
+        ) from None
 
 
 def _enforce_customer_email_rate_limit(request: Request) -> None:
-    client_ip = request.client.host if request.client is not None else "unknown"
-    allowed, retry_after = _customer_email_rate_limit_decision(client_ip)
+    limiter = _get_customer_rate_limiter(request)
+    try:
+        allowed, retry_after = limiter.check(
+            _customer_client_ip(request),
+            limit=_CUSTOMER_EMAIL_LIMIT,
+            window_seconds=_CUSTOMER_EMAIL_WINDOW_SECONDS,
+        )
+    except Exception:
+        # Fail closed: an unavailable shared limiter must not silently
+        # downgrade public email endpoints to process-local protection.
+        raise HTTPException(
+            status_code=503,
+            detail="Customer abuse protection is temporarily unavailable",
+        ) from None
     if not allowed:
         raise HTTPException(
             status_code=429,

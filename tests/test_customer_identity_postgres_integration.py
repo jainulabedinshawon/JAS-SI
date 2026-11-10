@@ -18,6 +18,7 @@ try:
 except ImportError:
     psycopg = None
 
+from jas_si_agent.customer_rate_limit import PostgresCustomerRateLimiter
 from jas_si_agent.customer_identity import (
     CustomerIdentityConflict,
     CustomerIdentityError,
@@ -40,6 +41,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             for name in (
                 "002_create_tenant_api_keys.sql",
                 "20261110_customer_identity.sql",
+                "20261110_customer_rate_limits.sql",
             ):
                 path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(path.read_text(encoding="utf-8"))
@@ -97,6 +99,41 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         self.assertEqual(link.purpose, "verify_email")
         self.store.verify_email(link.token)
 
+    def test_shared_rate_limit_is_atomic_and_shared_across_instances(self):
+        pepper = b"customer-rate-limit-test-pepper-32-bytes-minimum"
+        first = PostgresCustomerRateLimiter(self.dsn, pepper)
+        second = PostgresCustomerRateLimiter(self.dsn, pepper)
+        ip = "203.0.113.77"
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM jas_si_customer_rate_limits WHERE bucket_key = %s",
+                (first._bucket_key(ip),),
+            )
+        self.assertTrue(first.verify_schema())
+        self.assertEqual(first.check(ip, limit=2, window_seconds=60)[0], True)
+        self.assertEqual(second.check(ip, limit=2, window_seconds=60)[0], True)
+        allowed, retry_after = first.check(ip, limit=2, window_seconds=60)
+        self.assertFalse(allowed)
+        self.assertGreaterEqual(retry_after, 1)
+        self.assertFalse(second.check(ip, limit=2, window_seconds=60)[0])
+
+    def test_rate_limit_persists_only_keyed_ip_digest(self):
+        limiter = PostgresCustomerRateLimiter(
+            self.dsn, b"customer-rate-limit-test-pepper-32-bytes-minimum"
+        )
+        ip = "198.51.100.23"
+        key = limiter._bucket_key(ip)
+        self.assertEqual(len(key), 32)
+        self.assertNotIn(ip.encode("ascii"), key)
+        self.assertTrue(limiter.check(ip, limit=5, window_seconds=60)[0])
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT bucket_key FROM jas_si_customer_rate_limits WHERE bucket_key=%s",
+                (key,),
+            )
+            row = cur.fetchone()
+        self.assertIsNotNone(row)
+
     def test_runtime_role_is_limited_to_customer_identity_tables(self):
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute(
@@ -110,10 +147,17 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_sessions', 'SELECT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_api_keys', 'INSERT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_audit_events', 'INSERT'),
-                     has_table_privilege('jas_si_customer_runtime', 'jas_si_usage_events', 'INSERT')"""
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_usage_events', 'INSERT'),
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'SELECT'),
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'INSERT'),
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'UPDATE'),
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'DELETE')"""
             )
             privileges = cur.fetchone()
-        self.assertEqual(privileges, (True, True, True, True, False, True, True, False, False, False))
+        self.assertEqual(
+            privileges,
+            (True, True, True, True, False, True, True, False, False, False, True, True, True, False),
+        )
 
 
 if __name__ == "__main__":

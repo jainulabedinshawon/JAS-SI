@@ -35,3 +35,26 @@ The application checks `current_user`, `rolsuper`, and `rolbypassrls` at runtime
 ## Current status
 
 This is deployment guidance, not evidence that a production database role, secret, migration or customer journey is configured. No production database operation is authorized or performed by this document.
+
+
+## Shared customer email abuse protection
+
+The public registration and login endpoints use the PostgreSQL table
+`jas_si_customer_rate_limits` through the customer identity database role.
+The migration creates the table and grants only SELECT, INSERT and UPDATE to
+`jas_si_customer_runtime`; it does not grant DELETE or TRUNCATE. Apply the
+new `20261110_customer_rate_limits.sql` migration before enabling these
+endpoints. The limiter fails closed with HTTP 503 if the database or schema is
+unavailable; it does not fall back to per-process memory.
+
+Vercel's documented `x-forwarded-for` request header is overwritten by the
+Vercel edge with the public client IP to prevent caller IP spoofing. The API
+parses the first address as an IP literal and stores only an HMAC-SHA256 digest
+using the customer token pepper, never the raw address. This trust assumption
+is specific to requests served through Vercel; if the application is moved
+behind another proxy or exposed directly, the proxy must be configured to
+overwrite the forwarding header before this IP-based control is relied upon.
+
+The table retains one row per observed client-IP digest. An operator-managed
+retention cleanup should delete rows whose `updated_at` is older than the
+chosen retention window; do not grant DELETE to the application runtime role.

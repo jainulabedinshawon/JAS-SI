@@ -63,6 +63,16 @@ class FakeCustomerIdentityStore:
         return True
 
 
+class FakeCustomerRateLimiter:
+    def __init__(self):
+        self.attempts = {}
+
+    def check(self, client_ip, *, limit, window_seconds):
+        count = self.attempts.get(client_ip, 0) + 1
+        self.attempts[client_ip] = count
+        return count <= limit, window_seconds
+
+
 class FakeCustomerEmailSender:
     def __init__(self):
         self.sent = []
@@ -75,14 +85,21 @@ class TestCustomerIdentityApi(unittest.TestCase):
     def setUp(self):
         self.store = FakeCustomerIdentityStore()
         self.sender = FakeCustomerEmailSender()
-        api._customer_email_attempts.clear()
+        self.limiter = FakeCustomerRateLimiter()
+        self.limiter_patch = patch.object(api, "_get_customer_rate_limiter", return_value=self.limiter)
+        self.limiter_patch.start()
+        self.addCleanup(self.limiter_patch.stop)
         self.store_patch = patch.object(api, "_get_customer_identity_store", return_value=self.store)
         self.sender_patch = patch.object(api, "_get_customer_email_sender", return_value=self.sender)
         self.store_patch.start()
         self.sender_patch.start()
         self.addCleanup(self.store_patch.stop)
         self.addCleanup(self.sender_patch.stop)
-        self.client = TestClient(api.app, base_url="https://testserver")
+        self.client = TestClient(
+            api.app,
+            base_url="https://testserver",
+            headers={"X-Forwarded-For": "203.0.113.10"},
+        )
 
     def test_registration_sends_verification_link_without_returning_token(self):
         response = self.client.post(
