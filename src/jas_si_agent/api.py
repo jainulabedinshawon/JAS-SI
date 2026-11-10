@@ -322,17 +322,6 @@ async def security_and_rate_limit_middleware(
             )
         elif (
             operation is not None
-            and meter is not None
-            and idempotency_key is None
-        ):
-            response = JSONResponse(
-                status_code=400,
-                content={"detail": "Idempotency-Key is required for metered API requests"},
-            )
-            response.headers["X-RateLimit-Limit"] = str(settings.rate_limit_requests)
-            response.headers["X-RateLimit-Remaining"] = str(remaining)
-        elif (
-            operation is not None
             and idempotency_key is not None
             and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idempotency_key) is None
         ):
