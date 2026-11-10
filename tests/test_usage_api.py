@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import patch
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from jas_si_agent import api
@@ -40,7 +41,7 @@ class TestUsageAPI(TestCase):
         api.app.state.usage_meter = FakeUsageMeter()
         self.addCleanup(self._restore_meter)
 
-        def authenticate(request):
+        def authenticate(request: Request):
             request.state.tenant_id = self.tenant_id
             request.state.api_key_id = self.key_id
             request.state.api_key_scopes = ["usage:read"]
