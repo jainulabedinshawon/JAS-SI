@@ -165,11 +165,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                     )
 
 
-if __name__ == "__main__":
-    unittest.main()
 
-
-    def test_quota_rejects_new_event_after_limit(self):
         base = dict(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
             operation="authorization.evaluate", monthly_limit=1,
@@ -209,3 +205,7 @@ if __name__ == "__main__":
             outcomes = list(pool.map(attempt, args))
         self.assertEqual(sum(value != "quota_denied" for value in outcomes), 1)
         self.assertEqual(outcomes.count("quota_denied"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
