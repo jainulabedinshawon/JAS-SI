@@ -1,6 +1,8 @@
 -- Dedicated customer API-key self-service role.
--- Customer-key operations are restricted to the tenant UUID set transaction-locally
--- by PostgresApiKeyRegistry. RLS is enforced by PostgreSQL, not only by API code.
+-- RLS filters rows using a transaction-local tenant context derived from the
+-- authenticated customer session by the trusted API. PostgreSQL custom GUCs are
+-- settable by this role, so this is defense-in-depth, not independent tenant
+-- authentication against arbitrary SQL executed with the customer role.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_key_runtime') THEN
