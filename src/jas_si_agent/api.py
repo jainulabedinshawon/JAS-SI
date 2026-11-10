@@ -708,6 +708,8 @@ def _require_customer_session(request: Request):
         ) from None
     if account is None:
         raise HTTPException(status_code=401, detail="Customer session is invalid or expired")
+    if account.status != "active":
+        raise HTTPException(status_code=403, detail="Customer account is not active")
     request.state.tenant_id = str(account.tenant_id)
     request.state.customer_account_id = str(account.account_id)
     return account
