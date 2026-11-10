@@ -3,6 +3,9 @@ import os
 from unittest import TestCase
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+from jas_si_agent import api
+
 from jas_si_agent.billing_catalog import evaluate_monthly_quota, get_plan_catalog
 
 
@@ -45,3 +48,14 @@ class TestBillingCatalog(TestCase):
             evaluate_monthly_quota(monthly_limit=0, used_units=0)
         with self.assertRaises(ValueError):
             evaluate_monthly_quota(monthly_limit=100, used_units=-1)
+
+
+class TestPublicPlanEndpoint(TestCase):
+    def test_public_plans_endpoint_is_read_only_catalogue(self):
+        with patch.dict(os.environ, {"JAS_SI_FREE_MONTHLY_UNITS": "77"}):
+            response = TestClient(api.app).get("/plans")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["payment_status"], "not_connected")
+        self.assertEqual(body["plans"][0]["monthly_units"], 77)
+        self.assertFalse(body["plans"][1]["purchasable"])
