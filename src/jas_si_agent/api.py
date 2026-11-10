@@ -7,7 +7,7 @@ The security event store is injected through FastAPI application state.
 Critical operation results are withheld when their audit event cannot
 be persisted. Authentication denials remain denials even if logging fails.
 
-The in-memory rate limiter is per process, not distributed.
+The general API rate limiter is process-local; customer email abuse limits use a shared PostgreSQL store.
 """
 
 from __future__ import annotations
@@ -206,8 +206,17 @@ def _customer_client_ip(request: Request) -> str:
     if not forwarded:
         forwarded = request.headers.get("x-forwarded-for")
     candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
-    if not candidate and request.client is not None:
-        candidate = request.client.host
+    if not candidate:
+        # In preview/production the platform proxy headers are mandatory.
+        # request.client may identify an internal runtime peer, not the caller.
+        if settings.environment in {"preview", "production"}:
+            raise HTTPException(
+                status_code=503,
+                detail="Trusted customer client address is unavailable",
+            )
+        # Local/test environments may deliberately use the direct peer address.
+        if request.client is not None:
+            candidate = request.client.host
     try:
         return ipaddress.ip_address(candidate).compressed
     except ValueError:
