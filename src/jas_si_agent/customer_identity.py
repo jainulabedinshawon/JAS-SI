@@ -71,11 +71,26 @@ class PostgresCustomerIdentityStore:
         return secrets.token_urlsafe(32)
 
     def verify_schema(self) -> bool:
+        """Fail closed unless connected as the dedicated least-privilege identity role."""
         import psycopg
         with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.jas_si_customer_accounts'), to_regclass('public.jas_si_customer_auth_tokens'), to_regclass('public.jas_si_customer_sessions')")
+            cur.execute(
+                """SELECT current_user, r.rolsuper, r.rolbypassrls,
+                          to_regclass('public.jas_si_customer_accounts'),
+                          to_regclass('public.jas_si_customer_auth_tokens'),
+                          to_regclass('public.jas_si_customer_sessions'),
+                          to_regclass('public.jas_si_customer_rate_limits')
+                   FROM pg_roles AS r
+                   WHERE r.rolname = current_user"""
+            )
             row = cur.fetchone()
-            return bool(row and all(row))
+            return bool(
+                row
+                and row[0] == "jas_si_customer_runtime"
+                and not row[1]
+                and not row[2]
+                and all(row[3:])
+            )
 
     def register(self, email: str, organization_name: str) -> CustomerLink:
         normalized, organization = normalize_email(email), normalize_organization_name(organization_name)

@@ -15,8 +15,10 @@ if str(SRC) not in sys.path:
 DATABASE_URL = os.getenv("JAS_SI_TEST_DATABASE_URL")
 try:
     import psycopg
+    from psycopg.conninfo import make_conninfo
 except ImportError:
     psycopg = None
+    make_conninfo = None
 
 from jas_si_agent.customer_rate_limit import PostgresCustomerRateLimiter
 from jas_si_agent.customer_identity import (
@@ -33,11 +35,18 @@ from jas_si_agent.customer_identity import (
 class TestPostgresCustomerIdentity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.dsn = DATABASE_URL
-        with psycopg.connect(cls.dsn) as conn, conn.cursor() as cur:
+        cls.admin_dsn = DATABASE_URL
+        with psycopg.connect(cls.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname='jas_si_customer_runtime'")
             if cur.fetchone() is None:
                 cur.execute("CREATE ROLE jas_si_customer_runtime NOLOGIN")
+            # CI connects as the database owner; grant only test-time SET ROLE
+            # membership so the application store exercises the same role
+            # enforced by production configuration.
+            cur.execute("GRANT jas_si_customer_runtime TO CURRENT_USER")
+        cls.dsn = make_conninfo(
+            cls.admin_dsn, options="-c role=jas_si_customer_runtime"
+        )
             for role in ("jas_si_runtime", "jas_si_provisioner"):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
                 if cur.fetchone() is None:
@@ -55,6 +64,12 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         cls.store = PostgresCustomerIdentityStore(
             cls.dsn, b"customer-identity-test-pepper-32-bytes-minimum"
         )
+        if not cls.store.verify_schema():
+            raise AssertionError("Customer identity DSN did not assume the dedicated least-privilege role")
+        if PostgresCustomerIdentityStore(
+            cls.admin_dsn, b"customer-identity-test-pepper-32-bytes-minimum"
+        ).verify_schema():
+            raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
 
     def setUp(self):
         self.email = f"customer-{uuid.uuid4().hex}@example.test"
@@ -142,7 +157,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         self.assertIsNotNone(row)
 
     def test_runtime_role_is_limited_to_customer_identity_tables(self):
-        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 """SELECT
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_tenants', 'SELECT'),
