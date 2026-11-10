@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -144,6 +145,70 @@ class TestCustomerIdentityApi(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 429)
         self.assertIn("Retry-After", blocked.headers)
+
+    def test_customer_api_key_list_requires_customer_session(self):
+        with patch.object(api, "_get_customer_api_key_registry") as registry:
+            response = self.client.get("/v1/customer/api-keys")
+        self.assertEqual(response.status_code, 401)
+        registry.assert_not_called()
+
+    def test_customer_api_key_create_list_and_revoke_are_session_and_csrf_protected(self):
+        self.client.post(
+            "/v1/customer/session", json={"token": self.store.login_link.token}
+        )
+        csrf = self.client.cookies.get("jassi_customer_csrf")
+        issued = SimpleNamespace(
+            key_id=uuid.uuid4(),
+            token="jassi_live_one-time-secret",
+            prefix="jassi_live_prefix",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+        )
+        registry = SimpleNamespace(
+            list_tenant_keys=lambda tenant_id: [
+                {"key_id": str(issued.key_id), "key_name": "test", "key_prefix": issued.prefix,
+                 "scopes": ["authorization:check"], "status": "active",
+                 "created_at": datetime.now(timezone.utc).isoformat(),
+                 "expires_at": issued.expires_at.isoformat(), "last_used_at": None, "revoked_at": None}
+            ],
+            issue_key_with_audit=lambda **kwargs: issued,
+            revoke_key_with_audit=lambda **kwargs: True,
+        )
+        with patch.object(api, "_get_customer_api_key_registry", return_value=registry):
+            denied = self.client.post(
+                "/v1/customer/api-keys",
+                json={"key_name": "test", "scopes": ["authorization:check"]},
+            )
+            self.assertEqual(denied.status_code, 403)
+            created = self.client.post(
+                "/v1/customer/api-keys",
+                headers={"X-JAS-SI-CSRF": csrf},
+                json={"key_name": "test", "scopes": ["authorization:check"]},
+            )
+            self.assertEqual(created.status_code, 201)
+            self.assertEqual(created.json()["token"], issued.token)
+            listed = self.client.get("/v1/customer/api-keys")
+            self.assertEqual(listed.status_code, 200)
+            self.assertEqual(listed.json()["count"], 1)
+            revoked = self.client.post(
+                f"/v1/customer/api-keys/{issued.key_id}/revoke",
+                headers={"X-JAS-SI-CSRF": csrf},
+            )
+            self.assertEqual(revoked.status_code, 200)
+            self.assertTrue(revoked.json()["revoked"])
+
+    def test_customer_api_key_rejects_unapproved_scope(self):
+        self.client.post(
+            "/v1/customer/session", json={"token": self.store.login_link.token}
+        )
+        csrf = self.client.cookies.get("jassi_customer_csrf")
+        with patch.object(api, "_get_customer_api_key_registry") as registry:
+            response = self.client.post(
+                "/v1/customer/api-keys",
+                headers={"X-JAS-SI-CSRF": csrf},
+                json={"key_name": "admin", "scopes": ["admin:*"]},
+            )
+        self.assertEqual(response.status_code, 422)
+        registry.assert_not_called()
 
     def test_customer_portal_is_served(self):
         response = self.client.get("/customer")
