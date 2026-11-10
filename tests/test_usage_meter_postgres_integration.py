@@ -88,8 +88,8 @@ class TestPostgresUsageMeter(unittest.TestCase):
             request_id="request-1", idempotency_key="idem-1",
             operation="authorization.evaluate",
         )
-        first = self.meter.record(**args)
-        replay = self.meter.record(**args)
+        first = self._record(**args)
+        replay = self._record(**args)
         self.assertFalse(first["replayed"])
         self.assertTrue(replay["replayed"])
         self.assertEqual(first["event_id"], replay["event_id"])
@@ -100,9 +100,9 @@ class TestPostgresUsageMeter(unittest.TestCase):
             request_id="request-1", idempotency_key="idem-conflict",
             operation="authorization.evaluate",
         )
-        self.meter.record(**base)
+        self._record(**base)
         with self.assertRaises(UsageMeterError):
-            self.meter.record(**dict(base, operation="outcome.submit"))
+            self._record(**dict(base, operation="outcome.submit"))
 
     def test_same_key_rejects_changed_request_fingerprint(self):
         base = dict(
@@ -125,7 +125,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
             self._record(**dict(base, api_key_id=str(self.key_c)))
 
     def test_tenant_summary_does_not_leak_other_tenant(self):
-        self.meter.record(
+        self._record(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
             request_id="a", idempotency_key="a", operation="authorization.evaluate",
         )
