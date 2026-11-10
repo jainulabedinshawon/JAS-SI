@@ -207,9 +207,6 @@ class TestPostgresUsageMeter(unittest.TestCase):
         self.assertEqual(outcomes.count("quota_denied"), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_quota_status_reports_monthly_limit_and_remaining(self):
         self._record(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
@@ -223,3 +220,7 @@ if __name__ == "__main__":
         self.assertEqual(status["used_units"], 1)
         self.assertEqual(status["remaining_units"], 99)
         self.assertFalse(status["exhausted"])
+
+
+if __name__ == "__main__":
+    unittest.main()
