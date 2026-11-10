@@ -160,6 +160,34 @@ def get_security_event_store(request: Request) -> SecurityEventStore:
 _rate_limit_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
 
+# Additional anti-abuse limit for email-triggering customer auth endpoints.
+_customer_email_attempts: Dict[str, Deque[float]] = defaultdict(deque)
+_CUSTOMER_EMAIL_LIMIT = 5
+_CUSTOMER_EMAIL_WINDOW_SECONDS = 15 * 60
+
+
+def _customer_email_rate_limit_decision(client_ip: str) -> tuple[bool, int]:
+    now = time.monotonic()
+    with _rate_limit_lock:
+        bucket = _customer_email_attempts[client_ip]
+        while bucket and now - bucket[0] >= _CUSTOMER_EMAIL_WINDOW_SECONDS:
+            bucket.popleft()
+        if len(bucket) >= _CUSTOMER_EMAIL_LIMIT:
+            return False, max(1, ceil(_CUSTOMER_EMAIL_WINDOW_SECONDS - (now - bucket[0])))
+        bucket.append(now)
+        return True, 0
+
+
+def _enforce_customer_email_rate_limit(request: Request) -> None:
+    client_ip = request.client.host if request.client is not None else "unknown"
+    allowed, retry_after = _customer_email_rate_limit_decision(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many customer email requests. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
 # Dependency-free JSON logging. Do not log secrets or request bodies.
 logger = logging.getLogger("jas_si.security")
 logger.setLevel(logging.INFO)
@@ -697,6 +725,7 @@ def customer_register(
     payload: CustomerRegisterRequest,
     request: Request,
 ) -> dict:
+    _enforce_customer_email_rate_limit(request)
     try:
         email = normalize_email(payload.email)
         organization = normalize_organization_name(payload.organization_name)
@@ -728,6 +757,7 @@ def customer_login(
     payload: CustomerEmailRequest,
     request: Request,
 ) -> dict:
+    _enforce_customer_email_rate_limit(request)
     try:
         email = normalize_email(payload.email)
     except CustomerIdentityError as exc:
