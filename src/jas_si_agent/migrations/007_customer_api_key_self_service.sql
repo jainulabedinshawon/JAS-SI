@@ -10,8 +10,15 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA public TO jas_si_customer_key_runtime;
-GRANT SELECT (tenant_id, status) ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
-GRANT UPDATE (provisioning_lock_version) ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+
+-- Clear broad tenant-table write access first, then grant only the inert lock
+-- column needed by the registry's SELECT ... FOR UPDATE operation.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+    ON TABLE public.jas_si_tenants FROM jas_si_customer_key_runtime;
+GRANT SELECT (tenant_id, status)
+    ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+GRANT UPDATE (provisioning_lock_version)
+    ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
 
 GRANT SELECT (key_id, tenant_id, key_name, key_prefix, scopes, status, created_at, expires_at, last_used_at, revoked_at)
     ON TABLE public.jas_si_api_keys TO jas_si_customer_key_runtime;
@@ -49,5 +56,4 @@ DROP POLICY IF EXISTS jas_si_api_keys_provisioner ON public.jas_si_api_keys;
 CREATE POLICY jas_si_api_keys_provisioner ON public.jas_si_api_keys
     FOR ALL TO jas_si_provisioner USING (true) WITH CHECK (true);
 
--- The customer role must never create or change tenant business status or audit history.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.jas_si_tenants FROM jas_si_customer_key_runtime;
+-- No tenant business fields are writable by the customer role.
