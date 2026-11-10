@@ -136,10 +136,14 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        environment = os.getenv(
-            "JAS_SI_ENVIRONMENT",
-            "development",
-        ).strip().lower()
+        # Honour the explicit JAS-SI override first. On Vercel, derive the
+        # deployment environment from the platform-provided VERCEL_ENV when
+        # the application-specific setting is absent; otherwise a production
+        # deployment could silently retain the development proxy-IP fallback.
+        raw_environment = os.getenv("JAS_SI_ENVIRONMENT")
+        if raw_environment is None:
+            raw_environment = os.getenv("VERCEL_ENV", "development")
+        environment = raw_environment.strip().lower()
 
         if environment not in {
             "development",
