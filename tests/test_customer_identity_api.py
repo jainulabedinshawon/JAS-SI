@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 import uuid
 from types import SimpleNamespace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -156,7 +157,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.client.post(
             "/v1/customer/session", json={"token": self.store.login_link.token}
         )
-        self.store.account.status = "suspended"
+        self.store.account = replace(self.store.account, status="suspended")
         with patch.object(api, "_get_customer_api_key_registry") as registry:
             response = self.client.get("/v1/customer/api-keys")
         self.assertEqual(response.status_code, 403)
