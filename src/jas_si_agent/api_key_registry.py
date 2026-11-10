@@ -524,7 +524,7 @@ class PostgresApiKeyRegistry:
                         UPDATE jas_si_api_keys
                         SET status = 'revoked', revoked_at = NOW()
                         WHERE key_id = %s AND status = 'active'
-                          AND (%s IS NULL OR tenant_id = %s)
+                          AND (%s::uuid IS NULL OR tenant_id = %s)
                         RETURNING tenant_id
                         """,
                         (key_id, tenant_scope, tenant_scope),
