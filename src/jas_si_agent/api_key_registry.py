@@ -132,6 +132,27 @@ class PostgresApiKeyRegistry:
                 row = cursor.fetchone()
                 return bool(row and all(row))
 
+    def verify_customer_runtime_role(self) -> bool:
+        """Require the dedicated non-superuser, non-BYPASSRLS customer role."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT rolname, rolsuper, rolbypassrls
+                    FROM pg_roles
+                    WHERE rolname = current_user
+                    """
+                )
+                row = cursor.fetchone()
+        return bool(
+            row
+            and row[0] == "jas_si_customer_key_runtime"
+            and row[1] is False
+            and row[2] is False
+        )
+
     def create_tenant(self, tenant_name: str) -> uuid.UUID:
         name = tenant_name.strip() if isinstance(tenant_name, str) else ""
         if not name or len(name) > 120:
