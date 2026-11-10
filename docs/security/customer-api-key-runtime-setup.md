@@ -24,8 +24,9 @@ The application checks `current_user`, `rolsuper`, and `rolbypassrls` at runtime
 
 ## Security behavior
 
-- Customer session determines the tenant UUID; clients cannot submit tenant IDs.
-- Create, list, and revoke use the dedicated DSN and tenant transaction-local RLS context.
+- Customer session determines the tenant UUID; clients cannot submit tenant IDs. The HTTP API derives this value only from the server-validated session record.
+- Create, list, and revoke use the dedicated DSN and transaction-local RLS context. The RLS policy is defense-in-depth for this trusted server-derived context.
+- **Important boundary:** PostgreSQL custom settings such as `jas_si.tenant_id` are settable by a database role. RLS based on this setting does not independently authenticate a tenant against arbitrary SQL executed with the customer role. Never expose this DSN or SQL execution to customers, never accept tenant IDs from request payloads, and keep SQL parameterized. Stronger isolation against a compromised application role would require a database-verifiable signed tenant claim or per-tenant database principals; this phase does not claim that stronger guarantee.
 - Key secrets are shown only once; list responses contain metadata and never the raw secret/digest.
 - Create and revoke require the session CSRF cookie/header pair.
 - Audit event and key lifecycle changes are transactionally coupled in the registry.
