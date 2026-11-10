@@ -43,5 +43,11 @@ CREATE POLICY jas_si_api_keys_customer_tenant ON public.jas_si_api_keys
     USING (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid);
 
+-- Preserve the existing trusted operator provisioner path. The role is
+-- separately controlled and is not used by customer-facing endpoints.
+DROP POLICY IF EXISTS jas_si_api_keys_provisioner ON public.jas_si_api_keys;
+CREATE POLICY jas_si_api_keys_provisioner ON public.jas_si_api_keys
+    FOR ALL TO jas_si_provisioner USING (true) WITH CHECK (true);
+
 -- The customer role must never create or change tenant business status or audit history.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.jas_si_tenants FROM jas_si_customer_key_runtime;
