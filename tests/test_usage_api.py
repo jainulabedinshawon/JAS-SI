@@ -10,6 +10,16 @@ from jas_si_agent import api
 
 
 class FakeUsageMeter:
+    def __init__(self):
+        self.records = []
+
+    def record(self, **event):
+        self.records.append(event)
+        return {
+            "event_id": "00000000-0000-0000-0000-000000000033",
+            "replayed": len(self.records) > 1,
+        }
+
     def summary(self, *, tenant_id, since):
         return {
             "tenant_id": tenant_id,
@@ -74,3 +84,38 @@ class TestUsageAPI(TestCase):
     def test_naive_since_timestamp_is_rejected(self):
         response = self.client.get("/v1/usage?since=2026-11-01T00:00:00")
         self.assertEqual(response.status_code, 422)
+
+    def test_idempotency_header_is_used_for_usage_event(self):
+        headers = {"Idempotency-Key": "customer-request-001"}
+        payload = {
+            "action_id": "idem-001",
+            "action": "read",
+            "resource": "jas-si://tenant-resource",
+        }
+        first = self.client.post("/v1/authorize", json=payload, headers=headers)
+        second = self.client.post("/v1/authorize", json=payload, headers=headers)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(len(api.app.state.usage_meter.records), 2)
+        self.assertEqual(
+            [item["idempotency_key"] for item in api.app.state.usage_meter.records],
+            ["customer-request-001", "customer-request-001"],
+        )
+        self.assertEqual(
+            first.headers["X-JAS-SI-Usage-Event-ID"],
+            second.headers["X-JAS-SI-Usage-Event-ID"],
+        )
+
+    def test_invalid_idempotency_header_is_rejected_before_operation(self):
+        response = self.client.post(
+            "/v1/authorize",
+            json={
+                "action_id": "idem-invalid",
+                "action": "read",
+                "resource": "jas-si://tenant-resource",
+            },
+            headers={"Idempotency-Key": "invalid key with spaces"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(api.app.state.usage_meter.records, [])
