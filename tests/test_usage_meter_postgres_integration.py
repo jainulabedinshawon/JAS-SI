@@ -129,7 +129,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
             request_id="a", idempotency_key="a", operation="authorization.evaluate",
         )
-        self.meter.record(
+        self._record(
             tenant_id=str(self.tenant_b), api_key_id=str(self.key_b),
             request_id="b", idempotency_key="b", operation="outcome.submit",
         )
@@ -143,14 +143,14 @@ class TestPostgresUsageMeter(unittest.TestCase):
 
     def test_database_rejects_tenant_key_mismatch(self):
         with self.assertRaises(Exception):
-            self.meter.record(
+            self._record(
                 tenant_id=str(self.tenant_a), api_key_id=str(self.key_b),
                 request_id="mismatch", idempotency_key="mismatch",
                 operation="authorization.evaluate",
             )
 
     def test_usage_rows_are_immutable(self):
-        event = self.meter.record(
+        event = self._record(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
             request_id="immutable", idempotency_key="immutable",
             operation="authorization.evaluate",
