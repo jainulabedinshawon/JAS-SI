@@ -33,13 +33,9 @@ class TestPostgresUsageMeter(unittest.TestCase):
         cls.dsn = DATABASE_URL
         with psycopg.connect(cls.dsn) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """DO $ BEGIN
-                       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='jas_si_runtime') THEN
-                           CREATE ROLE jas_si_runtime NOLOGIN;
-                       END IF;
-                       END $;"""
-                )
+                cur.execute("SELECT 1 FROM pg_roles WHERE rolname='jas_si_runtime'")
+                if cur.fetchone() is None:
+                    cur.execute("CREATE ROLE jas_si_runtime NOLOGIN")
                 for name in (
                     "002_create_tenant_api_keys.sql",
                     "20261110_usage_metering.sql",
