@@ -35,7 +35,7 @@ GRANT CONNECT ON DATABASE <database_name> TO jas_si_customer_runtime;
 GRANT USAGE ON SCHEMA public TO jas_si_customer_runtime;
 ```
 
-Apply the existing tenant and audit migrations in the repository's documented order, then `20261110_customer_identity.sql` and `007_customer_api_key_self_service.sql`, using a migration/admin role. Before applying the latter, create the dedicated key-management login role and grant only database connection/schema usage:
+Apply the existing tenant and audit migrations in the repository's documented order, then apply `20261110_customer_identity.sql` followed by `20261110_customer_rate_limits.sql`, using a migration/admin role. The shared rate-limit migration depends on the identity migration and grants the customer identity runtime only SELECT, INSERT and UPDATE on its bucket table. Before applying `007_customer_api_key_self_service.sql`, create the dedicated key-management login role and grant only database connection/schema usage:
 
 ```sql
 CREATE ROLE jas_si_customer_key_runtime LOGIN PASSWORD '<managed-secret>';
@@ -62,8 +62,8 @@ Do not run these commands against Production until the user explicitly approves 
 - `POST /v1/customer/api-keys`: issue a scoped API key; token is returned once and expires within 1–365 days.
 - `POST /v1/customer/api-keys/{key_id}/revoke`: revoke only a key belonging to the signed-in tenant; CSRF header required.
 
-All customer endpoints are covered by the existing per-IP `/v1/` rate limiter. A distributed limiter and abuse monitoring remain follow-up hardening before broad public launch.
+Registration and login email-triggering endpoints use a shared PostgreSQL-backed abuse limiter. It stores an HMAC-SHA256 digest of the client IP (not the raw address), coordinates requests across serverless instances, and fails closed when its database table or connection is unavailable. On Vercel, it trusts the platform-preserved `x-vercel-forwarded-for` header first and the Vercel-edge-overwritten `x-forwarded-for` header second; malformed preferred values and missing trusted proxy headers in Preview/Production fail closed. The shared limiter migration must be applied before these endpoints are enabled. Other `/v1/` routes continue to use the API's general rate limiter. The rate-limit table retains one row per observed IP digest; retention cleanup is operator-managed because the application role has no DELETE privilege.
 
 ## Explicitly not included yet
 
-The API-key self-service endpoints, PostgreSQL RLS migration, customer usage endpoint and portal controls are implemented on this branch, but remain unmerged and not deployed. Billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Customer API-key self-service remains disabled until the dedicated database role, migration and pepper are configured and reviewed.
+The API-key self-service endpoints, PostgreSQL RLS migration, customer usage endpoint and portal controls are implemented on this branch, but remain unmerged and not deployed. Billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Customer API-key self-service remains disabled until the dedicated database role, migration and pepper are configured and reviewed. Customer registration/login also remain unavailable until the dedicated identity role, identity + shared rate-limit migrations, token pepper and SMTP delivery are configured and verified.
