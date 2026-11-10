@@ -11,6 +11,7 @@ on:
       - "tests/test_postgres_security_event_store_integration.py"
       - "tests/test_usage_meter_postgres_integration.py"
       - "tests/test_customer_identity_postgres_integration.py"
+      - "tests/test_customer_api_key_rls_integration.py"
       - "requirements.lock.txt"
       - ".github/workflows/postgres-audit-integration.yml"
 
@@ -84,4 +85,5 @@ jobs:
             tests.test_postgres_security_event_store_integration \
             tests.test_usage_meter_postgres_integration \
             tests.test_customer_identity_postgres_integration \
+            tests.test_customer_api_key_rls_integration \
             -v
