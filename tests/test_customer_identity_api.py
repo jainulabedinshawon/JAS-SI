@@ -78,7 +78,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.sender_patch.start()
         self.addCleanup(self.store_patch.stop)
         self.addCleanup(self.sender_patch.stop)
-        self.client = TestClient(api.app)
+        self.client = TestClient(api.app, base_url="https://testserver")
 
     def test_registration_sends_verification_link_without_returning_token(self):
         response = self.client.post(
