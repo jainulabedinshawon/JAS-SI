@@ -56,6 +56,7 @@ Do not run these commands against Production until the user explicitly approves 
 - `POST /v1/customer/session`: consume one-time login token and set cookies.
 - `GET /v1/customer/me`: current customer session.
 - `POST /v1/customer/logout`: revoke session; CSRF header required.
+- `GET /plans`: public plan catalogue; paid plans remain preview-only.
 - `GET /v1/customer/usage`: read the signed-in tenant's last-30-day technical usage and current Free quota; no monetary balance is inferred.
 - `GET /v1/customer/api-keys`: list the signed-in tenant's non-secret API-key metadata.
 - `POST /v1/customer/api-keys`: issue a scoped API key; token is returned once and expires within 1–365 days.
