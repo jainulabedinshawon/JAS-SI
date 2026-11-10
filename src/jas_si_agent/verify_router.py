@@ -6,12 +6,13 @@ import hashlib
 import os
 import re
 
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(
@@ -260,8 +261,7 @@ def _require_sha(value: Any, description: str) -> str:
 
     return value
 
-@router.post("/github/evidence")
-def verify_github_evidence(
+def _verify_github_evidence(
     payload: GitHubEvidenceRequest,
 ) -> dict[str, Any]:
     """
@@ -379,3 +379,71 @@ def verify_github_evidence(
         "read_only": True,
         "semantic_truth_verified": False,
     }
+
+
+
+def _persist_evidence_audit_event(
+    request: Request,
+    payload: GitHubEvidenceRequest,
+    *,
+    status_code: int,
+    outcome: str,
+) -> None:
+    """Persist GitHub evidence verification outcome before returning it."""
+    store = getattr(request.app.state, "security_event_store", None)
+    if store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Evidence verification could not be securely audited",
+        )
+
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": "github_evidence_verification",
+        "request_id": getattr(request.state, "request_id", "unknown"),
+        "method": request.method,
+        "endpoint": request.url.path,
+        "status_code": status_code,
+        "outcome": outcome,
+        "repository": payload.repository,
+        "commit_sha": payload.commit_sha,
+        "requested_file_count": len(payload.paths),
+    }
+    for field in ("tenant_id", "api_key_id"):
+        value = getattr(request.state, field, None)
+        if value is not None:
+            event[field] = value
+
+    try:
+        store.append(event)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Evidence verification could not be securely audited",
+        ) from None
+
+
+@router.post("/github/evidence")
+def verify_github_evidence(
+    payload: GitHubEvidenceRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Verify immutable GitHub evidence and durably audit the outcome."""
+    try:
+        result = _verify_github_evidence(payload)
+    except HTTPException as exc:
+        _persist_evidence_audit_event(
+            request,
+            payload,
+            status_code=exc.status_code,
+            outcome="rejected",
+        )
+        raise
+
+    _persist_evidence_audit_event(
+        request,
+        payload,
+        status_code=200,
+        outcome="integrity_verified",
+    )
+    return result

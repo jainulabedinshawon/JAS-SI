@@ -469,5 +469,71 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    @patch("jas_si_agent.verify_router.httpx.get")
+    def test_successful_evidence_verification_is_persisted(self, mock_get):
+        mock_get.side_effect = [
+            self.commit_response(),
+            self.file_response(),
+        ]
+
+        response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 200)
+        persisted = JsonlSecurityEventStore(
+            Path(self.temp_dir.name) / "security-events.jsonl"
+        ).load_events()
+        evidence_events = [
+            event for event in persisted
+            if event.get("event_type") == "github_evidence_verification"
+        ]
+        self.assertEqual(len(evidence_events), 1)
+        event = evidence_events[0]
+        self.assertEqual(event["outcome"], "integrity_verified")
+        self.assertEqual(event["status_code"], 200)
+        self.assertEqual(event["repository"], "owner/project")
+        self.assertEqual(event["commit_sha"], COMMIT_SHA)
+        self.assertEqual(event["requested_file_count"], 1)
+        self.assertNotIn("content", event)
+        self.assertNotIn("token", str(event).lower())
+
+    @patch("jas_si_agent.verify_router.httpx.get")
+    def test_rejected_evidence_verification_is_persisted(self, mock_get):
+        mock_get.return_value = FakeGitHubResponse(
+            404,
+            {"message": "Not Found"},
+        )
+
+        response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 404)
+        persisted = JsonlSecurityEventStore(
+            Path(self.temp_dir.name) / "security-events.jsonl"
+        ).load_events()
+        evidence_events = [
+            event for event in persisted
+            if event.get("event_type") == "github_evidence_verification"
+        ]
+        self.assertEqual(len(evidence_events), 1)
+        self.assertEqual(evidence_events[0]["outcome"], "rejected")
+        self.assertEqual(evidence_events[0]["status_code"], 404)
+
+    @patch("jas_si_agent.verify_router.httpx.get")
+    def test_evidence_result_fails_closed_when_audit_persistence_fails(
+        self, mock_get
+    ):
+        mock_get.side_effect = [
+            self.commit_response(),
+            self.file_response(),
+        ]
+        with patch.object(
+            self.client.app.state.security_event_store,
+            "append",
+            side_effect=OSError("simulated audit store failure"),
+        ):
+            response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("securely audited", response.text.lower())
+
 if __name__ == "__main__":
     unittest.main()
