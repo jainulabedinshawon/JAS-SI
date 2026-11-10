@@ -5,7 +5,6 @@ import unittest
 import uuid
 from dataclasses import replace
 from types import SimpleNamespace
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -324,6 +323,19 @@ class TestCustomerIdentityApi(unittest.TestCase):
             api, "settings", replace(api.settings, environment="development")
         ):
             self.assertEqual(api._customer_client_ip(request), "127.0.0.1")
+
+
+
+    def test_shared_rate_limit_failure_fails_closed_before_sending_email(self):
+        self.limiter.check = lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        )
+        response = self.client.post(
+            "/v1/customer/login",
+            json={"email": "user@example.test"},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.sender.sent, [])
 
 
 

@@ -7,7 +7,7 @@ The security event store is injected through FastAPI application state.
 Critical operation results are withheld when their audit event cannot
 be persisted. Authentication denials remain denials even if logging fails.
 
-The in-memory rate limiter is per process, not distributed.
+The general API rate limiter is process-local; customer email abuse limits use a shared PostgreSQL store.
 """
 
 from __future__ import annotations
