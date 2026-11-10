@@ -626,7 +626,12 @@ def usage_summary(request: Request, since: Optional[datetime] = None) -> dict:
         meter = getattr(request.app.state, "usage_meter", None)
         if meter is None:
             meter = PostgresUsageMeter(settings.database_url)
-        return meter.summary(tenant_id=tenant_id, since=window_start)
+        result = meter.summary(tenant_id=tenant_id, since=window_start)
+        result["quota"] = meter.quota_status(
+            tenant_id=tenant_id,
+            monthly_limit=get_free_monthly_units(),
+        )
+        return result
     except Exception:
         raise HTTPException(status_code=503, detail="Tenant usage summary is temporarily unavailable") from None
 
