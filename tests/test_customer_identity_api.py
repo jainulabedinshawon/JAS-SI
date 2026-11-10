@@ -72,6 +72,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
     def setUp(self):
         self.store = FakeCustomerIdentityStore()
         self.sender = FakeCustomerEmailSender()
+        api._customer_email_attempts.clear()
         self.store_patch = patch.object(api, "_get_customer_identity_store", return_value=self.store)
         self.sender_patch = patch.object(api, "_get_customer_email_sender", return_value=self.sender)
         self.store_patch.start()
@@ -131,6 +132,18 @@ class TestCustomerIdentityApi(unittest.TestCase):
         )
         self.assertEqual(logout.status_code, 200)
         self.assertTrue(self.store.revoked)
+
+    def test_customer_email_requests_have_a_dedicated_ip_rate_limit(self):
+        for _ in range(api._CUSTOMER_EMAIL_LIMIT):
+            response = self.client.post(
+                "/v1/customer/login", json={"email": "user@example.test"}
+            )
+            self.assertEqual(response.status_code, 202)
+        blocked = self.client.post(
+            "/v1/customer/login", json={"email": "user@example.test"}
+        )
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn("Retry-After", blocked.headers)
 
     def test_customer_portal_is_served(self):
         response = self.client.get("/customer")
