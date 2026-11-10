@@ -63,8 +63,8 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         """INSERT INTO jas_si_api_keys
                            (key_id, tenant_id, key_name, key_prefix,
                             secret_digest, scopes, created_by)
-                           VALUES (%s,%s,'integration','%s',%s,ARRAY['authorization:check'],'ci')"""
-                        % ("%s", "%s", "%s", "%s", "%s", "%s", "%s"),
+                           VALUES (%s,%s,'integration',%s,%s,
+                                   ARRAY['authorization:check'],'ci')""",
                         (key_id, tenant_id, prefix, b"x" * 32),
                     )
 
