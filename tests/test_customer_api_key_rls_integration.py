@@ -108,14 +108,22 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 provisioning_run_id=f"customer-api:{uuid.uuid4()}",
                 tenant_scope=self.tenant_a,
             )
-        foreign_key_id = uuid.uuid4()
-        with self.assertRaises(Exception):
+        admin_registry = PostgresApiKeyRegistry(DATABASE_URL, self.pepper)
+        foreign = admin_registry.issue_key(
+            self.tenant_b, "foreign-owned", ["authorization:check"], "operator"
+        )
+        self.assertFalse(
             self.registry.revoke_key_with_audit(
-                foreign_key_id,
+                foreign.key_id,
                 revoked_by="customer",
                 revocation_run_id=f"customer-revoke:{uuid.uuid4()}",
                 tenant_scope=self.tenant_a,
             )
+        )
+        self.assertEqual(
+            admin_registry.list_tenant_keys(self.tenant_b)[0]["status"],
+            "active",
+        )
 
 
 if __name__ == "__main__":
