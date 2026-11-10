@@ -47,24 +47,29 @@ CREATE TABLE IF NOT EXISTS jas_si_customer_sessions (
 CREATE INDEX IF NOT EXISTS jas_si_customer_sessions_account_idx ON jas_si_customer_sessions (account_id, expires_at DESC) WHERE revoked_at IS NULL;
 REVOKE UPDATE, DELETE, TRUNCATE ON jas_si_customer_auth_tokens FROM PUBLIC;
 
--- Separate customer-identity runtime role. It may create a tenant during
--- signup and manage only customer-owned identity records; it cannot touch
--- API keys, audit records, usage events, or tenant status.
+-- Bootstrap a non-login group role. Deployment credentials must be a separate
+-- LOGIN role granted membership in this role; the app DSN must SET ROLE to it.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_runtime') THEN
-        EXECUTE 'GRANT SELECT ON TABLE public.jas_si_tenants TO jas_si_customer_runtime';
-        EXECUTE 'GRANT INSERT (tenant_id, tenant_name) ON TABLE public.jas_si_tenants TO jas_si_customer_runtime';
-        EXECUTE 'GRANT SELECT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
-        EXECUTE 'GRANT INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
-        EXECUTE 'GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime';
-        EXECUTE 'GRANT SELECT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime';
-        EXECUTE 'GRANT INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime';
-        EXECUTE 'GRANT UPDATE (consumed_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime';
-        EXECUTE 'GRANT SELECT ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime';
-        EXECUTE 'GRANT INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime';
-        EXECUTE 'GRANT UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime';
-        EXECUTE 'REVOKE DELETE, TRUNCATE ON TABLE public.jas_si_customer_accounts, public.jas_si_customer_auth_tokens, public.jas_si_customer_sessions FROM jas_si_customer_runtime';
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_runtime') THEN
+        CREATE ROLE jas_si_customer_runtime NOLOGIN;
     END IF;
 END
 $$;
+
+-- Customer identity creates tenant rows during signup but does not need to
+-- enumerate or read other tenants. The tenant INSERT policy is installed by
+-- migration 007 after tenant RLS is enabled.
+REVOKE SELECT, UPDATE, DELETE, TRUNCATE ON TABLE public.jas_si_tenants FROM jas_si_customer_runtime;
+GRANT INSERT (tenant_id, tenant_name) ON TABLE public.jas_si_tenants TO jas_si_customer_runtime;
+
+GRANT SELECT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime;
+GRANT INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime;
+GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime;
+GRANT SELECT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime;
+GRANT INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime;
+GRANT UPDATE (consumed_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime;
+GRANT SELECT ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime;
+GRANT INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime;
+GRANT UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime;
+REVOKE DELETE, TRUNCATE ON TABLE public.jas_si_customer_accounts, public.jas_si_customer_auth_tokens, public.jas_si_customer_sessions FROM jas_si_customer_runtime;
