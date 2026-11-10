@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -146,6 +147,34 @@ class TestCustomerIdentityApi(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 429)
         self.assertIn("Retry-After", blocked.headers)
+
+    def test_customer_usage_requires_customer_session(self):
+        response = self.client.get("/v1/customer/usage")
+        self.assertEqual(response.status_code, 401)
+
+    def test_customer_usage_is_scoped_to_authenticated_tenant_and_not_billing(self):
+        self.client.post(
+            "/v1/customer/session", json={"token": self.store.login_link.token}
+        )
+        observed = {}
+        class FakeUsageMeter:
+            def summary(self, *, tenant_id, since):
+                observed["tenant_id"] = tenant_id
+                observed["since"] = since
+                return {"tenant_id": tenant_id, "units": 7, "events": 4, "by_operation": []}
+            def quota_status(self, *, tenant_id, monthly_limit):
+                observed["quota_tenant_id"] = tenant_id
+                return {"monthly_limit": monthly_limit, "used_units": 7, "remaining_units": monthly_limit - 7}
+        with patch.object(api, "settings", replace(api.settings, database_url="postgresql://test")), \
+             patch.object(api, "PostgresUsageMeter", return_value=FakeUsageMeter()), \
+             patch.object(api, "get_free_monthly_units", return_value=100):
+            response = self.client.get("/v1/customer/usage")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(observed["tenant_id"], str(self.store.account.tenant_id))
+        self.assertEqual(observed["quota_tenant_id"], str(self.store.account.tenant_id))
+        self.assertEqual(response.json()["quota"]["remaining_units"], 93)
+        self.assertEqual(response.json()["billing_status"], "not_connected")
+        self.assertIn("No monetary balance", response.json()["note"])
 
     def test_customer_api_key_list_requires_customer_session(self):
         with patch.object(api, "_get_customer_api_key_registry") as registry:
