@@ -1,6 +1,6 @@
 # JAS-SI Standalone Billing and Pricing v1.0
 
-**Status:** Implementation foundation; limited preview only.  
+**Status:** Quota enforcement implementation in review; paid billing remains preview-only.  
 **Decision:** JAS-SI owns its initial Free plan, technical usage quota, plan catalogue and customer-facing billing status. JAS Platform integration is a later adapter phase.
 
 ## Product strategy
@@ -15,9 +15,10 @@ JAS-SI competes on low-friction adoption and low total cost:
 
 - A public plan catalogue with Free, Starter, Pro and Enterprise tiers.
 - Free monthly allowance configurable through `JAS_SI_FREE_MONTHLY_UNITS` (default 100 technical units).
-- Pure quota-decision primitive with explicit allow/deny and remaining-unit result.
+- Atomic quota reservation against tenant-scoped durable usage events.
 - Paid tiers are visible as preview-only; no invented price or purchasable state.
 - No payment is collected and no paid entitlement is granted.
+- Quota reservations are currently charged as technical request units; an operation that passes authentication and schema validation consumes one unit even if the subsequent business evaluation fails.
 
 ## Important limitations
 
