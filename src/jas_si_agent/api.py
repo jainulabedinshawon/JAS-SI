@@ -198,9 +198,13 @@ def _get_customer_rate_limiter(request: Request) -> PostgresCustomerRateLimiter:
 
 
 def _customer_client_ip(request: Request) -> str:
-    # Vercel supplies X-Forwarded-For at its trusted edge. Use the first
-    # address only after strict IP parsing; never persist the raw address.
-    forwarded = request.headers.get("x-forwarded-for")
+    # Vercel documents x-vercel-forwarded-for as the client address preserved
+    # when another proxy may overwrite x-forwarded-for. Prefer it whenever
+    # present; otherwise use Vercel's edge-overwritten x-forwarded-for.
+    # Do not fall back to an untrusted request.client value in deployment.
+    forwarded = request.headers.get("x-vercel-forwarded-for")
+    if not forwarded:
+        forwarded = request.headers.get("x-forwarded-for")
     candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
     if not candidate and request.client is not None:
         candidate = request.client.host
