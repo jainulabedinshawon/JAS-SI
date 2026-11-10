@@ -31,7 +31,7 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 <button type="submit">Email me a sign-in link</button></form></section>
 </div>
 <section id="account" hidden><h2>Account</h2><p><strong id="account-email"></strong></p><p id="account-org" class="muted"></p>
-<p>Account session is active. API key management and detailed usage controls will appear here when enabled.</p>
+<p>Account session is active. Create and manage your tenant-scoped API keys below.</p>
 <button id="logout" class="secondary">Sign out</button>
 <hr><h3>API keys</h3>
 <form id="create-key">
