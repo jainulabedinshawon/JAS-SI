@@ -41,6 +41,7 @@ from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.live_demo import LIVE_GITHUB_DEMO_HTML
 from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.usage_meter import PostgresUsageMeter
+from jas_si_agent.billing_catalog import get_plan_catalog
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
@@ -540,6 +541,12 @@ def verification_demo() -> HTMLResponse:
 def live_github_demo() -> HTMLResponse:
     """Serve a live, read-only GitHub evidence API console."""
     return HTMLResponse(content=LIVE_GITHUB_DEMO_HTML)
+
+
+@app.get("/plans")
+def public_plan_catalog() -> dict:
+    """Expose plan availability without implying payment or entitlement state."""
+    return get_plan_catalog()
 
 
 @app.get("/health")
