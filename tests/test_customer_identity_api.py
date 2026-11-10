@@ -152,6 +152,16 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         registry.assert_not_called()
 
+    def test_inactive_customer_cannot_manage_api_keys(self):
+        self.client.post(
+            "/v1/customer/session", json={"token": self.store.login_link.token}
+        )
+        self.store.account.status = "suspended"
+        with patch.object(api, "_get_customer_api_key_registry") as registry:
+            response = self.client.get("/v1/customer/api-keys")
+        self.assertEqual(response.status_code, 403)
+        registry.assert_not_called()
+
     def test_customer_api_key_create_list_and_revoke_are_session_and_csrf_protected(self):
         self.client.post(
             "/v1/customer/session", json={"token": self.store.login_link.token}
