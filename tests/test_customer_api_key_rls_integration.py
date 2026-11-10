@@ -74,8 +74,8 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 (self.tenant_a, f"RLS-A-{self.tenant_a.hex[:8]}", self.tenant_b, f"RLS-B-{self.tenant_b.hex[:8]}"),
             )
             cur.execute(
-                "INSERT INTO jas_si_api_keys (key_id,tenant_id,key_name,key_prefix,secret_digest,pepper_version,scopes,created_by) VALUES (%s,%s,'foreign','foreign-prefix',%s,1,ARRAY['usage:read'],'test')",
-                (uuid.uuid4(), self.tenant_b, b"x" * 32),
+                "INSERT INTO jas_si_api_keys (key_id,tenant_id,key_name,key_prefix,secret_digest,pepper_version,scopes,created_by) VALUES (%s,%s,'foreign',%s,%s,1,ARRAY['usage:read'],'test')",
+                (uuid.uuid4(), self.tenant_b, f"foreign-{self.tenant_b.hex[:12]}", b"x" * 32),
             )
 
     def test_customer_role_lists_only_own_tenant_and_can_issue_and_revoke(self):
