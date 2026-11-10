@@ -178,7 +178,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             privileges = cur.fetchone()
         self.assertEqual(
             privileges,
-            (True, True, True, True, False, True, True, False, False, False, True, True, True, False),
+            (False, True, True, True, False, True, True, False, False, False, True, True, True, False),
         )
 
 
