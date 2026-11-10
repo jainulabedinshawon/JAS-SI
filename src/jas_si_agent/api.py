@@ -12,6 +12,7 @@ The in-memory rate limiter is per process, not distributed.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import logging
@@ -299,6 +300,8 @@ async def security_and_rate_limit_middleware(
             "/v1/verify": "outcome.submit",
             "/v1/github/evidence": "github.evidence.verify",
         }
+        operation = metered_paths.get(request.url.path)
+        meter = getattr(request.app.state, "usage_meter", None)
 
         if not allowed:
             _log_security_event(
@@ -318,7 +321,18 @@ async def security_and_rate_limit_middleware(
                 },
             )
         elif (
-            request.url.path in metered_paths
+            operation is not None
+            and meter is not None
+            and idempotency_key is None
+        ):
+            response = JSONResponse(
+                status_code=400,
+                content={"detail": "Idempotency-Key is required for metered API requests"},
+            )
+            response.headers["X-RateLimit-Limit"] = str(settings.rate_limit_requests)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+        elif (
+            operation is not None
             and idempotency_key is not None
             and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idempotency_key) is None
         ):
@@ -334,12 +348,13 @@ async def security_and_rate_limit_middleware(
             response.headers["X-RateLimit-Limit"] = str(settings.rate_limit_requests)
             response.headers["X-RateLimit-Remaining"] = str(remaining)
         else:
+            request_fingerprint = None
+            if operation is not None and meter is not None:
+                request_fingerprint = hashlib.sha256(await request.body()).hexdigest()
             response = await call_next(request)
             # This is technical usage telemetry, not an entitlement or money charge.
-            operation = metered_paths.get(request.url.path)
             tenant_id = getattr(request.state, "tenant_id", None)
             api_key_id = getattr(request.state, "api_key_id", None)
-            meter = getattr(request.app.state, "usage_meter", None)
             if operation and response.status_code < 400 and tenant_id and api_key_id and meter is not None:
                 try:
                     event = meter.record(
@@ -348,6 +363,7 @@ async def security_and_rate_limit_middleware(
                         request_id=request.state.request_id,
                         idempotency_key=idempotency_key or request.state.request_id,
                         operation=operation,
+                        request_fingerprint=request_fingerprint,
                     )
                     response.headers["X-JAS-SI-Usage-Event-ID"] = event["event_id"]
                     if event.get("replayed"):
