@@ -17,6 +17,7 @@ import hmac
 import json
 import logging
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -30,6 +31,9 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    Response,
+    Cookie,
+    Header,
     Security,
 )
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -37,6 +41,18 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
+from jas_si_agent.customer_identity import (
+    CustomerIdentityConflict,
+    CustomerIdentityError,
+    PostgresCustomerIdentityStore,
+    normalize_email,
+    normalize_organization_name,
+)
+from jas_si_agent.customer_email import (
+    CustomerEmailDeliveryError,
+    SmtpCustomerEmailSender,
+)
+from jas_si_agent.customer_portal import CUSTOMER_PORTAL_HTML
 from jas_si_agent.dashboard import DASHBOARD_HTML
 from jas_si_agent.demo import DEMO_HTML
 from jas_si_agent.live_demo import LIVE_GITHUB_DEMO_HTML
@@ -576,6 +592,265 @@ def _require_api_key(
             detail="Missing or invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
+
+
+
+class CustomerRegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    organization_name: str = Field(min_length=1, max_length=160)
+
+
+class CustomerEmailRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class CustomerTokenRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+
+
+def _get_customer_identity_store(request: Request) -> PostgresCustomerIdentityStore:
+    store = getattr(request.app.state, "customer_identity_store", None)
+    if store is not None:
+        return store
+    if not settings.customer_database_url or not settings.customer_token_pepper:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer identity is not configured",
+        )
+    try:
+        store = PostgresCustomerIdentityStore(
+            settings.customer_database_url,
+            settings.customer_token_pepper,
+        )
+        if not store.verify_schema():
+            raise RuntimeError("Customer identity schema is not installed")
+        request.app.state.customer_identity_store = store
+        return store
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer identity service is temporarily unavailable",
+        ) from None
+
+
+def _get_customer_email_sender() -> SmtpCustomerEmailSender:
+    if not settings.customer_smtp_host or not settings.customer_smtp_sender:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer email delivery is not configured",
+        )
+    try:
+        return SmtpCustomerEmailSender(
+            host=settings.customer_smtp_host,
+            port=settings.customer_smtp_port,
+            username=settings.customer_smtp_username,
+            password=settings.customer_smtp_password,
+            sender=settings.customer_smtp_sender,
+            public_base_url=settings.customer_public_base_url,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer email delivery is not configured correctly",
+        ) from None
+
+
+def _customer_account_response(account) -> dict:
+    return {
+        "account_id": str(account.account_id),
+        "email": account.email,
+        "organization_name": account.organization_name,
+        "status": account.status,
+    }
+
+
+def _send_customer_link_safely(
+    request: Request,
+    sender: SmtpCustomerEmailSender,
+    link,
+) -> None:
+    try:
+        sender.send_link(
+            recipient=link.email,
+            purpose=link.purpose,
+            token=link.token,
+            expires_at=link.expires_at,
+        )
+    except CustomerEmailDeliveryError:
+        # Never log the email address or one-time token, and never expose
+        # account-existence or mail-provider status to the public caller.
+        _log_security_event(
+            "customer_email_delivery_failed",
+            request,
+            reason_code="smtp_delivery_failed",
+        )
+
+
+@app.get("/customer", response_class=HTMLResponse, include_in_schema=False)
+def customer_portal() -> HTMLResponse:
+    """Serve the standalone JAS-SI customer sign-up and sign-in portal."""
+    return HTMLResponse(content=CUSTOMER_PORTAL_HTML)
+
+
+@app.post("/v1/customer/register", status_code=202)
+def customer_register(
+    payload: CustomerRegisterRequest,
+    request: Request,
+) -> dict:
+    try:
+        email = normalize_email(payload.email)
+        organization = normalize_organization_name(payload.organization_name)
+    except CustomerIdentityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    store = _get_customer_identity_store(request)
+    sender = _get_customer_email_sender()
+    try:
+        try:
+            link = store.register(email, organization)
+        except CustomerIdentityConflict:
+            # Resend only for a pending account; active accounts remain
+            # indistinguishable from unknown accounts to prevent enumeration.
+            link = store.issue_verification_link(email)
+    except CustomerIdentityError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer registration is temporarily unavailable",
+        ) from None
+    if link is not None:
+        _send_customer_link_safely(request, sender, link)
+    return {
+        "message": "If the address is eligible, a verification link has been sent."
+    }
+
+
+@app.post("/v1/customer/login", status_code=202)
+def customer_login(
+    payload: CustomerEmailRequest,
+    request: Request,
+) -> dict:
+    try:
+        email = normalize_email(payload.email)
+    except CustomerIdentityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    store = _get_customer_identity_store(request)
+    sender = _get_customer_email_sender()
+    try:
+        link = store.issue_login_link(email)
+    except CustomerIdentityError:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer sign-in is temporarily unavailable",
+        ) from None
+    if link is not None:
+        _send_customer_link_safely(request, sender, link)
+    return {
+        "message": "If an active account exists, a sign-in link has been sent."
+    }
+
+
+@app.post("/v1/customer/verify-email")
+def customer_verify_email(
+    payload: CustomerTokenRequest,
+    request: Request,
+) -> dict:
+    store = _get_customer_identity_store(request)
+    try:
+        account = store.verify_email(payload.token)
+    except CustomerIdentityError:
+        raise HTTPException(
+            status_code=400,
+            detail="The verification link is invalid or expired",
+        ) from None
+    _log_security_event(
+        "customer_email_verified",
+        request,
+        tenant_id=str(account.tenant_id),
+        account_id=str(account.account_id),
+    )
+    return {"verified": True, "message": "Email address verified. You may now sign in."}
+
+
+@app.post("/v1/customer/session")
+def customer_create_session(
+    payload: CustomerTokenRequest,
+    request: Request,
+    response: Response,
+) -> dict:
+    store = _get_customer_identity_store(request)
+    try:
+        session = store.consume_login_link(payload.token)
+    except CustomerIdentityError:
+        raise HTTPException(
+            status_code=400,
+            detail="The sign-in link is invalid or expired",
+        ) from None
+    secure = settings.environment in {"preview", "production"}
+    max_age = max(1, int((session.expires_at - datetime.now(timezone.utc)).total_seconds()))
+    csrf_token = secrets.token_urlsafe(24)
+    response.set_cookie(
+        "jassi_customer_session",
+        session.token,
+        max_age=max_age,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+    response.set_cookie(
+        "jassi_customer_csrf",
+        csrf_token,
+        max_age=max_age,
+        httponly=False,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+    _log_security_event(
+        "customer_session_created",
+        request,
+        tenant_id=str(session.account.tenant_id),
+        account_id=str(session.account.account_id),
+    )
+    return _customer_account_response(session.account)
+
+
+@app.get("/v1/customer/me")
+def customer_me(
+    request: Request,
+    session_token: Optional[str] = Cookie(default=None, alias="jassi_customer_session"),
+) -> dict:
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Customer session is required")
+    store = _get_customer_identity_store(request)
+    try:
+        account = store.authenticate_session(session_token)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Customer session service is unavailable") from None
+    if account is None:
+        raise HTTPException(status_code=401, detail="Customer session is invalid or expired")
+    return _customer_account_response(account)
+
+
+@app.post("/v1/customer/logout")
+def customer_logout(
+    request: Request,
+    response: Response,
+    session_token: Optional[str] = Cookie(default=None, alias="jassi_customer_session"),
+    csrf_cookie: Optional[str] = Cookie(default=None, alias="jassi_customer_csrf"),
+    csrf_header: Optional[str] = Header(default=None, alias="X-JAS-SI-CSRF"),
+) -> dict:
+    if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+    if session_token:
+        store = _get_customer_identity_store(request)
+        try:
+            store.revoke_session(session_token)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Customer sign-out is unavailable") from None
+    response.delete_cookie("jassi_customer_session", path="/", httponly=True, samesite="strict")
+    response.delete_cookie("jassi_customer_csrf", path="/", samesite="strict")
+    return {"signed_out": True}
+
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def developer_console() -> HTMLResponse:
