@@ -85,7 +85,7 @@ def get_plan_catalog() -> dict:
         "currency_policy": "Prices are unpublished until cost and provider validation.",
         "plans": [asdict(plan) for plan in plans],
         "disclaimer": (
-            "The Free allowance is a configurable product limit, not a monetary credit. "
+            "The Free allowance is a configurable technical quota, not monetary credit. "
             "Paid plans are preview-only and cannot be purchased or grant entitlements."
         ),
     }
