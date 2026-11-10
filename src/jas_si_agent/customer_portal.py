@@ -32,7 +32,18 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 </div>
 <section id="account" hidden><h2>Account</h2><p><strong id="account-email"></strong></p><p id="account-org" class="muted"></p>
 <p>Account session is active. API key management and detailed usage controls will appear here when enabled.</p>
-<button id="logout" class="secondary">Sign out</button></section>
+<button id="logout" class="secondary">Sign out</button>
+<hr><h3>API keys</h3>
+<form id="create-key">
+<label for="key-name">Key name</label><input id="key-name" maxlength="120" required>
+<label for="key-scope">Permission</label>
+<select id="key-scope"><option value="authorization:check">Authorization check</option><option value="outcomes:submit">Submit outcomes</option><option value="github:evidence:verify">Verify GitHub evidence</option><option value="usage:read">Read usage</option></select>
+<label for="key-expiry">Expires in days</label><input id="key-expiry" type="number" min="1" max="365" value="90" required>
+<button type="submit">Create API key</button>
+</form>
+<p id="new-key" role="status" aria-live="polite"></p>
+<ul id="key-list"></ul>
+</section>
 </main>
 <script>
 const notice=document.getElementById('notice');
@@ -54,6 +65,30 @@ function showAccount(data){
  document.getElementById('account-org').textContent=data.organization_name;
  auth.hidden=true;account.hidden=false;
  notice.textContent='You are signed in to JAS-SI.';
+ loadApiKeys();
+}
+async function loadApiKeys(){
+ const list=document.getElementById('key-list');list.replaceChildren();
+ try{
+  const response=await fetch('/v1/customer/api-keys',{credentials:'same-origin'});
+  if(!response.ok)throw new Error('API key management is not enabled for this account yet.');
+  const data=await response.json();
+  for(const key of data.items){
+   const item=document.createElement('li');
+   const label=document.createElement('span');
+   label.textContent=key.key_name+' · '+key.key_prefix+' · '+key.status;
+   item.appendChild(label);
+   if(key.status==='active'){
+    const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Revoke';
+    button.addEventListener('click',async()=>{
+     try{await request('/v1/customer/api-keys/'+encodeURIComponent(key.key_id)+'/revoke',{});await loadApiKeys()}
+     catch(error){notice.textContent=error.message}
+    });
+    item.appendChild(button);
+   }
+   list.appendChild(item);
+  }
+ }catch(error){notice.textContent=error.message}
 }
 async function loadAccount(){
  const response=await fetch('/v1/customer/me',{credentials:'same-origin'});
@@ -69,6 +104,20 @@ document.getElementById('login').addEventListener('submit',async event=>{
  event.preventDefault();notice.textContent='Submitting…';
  try{await request('/v1/customer/login',{email:document.getElementById('login-email').value});notice.textContent='If an active account exists, a sign-in link has been sent.'}
  catch(error){notice.textContent=error.message}
+});
+document.getElementById('create-key').addEventListener('submit',async event=>{
+ event.preventDefault();notice.textContent='Creating API key…';
+ try{
+  const data=await request('/v1/customer/api-keys',{
+   key_name:document.getElementById('key-name').value,
+   scopes:[document.getElementById('key-scope').value],
+   expires_in_days:Number(document.getElementById('key-expiry').value)
+  });
+  const output=document.getElementById('new-key');
+  output.textContent='Copy this key now. It will not be shown again: '+data.token;
+  document.getElementById('key-name').value='';
+  await loadApiKeys();notice.textContent='API key created. Store it securely.';
+ }catch(error){notice.textContent=error.message}
 });
 document.getElementById('logout').addEventListener('click',async()=>{
  try{await request('/v1/customer/logout',{});await loadAccount()}
