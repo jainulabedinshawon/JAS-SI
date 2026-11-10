@@ -185,6 +185,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
                 json={"key_name": "test", "scopes": ["authorization:check"]},
             )
             self.assertEqual(created.status_code, 201)
+            self.assertEqual(created.headers["cache-control"], "no-store")
             self.assertEqual(created.json()["token"], issued.token)
             listed = self.client.get("/v1/customer/api-keys")
             self.assertEqual(listed.status_code, 200)
