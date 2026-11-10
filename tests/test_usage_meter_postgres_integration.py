@@ -33,6 +33,13 @@ class TestPostgresUsageMeter(unittest.TestCase):
         cls.dsn = DATABASE_URL
         with psycopg.connect(cls.dsn) as conn:
             with conn.cursor() as cur:
+                cur.execute(
+                    """DO $ BEGIN
+                       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='jas_si_runtime') THEN
+                           CREATE ROLE jas_si_runtime NOLOGIN;
+                       END IF;
+                       END $;"""
+                )
                 for name in (
                     "002_create_tenant_api_keys.sql",
                     "20261110_usage_metering.sql",
@@ -82,6 +89,20 @@ class TestPostgresUsageMeter(unittest.TestCase):
                                    ARRAY['authorization:check'],'ci')""",
                         (key_id, tenant_id, prefix, b"x" * 32),
                     )
+
+    def test_runtime_role_can_append_and_read_but_not_mutate_usage(self):
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT
+                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'SELECT'),
+                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'INSERT'),
+                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'UPDATE'),
+                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'DELETE'),
+                         has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'TRUNCATE')"""
+                )
+                privileges = cur.fetchone()
+        self.assertEqual(privileges, (True, True, False, False, False))
 
     def test_idempotent_replay_returns_original_event(self):
         args = dict(
