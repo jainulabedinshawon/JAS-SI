@@ -92,7 +92,20 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0]["key_id"], str(issued.key_id))
         self.assertNotIn("secret_digest", listed[0])
-        self.assertEqual(self.registry.list_tenant_keys(self.tenant_b), [])
+
+        # RLS must hide the foreign tenant when the authenticated API has set
+        # tenant A as the transaction-local context. Do not call the registry's
+        # helper with tenant B here: that helper is trusted to receive the
+        # tenant derived from the verified customer session.
+        with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT set_config('jas_si.tenant_id', %s, true)",
+                (str(self.tenant_a),),
+            )
+            cur.execute("SELECT key_id FROM jas_si_api_keys ORDER BY key_id")
+            visible_ids = {str(row[0]) for row in cur.fetchall()}
+        self.assertEqual(visible_ids, {str(issued.key_id)})
+
         self.assertTrue(
             self.registry.revoke_key_with_audit(
                 issued.key_id,
