@@ -313,7 +313,7 @@ async def security_and_rate_limit_middleware(
             response = await call_next(request)
             # Record successful tenant operations as technical usage telemetry.
             # This does not represent entitlement consumption or a monetary charge.
-            operations = {"/v1/authorize": "authorization.evaluate", "/v1/verify": "outcome.submit"}
+            operations = {"/v1/authorize": "authorization.evaluate", "/v1/verify": "outcome.submit", "/v1/github/evidence": "github.evidence.verify"}
             operation = operations.get(request.url.path)
             tenant_id = getattr(request.state, "tenant_id", None)
             api_key_id = getattr(request.state, "api_key_id", None)
