@@ -82,7 +82,7 @@ class PostgresCustomerIdentityStore:
         account_id, tenant_id, token_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         token, now = self._new_token(), datetime.now(timezone.utc)
         expires = now + self._verification_ttl
-        tenant_label = f"{organization[:110]} [{tenant_id.hex[:8]}]"
+        tenant_label = f"{organization[:109]} [{tenant_id.hex[:8]}]"
         import psycopg
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
