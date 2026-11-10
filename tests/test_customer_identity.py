@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
+
+import psycopg
 from datetime import timedelta
 
 from jas_si_agent.customer_identity import (
@@ -43,6 +46,16 @@ class TestCustomerIdentityPrimitives(unittest.TestCase):
         self.assertEqual(len(digest), 32)
         self.assertNotEqual(digest, token.encode("utf-8"))
         self.assertEqual(digest, store._digest(token))
+
+    def test_database_failures_do_not_escape_link_issuance_boundary(self):
+        store = PostgresCustomerIdentityStore(
+            "postgresql://unused", b"customer-identity-test-pepper-32-bytes-minimum"
+        )
+        with patch("psycopg.connect", side_effect=RuntimeError("database unavailable")):
+            with self.assertRaises(CustomerIdentityError):
+                store.issue_login_link("user@example.test")
+            with self.assertRaises(CustomerIdentityError):
+                store.issue_verification_link("user@example.test")
 
     def test_rejects_short_pepper_and_nonpositive_ttl(self):
         with self.assertRaises(CustomerIdentityError):
