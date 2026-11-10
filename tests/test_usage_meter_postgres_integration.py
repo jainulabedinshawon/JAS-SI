@@ -209,3 +209,17 @@ class TestPostgresUsageMeter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_quota_status_reports_monthly_limit_and_remaining(self):
+        self._record(
+            tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
+            request_id="quota-status", idempotency_key="quota-status",
+            operation="authorization.evaluate", monthly_limit=100,
+        )
+        status = self.meter.quota_status(
+            tenant_id=str(self.tenant_a), monthly_limit=100,
+        )
+        self.assertEqual(status["monthly_limit"], 100)
+        self.assertEqual(status["used_units"], 1)
+        self.assertEqual(status["remaining_units"], 99)
+        self.assertFalse(status["exhausted"])
