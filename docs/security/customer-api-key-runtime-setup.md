@@ -15,7 +15,13 @@ The application checks `current_user`, `rolsuper`, and `rolbypassrls` at runtime
 
 ## Provisioning outline (operator-controlled)
 
-1. Apply migrations 001–007 and the customer/usage migrations in the documented migration order through the normal migration process. Do not apply them from an HTTP request or application startup.
+1. Apply the schema migrations in dependency order through the normal migration process; do not apply them from an HTTP request or application startup:
+   - First, apply the existing core tenant/API-key/audit migrations 001–006 in their repository-defined order.
+   - Next, apply `20261110_customer_identity.sql` (creates the NOLOGIN identity group role and customer identity tables).
+   - Then apply `20261110_customer_rate_limits.sql` (depends on the identity role and grants its shared limiter access).
+   - Apply `007_customer_api_key_self_service.sql` only after the tenant, API-key, audit-chain, and provisioning-run tables/columns from the core migrations exist. It creates the NOLOGIN key-management group role and its RLS policies.
+   - Apply the usage-metering/idempotency migrations only after their own prerequisites, then `20261111_usage_append_only_role_grants.sql` after the usage-events table exists (the latter safely no-ops if that table is absent).
+   - Review the SQL and actual schema before every target environment; migration filenames alone are not evidence that a migration was applied.
 2. Create a dedicated LOGIN role for the customer API-key connection using the organization's secret-management process.
 3. Grant that login role membership in `jas_si_customer_key_runtime` only; do not grant membership in `jas_si_provisioner`, `jas_si_runtime`, or any owner role.
 4. Configure `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL` with a connection option that assumes the customer role (for example, PostgreSQL `options=-c role=jas_si_customer_key_runtime` encoded appropriately in the DSN).
