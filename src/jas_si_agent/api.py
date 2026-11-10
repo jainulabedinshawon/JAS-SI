@@ -948,6 +948,35 @@ def customer_logout(
     return {"signed_out": True}
 
 
+@app.get("/v1/customer/usage")
+def customer_usage_summary(request: Request) -> dict:
+    """Return only the signed-in customer's technical usage and Free quota."""
+    account = _require_customer_session(request)
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="Usage storage is not configured")
+    try:
+        meter = getattr(request.app.state, "usage_meter", None)
+        if meter is None:
+            meter = PostgresUsageMeter(settings.database_url)
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        result = meter.summary(tenant_id=str(account.tenant_id), since=since)
+        result["quota"] = meter.quota_status(
+            tenant_id=str(account.tenant_id),
+            monthly_limit=get_free_monthly_units(),
+        )
+        result["billing_status"] = "not_connected"
+        result["note"] = (
+            "Measured technical usage only. No monetary balance, invoice, "
+            "or paid entitlement is inferred."
+        )
+        return result
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer usage summary is temporarily unavailable",
+        ) from None
+
+
 @app.get("/v1/customer/api-keys")
 def customer_list_api_keys(request: Request) -> dict:
     account = _require_customer_session(request)
