@@ -20,7 +20,7 @@ try:
 except ImportError:
     psycopg = None
 
-from jas_si_agent.usage_meter import PostgresUsageMeter, UsageMeterError
+from jas_si_agent.usage_meter import PostgresUsageMeter, UsageMeterError, UsageQuotaExceeded
 
 
 @unittest.skipUnless(
@@ -47,6 +47,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
             "request_fingerprint",
             hashlib.sha256(b"usage-meter-integration-test").hexdigest(),
         )
+        kwargs.setdefault("monthly_limit", 100)
         return self.meter.record(**kwargs)
 
     def setUp(self):
@@ -166,3 +167,45 @@ class TestPostgresUsageMeter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_quota_rejects_new_event_after_limit(self):
+        base = dict(
+            tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
+            operation="authorization.evaluate", monthly_limit=1,
+        )
+        self._record(**base, request_id="quota-1", idempotency_key="quota-1")
+        with self.assertRaises(UsageQuotaExceeded) as caught:
+            self._record(**base, request_id="quota-2", idempotency_key="quota-2")
+        self.assertEqual(caught.exception.monthly_limit, 1)
+        self.assertEqual(caught.exception.used_units, 1)
+
+    def test_idempotent_replay_does_not_consume_another_quota_unit(self):
+        args = dict(
+            tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
+            request_id="quota-replay", idempotency_key="quota-replay",
+            operation="authorization.evaluate", monthly_limit=1,
+        )
+        first = self._record(**args)
+        replay = self._record(**args)
+        self.assertFalse(first["replayed"])
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(replay["used_units"], 1)
+
+    def test_concurrent_requests_cannot_overspend_quota(self):
+        from concurrent.futures import ThreadPoolExecutor
+        args = [
+            dict(tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
+                 request_id=f"concurrent-{i}", idempotency_key=f"concurrent-{i}",
+                 operation="authorization.evaluate", monthly_limit=1)
+            for i in range(2)
+        ]
+        def attempt(item):
+            try:
+                return self._record(**item)["event_id"]
+            except UsageQuotaExceeded:
+                return "quota_denied"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(attempt, args))
+        self.assertEqual(sum(value != "quota_denied" for value in outcomes), 1)
+        self.assertEqual(outcomes.count("quota_denied"), 1)
