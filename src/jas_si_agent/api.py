@@ -1038,7 +1038,9 @@ def customer_list_api_keys(request: Request) -> dict:
     account = _require_customer_session(request)
     registry = _get_customer_api_key_registry()
     try:
-        keys = registry.list_tenant_keys(account.tenant_id)
+        keys = registry.list_tenant_keys(
+            account.tenant_id, tenant_scope=account.tenant_id
+        )
     except ApiKeyError:
         raise HTTPException(
             status_code=503,
