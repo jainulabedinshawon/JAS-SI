@@ -120,6 +120,29 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         )
         self.assertEqual(self.registry.list_tenant_keys(self.tenant_a)[0]["status"], "revoked")
 
+    def test_known_guc_spoofing_exposure_is_reproducible_until_secure_routines_land(self):
+        """Document the current RLS trust-boundary flaw; this is not a security pass.
+
+        The customer role can set its own custom GUC. This test intentionally
+        proves that the current direct-table design then exposes Tenant B rows.
+        Replace this test with a denial assertion when session-derived,
+        database-owned key routines are implemented.
+        """
+        with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT set_config('jas_si.tenant_id', %s, true)",
+                (str(self.tenant_b),),
+            )
+            cur.execute(
+                "SELECT key_id FROM jas_si_api_keys WHERE tenant_id = %s",
+                (self.tenant_b,),
+            )
+            visible_ids = {str(row[0]) for row in cur.fetchall()}
+        self.assertTrue(
+            visible_ids,
+            "Expected the current mutable-GUC design to expose the foreign tenant fixture",
+        )
+
     def test_customer_role_cannot_issue_or_revoke_for_another_tenant(self):
         with self.assertRaises(Exception):
             self.registry.issue_key_with_audit(
