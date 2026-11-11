@@ -171,11 +171,21 @@ class PostgresApiKeyRegistry:
         import psycopg
 
         protected = {
-            "public.jas_si_audit_events": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
-            "public.jas_si_audit_chain_state": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
-            "public.jas_si_customer_sessions": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
-            "public.jas_si_customer_auth_tokens": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
-            "public.jas_si_customer_accounts": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+            "public.jas_si_audit_events": (
+                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
+            ),
+            "public.jas_si_audit_chain_state": (
+                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
+            ),
+            "public.jas_si_customer_sessions": (
+                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
+            ),
+            "public.jas_si_customer_auth_tokens": (
+                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
+            ),
+            "public.jas_si_customer_accounts": (
+                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
+            ),
         }
         with psycopg.connect(self._dsn) as connection:
             with connection.cursor() as cursor:
