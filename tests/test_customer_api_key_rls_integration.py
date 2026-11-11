@@ -82,43 +82,31 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 (uuid.uuid4(), self.tenant_b, f"foreign-{self.tenant_b.hex[:12]}", b"x" * 32),
             )
 
-    def test_customer_role_lists_only_own_tenant_and_can_issue_and_revoke(self):
-        issued = self.registry.issue_key_with_audit(
-            tenant_id=self.tenant_a,
-            key_name="customer-owned-key",
-            scopes=["authorization:check"],
-            created_by=f"customer:{uuid.uuid4()}",
-            provisioning_run_id=f"customer-api:{uuid.uuid4()}",
-            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-            tenant_scope=self.tenant_a,
-        )
-        listed = self.registry.list_tenant_keys(self.tenant_a)
-        self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0]["key_id"], str(issued.key_id))
-        self.assertNotIn("secret_digest", listed[0])
+    def test_customer_key_lifecycle_fails_closed_while_audit_grants_are_unsafe(self):
+        """Customer lifecycle stays unavailable until DB-owned audit routines replace direct grants."""
+        from jas_si_agent.api_key_registry import ApiKeyError
 
-        # RLS must hide the foreign tenant when the authenticated API has set
-        # tenant A as the transaction-local context. Do not call the registry's
-        # helper with tenant B here: that helper is trusted to receive the
-        # tenant derived from the verified customer session.
-        with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT set_config('jas_si.tenant_id', %s, true)",
-                (str(self.tenant_a),),
+        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
+            self.registry.issue_key_with_audit(
+                tenant_id=self.tenant_a,
+                key_name="customer-owned-key",
+                scopes=["authorization:check"],
+                created_by=f"customer:{uuid.uuid4()}",
+                provisioning_run_id=f"customer-api:{uuid.uuid4()}",
+                expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+                tenant_scope=self.tenant_a,
             )
-            cur.execute("SELECT key_id FROM jas_si_api_keys ORDER BY key_id")
-            visible_ids = {str(row[0]) for row in cur.fetchall()}
-        self.assertEqual(visible_ids, {str(issued.key_id)})
 
-        self.assertTrue(
+        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
+            self.registry.list_tenant_keys(self.tenant_a)
+
+        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
             self.registry.revoke_key_with_audit(
-                issued.key_id,
+                uuid.uuid4(),
                 revoked_by=f"customer:{uuid.uuid4()}",
                 revocation_run_id=f"customer-revoke:{uuid.uuid4()}",
                 tenant_scope=self.tenant_a,
             )
-        )
-        self.assertEqual(self.registry.list_tenant_keys(self.tenant_a)[0]["status"], "revoked")
 
     def test_known_guc_spoofing_exposure_is_reproducible_until_secure_routines_land(self):
         """Document the current RLS trust-boundary flaw; this is not a security pass.
