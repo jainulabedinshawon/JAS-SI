@@ -161,6 +161,41 @@ class PostgresApiKeyRegistry:
             and row[4] is False
         )
 
+    def verify_customer_audit_isolation(self) -> bool:
+        """Fail closed if the customer role can directly access global audit or identity tables.
+
+        Customer key lifecycle operations must move behind database-owned routines
+        before this guard can pass. Column-level grants are checked as well as
+        table-level grants.
+        """
+        import psycopg
+
+        protected = {
+            "public.jas_si_audit_events": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+            "public.jas_si_audit_chain_state": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+            "public.jas_si_customer_sessions": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+            "public.jas_si_customer_auth_tokens": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+            "public.jas_si_customer_accounts": ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+        }
+        with psycopg.connect(self._dsn) as connection:
+            with connection.cursor() as cursor:
+                for table, privileges in protected.items():
+                    cursor.execute("SELECT to_regclass(%s)", (table,))
+                    exists = cursor.fetchone()
+                    if not exists or exists[0] is None:
+                        return False
+                    for privilege in privileges:
+                        cursor.execute(
+                            """SELECT
+                                has_table_privilege(current_user, %s, %s)
+                                OR has_any_column_privilege(current_user, %s, %s)""",
+                            (table, privilege, table, privilege),
+                        )
+                        row = cursor.fetchone()
+                        if row is None or row[0]:
+                            return False
+        return True
+
     def create_tenant(self, tenant_name: str) -> uuid.UUID:
         name = tenant_name.strip() if isinstance(tenant_name, str) else ""
         if not name or len(name) > 120:
