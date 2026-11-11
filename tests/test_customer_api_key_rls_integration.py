@@ -224,6 +224,18 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                     "REVOKE SELECT (event_payload) ON TABLE public.jas_si_audit_events "
                     "FROM jas_si_customer_key_runtime"
                 )
+                # Restore the migration's original grants so this test does not
+                # change the database contract observed by other integration tests.
+                cur.execute(
+                    "GRANT INSERT (singleton, last_hash), SELECT (singleton, last_hash), "
+                    "UPDATE (last_hash) ON TABLE public.jas_si_audit_chain_state "
+                    "TO jas_si_customer_key_runtime"
+                )
+                cur.execute(
+                    "GRANT SELECT (event_id, event_payload, previous_hash, event_hash), "
+                    "INSERT (event_payload, previous_hash, event_hash) "
+                    "ON TABLE public.jas_si_audit_events TO jas_si_customer_key_runtime"
+                )
 
 
 if __name__ == "__main__":
