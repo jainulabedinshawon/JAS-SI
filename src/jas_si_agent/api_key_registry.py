@@ -219,6 +219,25 @@ class PostgresApiKeyRegistry:
         if not self.verify_customer_audit_isolation():
             raise ApiKeyError("Customer database audit isolation is not configured")
 
+    def _enforce_customer_tenant_scope(self, tenant_scope: uuid.UUID | None) -> None:
+        """Require an explicit authenticated tenant scope on the customer DB role.
+
+        Trusted operator connections retain the compatibility API. The
+        dedicated customer role must never reach a lifecycle operation without
+        a transaction tenant scope, including through legacy wrappers.
+        """
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT current_user")
+            row = cursor.fetchone()
+        if row and row[0] == "jas_si_customer_key_runtime":
+            if not isinstance(tenant_scope, uuid.UUID):
+                raise ApiKeyError("Customer tenant scope is required")
+            self._require_customer_runtime_boundary()
+        elif tenant_scope is not None:
+            raise ApiKeyError("Customer tenant scope requires the dedicated runtime role")
+
     def create_tenant(self, tenant_name: str) -> uuid.UUID:
         name = tenant_name.strip() if isinstance(tenant_name, str) else ""
         if not name or len(name) > 120:
@@ -276,8 +295,7 @@ class PostgresApiKeyRegistry:
 
         if not isinstance(tenant_id, uuid.UUID):
             raise ApiKeyError("A valid tenant UUID is required")
-        if tenant_scope is not None:
-            self._require_customer_runtime_boundary()
+        self._enforce_customer_tenant_scope(tenant_scope)
         name = key_name.strip() if isinstance(key_name, str) else ""
         creator = created_by.strip() if isinstance(created_by, str) else ""
         run_id = (
