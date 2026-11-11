@@ -132,6 +132,8 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         )
 
     def test_customer_role_cannot_issue_or_revoke_for_another_tenant(self):
+        from jas_si_agent.api_key_registry import ApiKeyError
+
         with self.assertRaises(Exception):
             self.registry.issue_key_with_audit(
                 tenant_id=self.tenant_b,
@@ -141,23 +143,22 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 provisioning_run_id=f"customer-api:{uuid.uuid4()}",
                 tenant_scope=self.tenant_a,
             )
+
         admin_registry = PostgresApiKeyRegistry(DATABASE_URL, self.pepper)
         foreign = admin_registry.issue_key(
             self.tenant_b, "foreign-owned", ["authorization:check"], "operator"
         )
-        self.assertFalse(
+        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
             self.registry.revoke_key_with_audit(
                 foreign.key_id,
                 revoked_by="customer",
                 revocation_run_id=f"customer-revoke:{uuid.uuid4()}",
                 tenant_scope=self.tenant_a,
             )
-        )
         self.assertEqual(
             admin_registry.list_tenant_keys(self.tenant_b)[0]["status"],
             "active",
         )
-
 
     def test_privilege_guard_detects_each_direct_audit_table_grant(self):
         """Exercise every forbidden table privilege, not just the migration's current grants."""
