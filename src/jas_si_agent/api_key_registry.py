@@ -482,12 +482,19 @@ class PostgresApiKeyRegistry:
                 )
 
 
-    def list_tenant_keys(self, tenant_id: uuid.UUID) -> list[dict]:
+    def list_tenant_keys(
+        self,
+        tenant_id: uuid.UUID,
+        tenant_scope: uuid.UUID | None = None,
+    ) -> list[dict]:
         """List non-secret key metadata for one tenant under PostgreSQL RLS."""
         import psycopg
 
         if not isinstance(tenant_id, uuid.UUID):
             raise ApiKeyError("A valid tenant UUID is required")
+        if tenant_scope is not None and tenant_scope != tenant_id:
+            raise ApiKeyError("Tenant scope does not match requested tenant")
+        self._enforce_customer_tenant_scope(tenant_scope)
         self._require_customer_runtime_boundary()
         try:
             with psycopg.connect(self._dsn) as connection:
