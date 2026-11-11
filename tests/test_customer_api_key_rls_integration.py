@@ -82,6 +82,18 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 (uuid.uuid4(), self.tenant_b, f"foreign-{self.tenant_b.hex[:12]}", b"x" * 32),
             )
 
+    def test_operator_role_can_list_tenant_keys(self):
+        """Trusted operator listing must not be rejected by the customer-role guard."""
+        admin_registry = PostgresApiKeyRegistry(DATABASE_URL, self.pepper)
+        issued = admin_registry.issue_key(
+            self.tenant_a, "operator-listed", ["authorization:check"], "operator"
+        )
+        items = admin_registry.list_tenant_keys(self.tenant_a)
+        self.assertEqual(
+            [item["key_id"] for item in items],
+            [str(issued.key_id)],
+        )
+
     def test_customer_key_lifecycle_fails_closed_while_audit_grants_are_unsafe(self):
         """Customer lifecycle stays unavailable until DB-owned audit routines replace direct grants."""
         from jas_si_agent.api_key_registry import ApiKeyError
