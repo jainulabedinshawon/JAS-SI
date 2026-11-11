@@ -229,7 +229,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
             expires_at=datetime.now(timezone.utc) + timedelta(days=90),
         )
         registry = SimpleNamespace(
-            list_tenant_keys=lambda tenant_id: [
+            list_tenant_keys=lambda tenant_id, tenant_scope=None: [
                 {"key_id": str(issued.key_id), "key_name": "test", "key_prefix": issued.prefix,
                  "scopes": ["authorization:check"], "status": "active",
                  "created_at": datetime.now(timezone.utc).isoformat(),
