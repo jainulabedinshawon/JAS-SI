@@ -176,15 +176,25 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         table = "public.jas_si_audit_events"
         columns = ("event_id", "event_payload", "previous_hash", "event_hash")
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
-            cur.execute(
-                f"REVOKE ALL PRIVILEGES ON TABLE {table} FROM jas_si_customer_key_runtime"
-            )
+            for protected_table in (
+                "public.jas_si_audit_events",
+                "public.jas_si_audit_chain_state",
+            ):
+                cur.execute(
+                    f"REVOKE ALL PRIVILEGES ON TABLE {protected_table} "
+                    "FROM jas_si_customer_key_runtime"
+                )
             cur.execute(
                 "REVOKE SELECT (event_id, event_payload, previous_hash, event_hash), "
                 "INSERT (event_payload, previous_hash, event_hash), "
                 "UPDATE (event_payload, previous_hash, event_hash), "
                 "REFERENCES (event_id, event_payload, previous_hash, event_hash) "
                 "ON TABLE public.jas_si_audit_events FROM jas_si_customer_key_runtime"
+            )
+            cur.execute(
+                "REVOKE INSERT (singleton, last_hash), SELECT (singleton, last_hash), "
+                "UPDATE (last_hash), REFERENCES (singleton, last_hash) "
+                "ON TABLE public.jas_si_audit_chain_state FROM jas_si_customer_key_runtime"
             )
         self.assertTrue(
             self.registry.verify_customer_audit_isolation(),
@@ -235,6 +245,11 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                     "GRANT SELECT (event_id, event_payload, previous_hash, event_hash), "
                     "INSERT (event_payload, previous_hash, event_hash) "
                     "ON TABLE public.jas_si_audit_events TO jas_si_customer_key_runtime"
+                )
+                cur.execute(
+                    "GRANT INSERT (singleton, last_hash), SELECT (singleton, last_hash), "
+                    "UPDATE (last_hash) ON TABLE public.jas_si_audit_chain_state "
+                    "TO jas_si_customer_key_runtime"
                 )
 
 
