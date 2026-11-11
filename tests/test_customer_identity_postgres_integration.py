@@ -140,6 +140,10 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 (first._bucket_key(ip),),
             )
         self.assertTrue(first.verify_schema())
+        self.assertFalse(
+            PostgresCustomerRateLimiter(self.admin_dsn, pepper).verify_schema(),
+            "Administrative DSN must not pass the customer rate-limiter role guard",
+        )
         self.assertEqual(first.check(ip, limit=2, window_seconds=60)[0], True)
         self.assertEqual(second.check(ip, limit=2, window_seconds=60)[0], True)
         allowed, retry_after = first.check(ip, limit=2, window_seconds=60)

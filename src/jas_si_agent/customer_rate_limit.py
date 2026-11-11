@@ -42,10 +42,26 @@ class PostgresCustomerRateLimiter:
         with psycopg.connect(self._dsn) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT to_regclass('public.jas_si_customer_rate_limits')"
+                    """SELECT current_user, r.rolsuper, r.rolbypassrls,
+                              r.rolcanlogin,
+                              EXISTS (
+                                  SELECT 1 FROM pg_auth_members AS membership
+                                  WHERE membership.member = r.oid
+                              ) AS has_inherited_role,
+                              to_regclass('public.jas_si_customer_rate_limits')
+                       FROM pg_roles AS r
+                       WHERE r.rolname = current_user"""
                 )
                 row = cursor.fetchone()
-        return bool(row and row[0])
+        return bool(
+            row
+            and row[0] == "jas_si_customer_runtime"
+            and not row[1]
+            and not row[2]
+            and not row[3]
+            and not row[4]
+            and row[5]
+        )
 
     def check(
         self,
