@@ -212,6 +212,13 @@ class PostgresApiKeyRegistry:
                             return False
         return True
 
+    def _require_customer_runtime_boundary(self) -> None:
+        """Fail closed before customer-scoped key operations on an unsafe DB role."""
+        if not self.verify_customer_runtime_role():
+            raise ApiKeyError("Customer database runtime role is not authorized")
+        if not self.verify_customer_audit_isolation():
+            raise ApiKeyError("Customer database audit isolation is not configured")
+
     def create_tenant(self, tenant_name: str) -> uuid.UUID:
         name = tenant_name.strip() if isinstance(tenant_name, str) else ""
         if not name or len(name) > 120:
@@ -269,6 +276,8 @@ class PostgresApiKeyRegistry:
 
         if not isinstance(tenant_id, uuid.UUID):
             raise ApiKeyError("A valid tenant UUID is required")
+        if tenant_scope is not None:
+            self._require_customer_runtime_boundary()
         name = key_name.strip() if isinstance(key_name, str) else ""
         creator = created_by.strip() if isinstance(created_by, str) else ""
         run_id = (
@@ -461,6 +470,7 @@ class PostgresApiKeyRegistry:
 
         if not isinstance(tenant_id, uuid.UUID):
             raise ApiKeyError("A valid tenant UUID is required")
+        self._require_customer_runtime_boundary()
         try:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
@@ -526,6 +536,8 @@ class PostgresApiKeyRegistry:
 
         if not isinstance(key_id, uuid.UUID):
             raise ApiKeyError("A valid key UUID is required")
+        if tenant_scope is not None:
+            self._require_customer_runtime_boundary()
         operator = revoked_by.strip() if isinstance(revoked_by, str) else ""
         run_id = (
             revocation_run_id.strip()
