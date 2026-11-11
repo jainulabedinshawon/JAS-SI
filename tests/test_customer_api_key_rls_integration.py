@@ -155,10 +155,12 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 revocation_run_id=f"customer-revoke:{uuid.uuid4()}",
                 tenant_scope=self.tenant_a,
             )
-        self.assertEqual(
-            admin_registry.list_tenant_keys(self.tenant_b)[0]["status"],
-            "active",
-        )
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM jas_si_api_keys WHERE key_id = %s AND tenant_id = %s",
+                (foreign.key_id, self.tenant_b),
+            )
+            self.assertEqual(cur.fetchone()[0], "active")
 
     def test_privilege_guard_detects_each_direct_audit_table_grant(self):
         """Exercise every forbidden table privilege, not just the migration's current grants."""
