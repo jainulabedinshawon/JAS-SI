@@ -185,12 +185,18 @@ class PostgresApiKeyRegistry:
                     if not exists or exists[0] is None:
                         return False
                     for privilege in privileges:
-                        cursor.execute(
-                            """SELECT
-                                has_table_privilege(current_user, %s, %s)
-                                OR has_any_column_privilege(current_user, %s, %s)""",
-                            (table, privilege, table, privilege),
-                        )
+                        if privilege in {"SELECT", "INSERT", "UPDATE", "REFERENCES"}:
+                            cursor.execute(
+                                """SELECT
+                                    has_table_privilege(current_user, %s, %s)
+                                    OR has_any_column_privilege(current_user, %s, %s)""",
+                                (table, privilege, table, privilege),
+                            )
+                        else:
+                            cursor.execute(
+                                "SELECT has_table_privilege(current_user, %s, %s)",
+                                (table, privilege),
+                            )
                         row = cursor.fetchone()
                         if row is None or row[0]:
                             return False
