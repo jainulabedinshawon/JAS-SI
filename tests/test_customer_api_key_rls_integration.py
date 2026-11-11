@@ -65,6 +65,10 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             raise AssertionError("Customer API-key DSN did not assume the dedicated RLS role")
         if PostgresApiKeyRegistry(DATABASE_URL, cls.pepper).verify_customer_runtime_role():
             raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
+        if cls.registry.verify_customer_audit_isolation():
+            raise AssertionError(
+                "Current migration unexpectedly grants no direct customer access to protected audit/identity tables"
+            )
 
     def setUp(self):
         self.tenant_a, self.tenant_b = uuid.uuid4(), uuid.uuid4()
