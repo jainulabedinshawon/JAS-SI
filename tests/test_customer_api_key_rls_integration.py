@@ -171,5 +171,60 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         )
 
 
+    def test_privilege_guard_detects_each_direct_audit_table_grant(self):
+        """Exercise every forbidden table privilege, not just the migration's current grants."""
+        table = "public.jas_si_audit_events"
+        columns = ("event_id", "event_payload", "previous_hash", "event_hash")
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"REVOKE ALL PRIVILEGES ON TABLE {table} FROM jas_si_customer_key_runtime"
+            )
+            cur.execute(
+                "REVOKE SELECT (event_id, event_payload, previous_hash, event_hash), "
+                "INSERT (event_payload, previous_hash, event_hash), "
+                "UPDATE (event_payload, previous_hash, event_hash), "
+                "REFERENCES (event_id, event_payload, previous_hash, event_hash) "
+                "ON TABLE public.jas_si_audit_events FROM jas_si_customer_key_runtime"
+            )
+        self.assertTrue(
+            self.registry.verify_customer_audit_isolation(),
+            "The guard should pass after direct audit privileges are removed",
+        )
+
+        for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+            with self.subTest(privilege=privilege):
+                with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+                    cur.execute(
+                        f"GRANT {privilege} ON TABLE {table} TO jas_si_customer_key_runtime"
+                    )
+                try:
+                    self.assertFalse(
+                        self.registry.verify_customer_audit_isolation(),
+                        f"The guard failed to detect direct {privilege} privilege",
+                    )
+                finally:
+                    with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+                        cur.execute(
+                            f"REVOKE {privilege} ON TABLE {table} FROM jas_si_customer_key_runtime"
+                        )
+
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "GRANT SELECT (event_payload) ON TABLE public.jas_si_audit_events "
+                "TO jas_si_customer_key_runtime"
+            )
+        try:
+            self.assertFalse(
+                self.registry.verify_customer_audit_isolation(),
+                "The guard failed to detect a column-only audit SELECT grant",
+            )
+        finally:
+            with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "REVOKE SELECT (event_payload) ON TABLE public.jas_si_audit_events "
+                    "FROM jas_si_customer_key_runtime"
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
