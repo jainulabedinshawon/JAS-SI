@@ -736,6 +736,10 @@ def _get_customer_api_key_registry() -> PostgresApiKeyRegistry:
         )
         if not registry.verify_customer_runtime_role():
             raise ApiKeyError("Customer API-key database role must enforce tenant RLS")
+        if not registry.verify_customer_audit_isolation():
+            raise ApiKeyError(
+                "Customer API-key database role has direct access to protected audit or identity tables"
+            )
         if not registry.verify_provisioning_schema():
             raise ApiKeyError("Customer API-key schema is incomplete")
         return registry
