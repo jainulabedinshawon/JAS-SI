@@ -98,7 +98,9 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
-            self.registry.list_tenant_keys(self.tenant_a)
+            self.registry.list_tenant_keys(
+                self.tenant_a, tenant_scope=self.tenant_a
+            )
 
         with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
             self.registry.revoke_key_with_audit(
