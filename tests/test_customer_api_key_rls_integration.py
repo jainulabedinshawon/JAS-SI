@@ -67,7 +67,7 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
         if cls.registry.verify_customer_audit_isolation():
             raise AssertionError(
-                "Current migration unexpectedly grants no direct customer access to protected audit/identity tables"
+                "Expected the current migration's direct audit grants to be detected until the hardened migration replaces them"
             )
 
     def setUp(self):
