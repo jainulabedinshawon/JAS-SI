@@ -495,7 +495,6 @@ class PostgresApiKeyRegistry:
         if tenant_scope is not None and tenant_scope != tenant_id:
             raise ApiKeyError("Tenant scope does not match requested tenant")
         self._enforce_customer_tenant_scope(tenant_scope)
-        self._require_customer_runtime_boundary()
         try:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
