@@ -561,8 +561,7 @@ class PostgresApiKeyRegistry:
 
         if not isinstance(key_id, uuid.UUID):
             raise ApiKeyError("A valid key UUID is required")
-        if tenant_scope is not None:
-            self._require_customer_runtime_boundary()
+        self._enforce_customer_tenant_scope(tenant_scope)
         operator = revoked_by.strip() if isinstance(revoked_by, str) else ""
         run_id = (
             revocation_run_id.strip()
