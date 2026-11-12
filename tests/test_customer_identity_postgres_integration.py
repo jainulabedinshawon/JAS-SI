@@ -313,9 +313,6 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             privileges = cur.fetchone()
         self.assertEqual(privileges, (False, False, False, False, False, False, False, False, False, True, True, True, False))
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_customer_usage_reads_are_session_bound_and_not_directly_selectable(self):
         from datetime import datetime, timezone
 
@@ -385,3 +382,7 @@ if __name__ == "__main__":
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
                 cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
 \n
+
+
+if __name__ == "__main__":
+    unittest.main()
