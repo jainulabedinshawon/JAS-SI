@@ -94,3 +94,28 @@ No production migration, role change, deployment, or data mutation is authorized
 ## 7. Acceptance gate
 
 The API-key path is not production-ready until the database itself validates API-key identity, derives tenant identity, enforces scope and quota atomically, and denies direct shared-runtime table access. A green unit suite alone is insufficient; PostgreSQL integration evidence and a reviewed staging journey are required.
+
+
+## 8. Implementation integration findings (source audit at PR head e17140c)
+
+The source-level integration points were inspected before writing a migration:
+
+- `api_key_registry.py` exposes `parse_token(token)`, which returns the UUID key ID and 32-byte secret, and `_digest(secret, pepper)`, which computes HMAC-SHA256. `authenticate()` currently performs the registry lookup and last-used update through the shared DSN.
+- The authenticated API-key object currently carries key ID, tenant ID, tenant name, and scopes, but not the candidate digest. The request authentication path must retain a non-logged, request-local candidate digest (or derive it again from the presented token) for the database routine call. Never persist or log the raw token.
+- `PostgresUsageMeter.record()` currently accepts caller-provided `tenant_id` and `api_key_id`, then directly selects/inserts `jas_si_usage_events`. `events()`, `quota_status()`, and `summary()` also query the table directly using caller-provided tenant IDs.
+- The usage table's idempotency uniqueness is `(tenant_id,idempotency_key)`; it stores `request_fingerprint` as a nullable 64-character SHA-256 string for legacy rows. Exact replay semantics must preserve the existing behavior for legacy NULL fingerprints: a legacy row cannot be treated as a verified exact replay.
+- The customer-browser usage routines in migration `20261114_customer_usage_read_routines.sql` are a separate session-digest boundary and currently grant the customer identity owner read access to the usage table. Preserve that path; do not repurpose its session routines for API-key auth.
+- Existing API middleware authenticates the API key before calling `_record_usage_for_authenticated_tenant()`. The latter currently passes only tenant ID and key ID to the meter. The implementation must thread a 32-byte digest and a server-mapped scope into the meter without accepting tenant ID as database authority.
+- The API key registry's existing scope vocabulary and endpoint-to-scope mapping must be confirmed from the API route dependencies before the database routine signature is frozen. Do not invent a new scope name or infer scope from the request body.
+
+### Revised safe implementation order
+
+1. Add a dedicated owner role and additive SECURITY DEFINER routine migration, using the exact existing registry and usage column names. Routine input includes key ID + candidate HMAC digest; tenant ID is deliberately absent.
+2. Add owner/routine readiness checks to the usage meter. Check the full owner role attributes and membership in both directions, exact routine owner/signature/configuration, no PUBLIC EXECUTE, and no direct runtime table/column grants.
+3. Add PostgreSQL integration fixtures with two tenants and two keys. Verify correct digest, wrong digest, revoked/expired key, suspended tenant, wrong scope, cross-tenant isolation, exact replay, conflicting replay, quota concurrency, and transaction rollback.
+4. Refactor the API authentication context to carry the candidate digest only in request-local memory; ensure logs, exception messages, tracing, and response bodies never include it.
+5. Refactor all four meter paths (record, events, quota_status, summary) to use database routines. Do not leave a direct-table fallback for runtime credentials.
+6. Only after code and staging verification, prepare a separate migration step to revoke runtime direct table and column grants. Do not revoke those grants in the initial additive migration while deployed code still depends on them.
+7. The runtime direct-access revocation and production migration/deployment remain separate approval gates.
+
+This source audit is not a migration, test run, or production readiness claim. No database was contacted and no privileges were changed.
