@@ -1,6 +1,6 @@
 # Customer Identity Database Boundary v1
 
-Status: design specification only. No migration or production change is authorized by this document.
+Status: **historical design baseline; superseded by the PR #36 implementation and its PostgreSQL 16 integration tests.** This document records the original target boundary, not the current implementation state. It does not authorize staging or production migration.
 
 ## 1. Security objective
 
@@ -82,6 +82,13 @@ Run as the actual runtime role, not an owner connection with simulated role assu
 6. Keep customer onboarding and API-key self-service fail-closed until all gates pass.
 7. Production migration, secret changes, merge, deployment, and financial changes remain separately gated by explicit approval.
 
-## 8. Current known blockers
+## 8. Historical design gaps — superseded on PR #36
 
-The current identity migration grants direct access to account, auth-token and session tables. The current API-key migration grants direct access to global audit event/checkpoint tables and uses a mutable tenant GUC for RLS. Existing application methods still issue direct SQL against identity tables. Therefore this specification is not implementation evidence and customer onboarding must remain disabled.
+The gaps listed in the original design review were addressed on the PR #36 Draft branch by migrations `20261112_customer_identity_routines.sql`, `20261113_customer_api_key_routines.sql`, and `20261114_customer_usage_read_routines.sql`, with corresponding PostgreSQL 16 integration coverage. The implementation uses database-owned SECURITY DEFINER routines, separate NOLOGIN owners/runtime roles, session-digest-derived tenant identity, direct-table privilege revocation, fixed `pg_catalog` search paths, and PUBLIC EXECUTE revocations.
+
+Current evidence is branch-level only: the PR #36 head has successful PostgreSQL 16 integration and CI checks, but remains unmerged and undeployed. This historical document must not be used as a statement that the branch still has the original direct-table-access or mutable-GUC vulnerabilities. For current implementation details, see:
+- `docs/customer-identity/onboarding-v1.md`
+- `docs/security/customer-api-key-database-boundary-v2.md`
+- `docs/security/customer-api-key-runtime-setup.md`
+
+Customer onboarding must remain disabled in Staging/Production until the reviewed migrations, isolated runtime roles, secrets, SMTP delivery, and independent live-journey checks are completed for that environment.
