@@ -83,6 +83,7 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
             tenant_id=self.tenant_id,
             tenant_name="Pilot Tenant",
             scopes=frozenset(scopes),
+            candidate_digest=b"c" * 32,
         )
 
     def test_unknown_key_returns_generic_401(self):
@@ -117,8 +118,11 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 403)
 
-    def test_valid_scoped_key_reaches_outcome_endpoint(self):
-        with patch.object(api, "PostgresApiKeyRegistry") as registry:
+    def test_valid_scoped_key_keeps_candidate_digest_request_local(self):
+        with (
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "_record_usage_for_authenticated_tenant", wraps=api._record_usage_for_authenticated_tenant) as record_usage,
+        ):
             registry.return_value.authenticate.return_value = self._auth_result(
                 ["outcomes:submit"]
             )
@@ -129,6 +133,10 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["evidence_origin"], "not_provided")
+        request = record_usage.call_args.args[0]
+        self.assertEqual(request.state.api_key_candidate_digest, b"c" * 32)
+        self.assertNotIn("candidate_digest", response.text)
+        self.assertNotIn((b"c" * 32).hex(), response.text)
 
     def test_registry_outage_fails_closed_with_503(self):
         with patch.object(api, "PostgresApiKeyRegistry") as registry:
