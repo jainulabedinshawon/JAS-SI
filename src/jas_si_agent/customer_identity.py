@@ -123,6 +123,7 @@ class PostgresCustomerIdentityStore:
                        to_regclass('public.jas_si_customer_accounts') IS NOT NULL,
                        to_regclass('public.jas_si_customer_auth_tokens') IS NOT NULL,
                        to_regclass('public.jas_si_customer_sessions') IS NOT NULL,
+                       to_regclass('public.jas_si_tenants') IS NOT NULL,
                        has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'SELECT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_accounts'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_accounts', column_info.attname, 'SELECT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'INSERT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_accounts'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_accounts', column_info.attname, 'INSERT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'UPDATE') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_accounts'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_accounts', column_info.attname, 'UPDATE'))
@@ -146,12 +147,14 @@ class PostgresCustomerIdentityStore:
                          OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRUNCATE')
                          OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'REFERENCES')
                          OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'REFERENCES')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRIGGER')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRIGGER'),
+                       has_table_privilege(current_user, 'public.jas_si_tenants', 'INSERT')
+                         OR has_any_column_privilege(current_user, 'public.jas_si_tenants', 'INSERT')
                 """
             )
             row = cur.fetchone()
             direct_table_access_removed = bool(
-                row and all(row[:3]) and not any(row[3:])
+                row and all(row[:4]) and not any(row[4:])
             )
             cur.execute(
                 """WITH required(signature) AS (
