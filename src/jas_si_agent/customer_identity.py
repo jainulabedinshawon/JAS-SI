@@ -117,17 +117,26 @@ class PostgresCustomerIdentityStore:
                          OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'INSERT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_accounts'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_accounts', column_info.attname, 'INSERT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'UPDATE') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_accounts'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_accounts', column_info.attname, 'UPDATE'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'DELETE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'TRUNCATE'),
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'TRUNCATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'REFERENCES')
+                         OR has_any_column_privilege(current_user, 'public.jas_si_customer_accounts', 'REFERENCES')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'TRIGGER'),
                        has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'SELECT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_auth_tokens'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', column_info.attname, 'SELECT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'INSERT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_auth_tokens'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', column_info.attname, 'INSERT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'UPDATE') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_auth_tokens'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', column_info.attname, 'UPDATE'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'DELETE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRUNCATE'),
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRUNCATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'REFERENCES')
+                         OR has_any_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'REFERENCES')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRIGGER'),
                        has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'SELECT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_sessions'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_sessions', column_info.attname, 'SELECT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'INSERT') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_sessions'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_sessions', column_info.attname, 'INSERT'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'UPDATE') OR EXISTS (SELECT 1 FROM pg_attribute AS column_info WHERE column_info.attrelid = 'public.jas_si_customer_sessions'::regclass AND column_info.attnum > 0 AND NOT column_info.attisdropped AND has_column_privilege(current_user, 'public.jas_si_customer_sessions', column_info.attname, 'UPDATE'))
                          OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'DELETE')
                          OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRUNCATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'REFERENCES')
+                         OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'REFERENCES')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRIGGER')
                 """
             )
             row = cur.fetchone()
