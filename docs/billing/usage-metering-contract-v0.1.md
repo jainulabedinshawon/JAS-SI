@@ -42,8 +42,9 @@ Exact replay returns the original event without consuming another unit, includin
 ## 4. Storage and query rules
 - Append-only event table; no update/delete API.
 - Unique idempotency constraint and tenant/time index.
-- Runtime role receives only minimum INSERT/SELECT privileges required.
-- Customer queries must be tenant-scoped using authenticated tenant context; a tenant identifier in query parameters must never authorize access.
+- Runtime role currently receives table-level SELECT/INSERT on the usage-event table; UPDATE/DELETE/TRUNCATE are revoked. This is append-only protection, not database-enforced row isolation.
+- Current customer and API usage queries apply a tenant predicate using tenant context derived from the authenticated customer session or API-key registry. A tenant identifier in query parameters must never authorize access.
+- **Production security gate remains open:** the shared `jas_si_runtime` database role can read usage-event rows across tenants if its credentials or SQL execution path are compromised. No usage-table RLS policy or database-owned tenant-authenticated usage read routine is present in this migration set. App-level tenant filtering and passing cross-tenant tests do not eliminate this database-credential blast radius. Before production, design and test a database-enforced isolation boundary that cannot be bypassed by caller-controlled session settings; do not treat a freely settable tenant GUC alone as authorization.
 - Usage summaries aggregate recorded units by operation and time window. They are usage reports, not invoices or payment balances.
 - The signed-in customer portal exposes a keyset-paginated event history containing only event ID, server request ID, operation, units, and occurrence timestamp. Every page is filtered by the tenant derived from the authenticated customer session; cursor ordering is `(occurred_at DESC, event_id DESC)`. Cursor timestamp and event ID must be supplied together. The endpoint does not expose raw request bodies, API key material, prompts, or evidence payloads.
 - Reconciliation compares JAS-SI usage events with JAS Platform entitlement-consumption acknowledgements using stable event IDs/idempotency keys.
@@ -54,7 +55,7 @@ The integration requires a reviewed, versioned server-to-server contract with se
 Until that contract exists, the adapter may run only as a test fake. It must not grant paid quota or claim a real customer entitlement.
 
 ## 6. API and dashboard requirements
-Current API surfaces: public read-only `GET /plans`; authenticated `GET /v1/usage` tenant-scoped technical usage summary; metered authorization, outcome and GitHub evidence operations. Paginated event history and the customer-facing billing/plan dashboard remain future work.
+Current API surfaces: public read-only `GET /plans`; authenticated `GET /v1/usage` technical usage summary; customer-session-protected `GET /v1/customer/usage` and `GET /v1/customer/usage/events`; and metered authorization, outcome and GitHub evidence operations. The customer usage event endpoint implements keyset pagination. A complete customer-facing billing/plan dashboard, checkout and paid entitlements remain future work.
 
 The future customer dashboard must display the UTC quota period and reset time; monthly limit, used units and remaining units; units by operation; event count and last recorded event; data freshness; and a clear distinction between measured technical usage and any future Platform-provided paid entitlement.
 
