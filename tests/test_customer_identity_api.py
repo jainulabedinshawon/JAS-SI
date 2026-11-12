@@ -420,6 +420,25 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertEqual(self.sender.sent, [])
 
 
+    def test_usage_boundary_cache_is_bound_to_exact_store_instance(self):
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+        verified_store = SimpleNamespace(verify_usage_read_boundary=lambda: True)
+        unsafe_store = SimpleNamespace(verify_usage_read_boundary=lambda: False)
+
+        with patch.object(api, "_get_customer_identity_store", return_value=verified_store):
+            self.assertIs(api._get_customer_usage_identity_store(request), verified_store)
+
+        with patch.object(api, "_get_customer_identity_store", return_value=unsafe_store):
+            with self.assertRaises(api.HTTPException) as raised:
+                api._get_customer_usage_identity_store(request)
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIs(
+            request.app.state.customer_usage_read_boundary_store,
+            verified_store,
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
