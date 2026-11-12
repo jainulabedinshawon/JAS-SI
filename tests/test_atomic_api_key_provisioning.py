@@ -56,6 +56,9 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/006_api_key_registry_role_grants.sql",
             ROOT / "src/jas_si_agent/migrations/20261110_usage_metering.sql",
             ROOT / "src/jas_si_agent/migrations/20261110_usage_idempotency_fingerprint.sql",
+            ROOT / "src/jas_si_agent/migrations/20261111_usage_append_only_role_grants.sql",
+            ROOT / "src/jas_si_agent/migrations/20261115_api_key_auth_boundary.sql",
+            ROOT / "src/jas_si_agent/migrations/20261116_api_key_bound_usage_routines.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
