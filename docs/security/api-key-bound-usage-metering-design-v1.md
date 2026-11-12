@@ -179,3 +179,42 @@ The latest source inspection confirms the following exact call chain:
 - The current PR head has green CI, but none of those checks establishes the proposed database-enforced API-key usage boundary. New migration and application tests must prove it explicitly.
 
 This inventory is a source audit only. No code path, schema, privilege, or database was changed by this section.
+
+
+## 11. Migration and read-path inventory (verified at PR head 1a55b9d)
+
+### Existing schema facts
+
+- The migration directory is `src/jas_si_agent/migrations/`; the API-key base migration is `002_create_tenant_api_keys.sql`.
+- `jas_si_api_keys` contains `key_id`, `tenant_id`, `secret_digest BYTEA`, `pepper_version SMALLINT`, `scopes TEXT[]`, `status`, `expires_at`, and `last_used_at`. Stored digests are constrained to 32 bytes.
+- `20261110_usage_metering.sql` creates `jas_si_usage_events` with event/tenant/key/request/idempotency/operation/units/time fields and a composite foreign key `(api_key_id,tenant_id)` to the API-key registry.
+- The request fingerprint is added by the separate `20261110_usage_idempotency_fingerprint.sql` migration. Existing rows remain NULL by design; they cannot qualify as verified exact replays.
+- `20261110_usage_metering.sql` grants `jas_si_runtime` direct SELECT and INSERT on usage events. `20261111_usage_append_only_role_grants.sql` restores those same direct privileges and removes mutation privileges. These grants must be replaced only after all affected call paths use the new routines.
+- The existing customer API-key and customer-usage routines use separate session-digest authorization. Their owner roles, grants, RLS policies, and runtime paths must remain independent.
+
+### API-key usage read path
+
+The API-key protected `GET /v1/usage` handler currently calls both:
+- `meter.summary(tenant_id=..., since=...)`
+- `meter.quota_status(tenant_id=..., monthly_limit=...)`
+
+Both calls use caller/application-supplied tenant UUIDs and direct table queries in the current `PostgresUsageMeter`. Therefore the target database boundary needs at least two read contracts (summary and quota status), or one carefully designed combined summary routine, each validating key ID + candidate digest + fixed `usage:read` scope and deriving tenant identity internally. Do not omit quota status when replacing the summary path.
+
+The existing `GET /v1/customer/usage` and `GET /v1/customer/usage/events` routes are separate browser-session flows and must continue using their current session-bound database routines. There is no API-key `GET /v1/usage/events` handler in the inspected `api.py`; do not invent one as part of this security migration.
+
+### Existing integration-test coverage and its limit
+
+The current `tests/test_usage_meter_postgres_integration.py` covers tenant filtering at the application query layer, append-only grants, idempotency, quota serialization, and pagination. It does not prove that a runtime role with direct table access removed can authenticate an API key and invoke database-owned usage routines, because those routines do not yet exist. New tests must connect explicitly as the runtime role and prove:
+- key A cannot read or write tenant B data;
+- a correct key ID with a wrong digest is denied;
+- suspended tenant, revoked/expired key, and wrong scope are denied;
+- runtime has no direct table or column privileges on protected registry/usage tables;
+- only exact routine EXECUTE privileges are available to runtime, with no PUBLIC EXECUTE;
+- summary + quota read work through the same independent key validation;
+- all current customer-session API-key and usage tests still pass.
+
+### Sequencing decision
+
+Do not implement the SQL migration until the full role inventory and current grants are reconciled across all migration files. In particular, the base `jas_si_runtime` role is also used by other API features; revoking its registry or usage privileges must not be conflated with revoking unrelated privileges. Add new owner/routines additively, add startup/readiness verification, migrate all API-key read/write/auth paths, run role-level PostgreSQL tests, then prepare a separately reviewed grant-revocation migration. Production remains out of scope without explicit approval.
+
+This section records inspected source and migration facts only; it does not change database behavior.
