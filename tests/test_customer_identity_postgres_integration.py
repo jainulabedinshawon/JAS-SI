@@ -191,11 +191,20 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             "GRANT INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
             "GRANT UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
         )
+        revokes = (
+            "REVOKE SELECT ON TABLE public.jas_si_customer_accounts FROM jas_si_customer_runtime",
+            "REVOKE INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts FROM jas_si_customer_runtime",
+            "REVOKE UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts FROM jas_si_customer_runtime",
+            "REVOKE SELECT ON TABLE public.jas_si_customer_auth_tokens FROM jas_si_customer_runtime",
+            "REVOKE INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens FROM jas_si_customer_runtime",
+            "REVOKE UPDATE (consumed_at) ON TABLE public.jas_si_customer_auth_tokens FROM jas_si_customer_runtime",
+            "REVOKE SELECT ON TABLE public.jas_si_customer_sessions FROM jas_si_customer_runtime",
+            "REVOKE INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions FROM jas_si_customer_runtime",
+            "REVOKE UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions FROM jas_si_customer_runtime",
+        )
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-            for table in tables:
-                cur.execute(f"REVOKE ALL PRIVILEGES ON TABLE {table} FROM {role}")
-            for table in tables:
-                cur.execute(f"REVOKE ALL PRIVILEGES ON TABLE {table} FROM PUBLIC")
+            for statement in revokes:
+                cur.execute(statement)
         try:
             self.assertTrue(
                 self.store.verify_security_boundary(),
@@ -240,6 +249,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 ("public.jas_si_customer_auth_tokens", "consumed_at", "UPDATE"),
                 ("public.jas_si_customer_sessions", "token_digest", "SELECT"),
                 ("public.jas_si_customer_sessions", "revoked_at", "UPDATE"),
+                ("public.jas_si_customer_accounts", "organization_name", "REFERENCES"),
             )
             for table, column, privilege in column_probes:
                 with self.subTest(table=table, column=column, privilege=privilege):
