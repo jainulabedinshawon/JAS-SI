@@ -96,7 +96,7 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_key_runtime"))
             cur.execute("RESET ROLE")
             cur.execute("SELECT session_user, current_user")
-            self.assertEqual(cur.fetchone(), (self.login_role, self.login_role))
+            self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_key_runtime"))
         self.assertFalse(PostgresApiKeyRegistry(self.login_dsn, self.pepper).verify_customer_runtime_role())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:

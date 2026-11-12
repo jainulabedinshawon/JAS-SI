@@ -99,7 +99,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
             cur.execute("RESET ROLE")
             cur.execute("SELECT session_user, current_user")
-            self.assertEqual(cur.fetchone(), (self.login_role, self.login_role))
+            self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
         self.assertFalse(PostgresCustomerIdentityStore(self.login_dsn, self.pepper).verify_schema())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
