@@ -49,7 +49,22 @@ GRANT jas_si_customer_key_runtime TO jas_si_customer_key_login;
 
 Configure each DSN to assume its NOLOGIN group role on connection (for example, PostgreSQL connection option `options=-c role=jas_si_customer_runtime` or `options=-c role=jas_si_customer_key_runtime`, correctly URL-encoded). Verify from the application connection that `current_user` is exactly the expected group role, and that it is neither SUPERUSER nor BYPASSRLS. The login principal must not be a member of `jas_si_provisioner`, `jas_si_runtime`, an owner role, or any other privileged role. Do not share either login credential between services.
 
-Apply core migrations 001–006, then `007_customer_api_key_self_service.sql` after its tenant, audit-chain, API-key and provisioning prerequisites. Apply `20261110_customer_identity.sql`, then `20261112_customer_identity_routines.sql` (requires the base identity migration and 007), then `20261113_customer_api_key_routines.sql` (requires 007 and 20261112). Apply the shared rate-limit and usage migrations in their documented dependency order. Use a migration/admin role for all DDL; never run migrations from an HTTP request or application startup.
+Apply the migrations in this exact order used by the PostgreSQL 16 integration fixture:
+
+1. Core migrations `001`–`006`, in numeric order.
+2. `007_customer_api_key_self_service.sql` after the tenant, API-key, audit-chain and provisioning tables exist.
+3. `20261110_customer_identity.sql` (creates the identity tables and the NOLOGIN runtime group roles).
+4. `20261112_customer_identity_routines.sql` (requires the base identity migration and 007; creates the identity routine owner and session-bound identity routines).
+5. `20261113_customer_api_key_routines.sql` (requires 007 and 20261112; installs the separate session-bound API-key routines).
+6. `20261110_customer_rate_limits.sql` (requires the identity runtime role from step 3).
+7. `20261110_usage_metering.sql` (requires tenant and API-key tables).
+8. `20261110_usage_idempotency_fingerprint.sql` (requires the usage-events table from step 7).
+9. `20261111_usage_append_only_role_grants.sql` (requires the usage-events table from step 7).
+10. `20261114_customer_usage_read_routines.sql` (requires the identity owner/routines from step 4 and usage-events table from step 7).
+
+The numbered order above is the order exercised by the branch's PostgreSQL 16 integration fixture; it is not proof that any external database has these migrations. Before applying to an environment, inspect its actual schema, extensions, role attributes/memberships, ownership, grants and RLS policies. `IF NOT EXISTS` clauses make some DDL repeatable but do not prove that a pre-existing object has the expected definition. Use a migration/admin role for all DDL; never run migrations from an HTTP request or application startup.
+
+**Rollback and recovery:** this migration set has no paired, tested down-migration sequence. Do not improvise `DROP TABLE`, role deletion or blanket privilege restoration as rollback. If a staging migration fails, keep customer endpoints disabled, preserve the database state and logs, and have the database owner prepare a reviewed corrective migration or restore plan from the pre-migration backup/snapshot. Validate that recovery plan on a disposable database before any production change.
 
 The customer identity runtime receives EXECUTE on database-owned identity routines, not direct table access. The customer key runtime receives EXECUTE on database-owned issue/list/revoke routines, not direct tenant, key, provisioning, audit, or identity table access. Each key routine validates the customer session digest in PostgreSQL and derives tenant/account identity; a caller-supplied custom GUC is not trusted. Never expose either DSN or SQL execution to customers; never accept tenant IDs from request payloads.
 
