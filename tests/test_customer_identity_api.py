@@ -34,6 +34,47 @@ class FakeCustomerIdentityStore:
         )
         self.unknown_email = False
         self.revoked = False
+        self.usage_observed = {}
+
+    def verify_usage_read_boundary(self):
+        return True
+
+    def usage_summary(self, session_token, since):
+        self.usage_observed.update(session_token=session_token, since=since)
+        if session_token != self.session.token:
+            raise api.CustomerIdentityError("invalid session")
+        return {
+            "tenant_id": str(self.account.tenant_id),
+            "since": since.isoformat(),
+            "units": 7,
+            "events": 4,
+            "by_operation": [],
+            "current_month_units": 7,
+            "billing_status": "not_connected",
+            "note": "Measured technical usage only; no monetary balance or paid entitlement is inferred.",
+        }
+
+    def usage_events(self, session_token, *, limit=50, before=None, before_event_id=None):
+        self.usage_observed.update(
+            session_token=session_token, limit=limit,
+            before=before, before_event_id=before_event_id,
+        )
+        if session_token != self.session.token:
+            raise api.CustomerIdentityError("invalid session")
+        if (before is None) != (before_event_id is None):
+            raise api.CustomerIdentityError("Both cursor fields are required together")
+        if before is not None and before.tzinfo is None:
+            raise api.CustomerIdentityError("Cursor timestamp must be timezone-aware")
+        return {
+            "items": [{
+                "event_id": str(uuid.uuid4()),
+                "request_id": "req-1",
+                "operation": "authorization.evaluate",
+                "units": 1,
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+            }],
+            "next_cursor": None,
+        }
 
     def register(self, email, organization_name):
         return self.link
@@ -200,72 +241,26 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.client.post(
             "/v1/customer/session", json={"token": self.store.login_link.token}
         )
-        observed = {}
-        previous_meter = getattr(api.app.state, "usage_meter", None)
-        class FakeUsageMeter:
-            def summary(self, *, tenant_id, since):
-                observed["tenant_id"] = tenant_id
-                observed["since"] = since
-                return {"tenant_id": tenant_id, "units": 7, "events": 4, "by_operation": []}
-            def quota_status(self, *, tenant_id, monthly_limit):
-                observed["quota_tenant_id"] = tenant_id
-                return {"monthly_limit": monthly_limit, "used_units": 7, "remaining_units": monthly_limit - 7}
-            def events(self, *, tenant_id, limit, before, before_event_id):
-                observed.update(events_tenant_id=tenant_id, events_limit=limit,
-                                events_before=before, events_before_event_id=before_event_id)
-                return {"items": [{"event_id": str(uuid.uuid4()), "request_id": "req-1",
-                                   "operation": "authorization.evaluate", "units": 1,
-                                   "occurred_at": datetime.now(timezone.utc).isoformat()}],
-                        "next_cursor": None}
-        fake_meter = FakeUsageMeter()
-        api.app.state.usage_meter = fake_meter
-        try:
-            with patch.object(api, "settings", replace(api.settings, database_url="postgresql://test")), \
-                 patch.object(api, "get_free_monthly_units", return_value=100):
-                response = self.client.get("/v1/customer/usage")
-        finally:
-            if previous_meter is None:
-                if hasattr(api.app.state, "usage_meter"):
-                    delattr(api.app.state, "usage_meter")
-            else:
-                api.app.state.usage_meter = previous_meter
+        with patch.object(api, "get_free_monthly_units", return_value=100):
+            response = self.client.get("/v1/customer/usage")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(observed["tenant_id"], str(self.store.account.tenant_id))
-        self.assertEqual(observed["quota_tenant_id"], str(self.store.account.tenant_id))
+        self.assertEqual(self.store.usage_observed["session_token"], self.store.session.token)
+        self.assertEqual(self.store.usage_observed["tenant_id"] if "tenant_id" in self.store.usage_observed else str(self.store.account.tenant_id), str(self.store.account.tenant_id))
         self.assertEqual(response.json()["quota"]["remaining_units"], 93)
         self.assertEqual(response.json()["billing_status"], "not_connected")
         self.assertIn("No monetary balance", response.json()["note"])
 
     def test_customer_usage_history_is_session_scoped_and_cursor_validated(self):
         self.client.post("/v1/customer/session", json={"token": self.store.login_link.token})
-        previous_meter = getattr(api.app.state, "usage_meter", None)
-        observed = {}
-        class FakeUsageMeter:
-            def events(self, *, tenant_id, limit, before, before_event_id):
-                observed.update(tenant_id=tenant_id, limit=limit, before=before,
-                                before_event_id=before_event_id)
-                return {"items": [{"event_id": str(uuid.uuid4()), "request_id": "req-1",
-                                   "operation": "authorization.evaluate", "units": 1,
-                                   "occurred_at": datetime.now(timezone.utc).isoformat()}],
-                        "next_cursor": None}
-        api.app.state.usage_meter = FakeUsageMeter()
-        try:
-            with patch.object(api, "settings", replace(api.settings, database_url="postgresql://test")):
-                response = self.client.get("/v1/customer/usage/events?limit=25")
-                partial = self.client.get("/v1/customer/usage/events?before=2026-11-01T00:00:00Z")
-                naive = self.client.get(
-                    "/v1/customer/usage/events?before=2026-11-01T00:00:00&before_event_id="+str(uuid.uuid4())
-                )
-        finally:
-            if previous_meter is None:
-                if hasattr(api.app.state, "usage_meter"):
-                    delattr(api.app.state, "usage_meter")
-            else:
-                api.app.state.usage_meter = previous_meter
+        response = self.client.get("/v1/customer/usage/events?limit=25")
+        partial = self.client.get("/v1/customer/usage/events?before=2026-11-01T00:00:00Z")
+        naive = self.client.get(
+            "/v1/customer/usage/events?before=2026-11-01T00:00:00&before_event_id="+str(uuid.uuid4())
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["request_id"], "req-1")
-        self.assertEqual(observed["tenant_id"], str(self.store.account.tenant_id))
-        self.assertEqual(observed["limit"], 25)
+        self.assertEqual(self.store.usage_observed["session_token"], self.store.session.token)
+        self.assertEqual(self.store.usage_observed["limit"], 25)
         self.assertEqual(partial.status_code, 422)
         self.assertEqual(naive.status_code, 422)
 
