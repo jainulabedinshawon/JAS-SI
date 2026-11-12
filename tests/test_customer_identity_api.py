@@ -101,6 +101,9 @@ class TestCustomerIdentityApi(unittest.TestCase):
         )
 
     def test_identity_store_fails_closed_when_database_privileges_are_not_isolated(self):
+        # setUp patches this getter for HTTP-route tests; restore the real getter
+        # so this test exercises the readiness guard itself.
+        self.store_patch.stop()
         request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
         unsafe_store = SimpleNamespace(
             verify_schema=lambda: True,
