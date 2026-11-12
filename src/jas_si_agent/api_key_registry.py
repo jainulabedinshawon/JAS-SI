@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import secrets
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
@@ -44,6 +44,8 @@ class AuthenticatedApiKey:
     tenant_id: uuid.UUID
     tenant_name: str
     scopes: frozenset[str]
+    # Request-local proof material for database-bound metering. Never expose in repr.
+    candidate_digest: bytes = field(default=b"", repr=False, compare=False)
 
 
 def _validate_pepper(pepper: bytes) -> None:
@@ -684,6 +686,7 @@ class PostgresApiKeyRegistry:
                 tenant_id=row[1],
                 tenant_name=row[2],
                 scopes=frozenset(row[3]),
+                candidate_digest=candidate_digest,
             )
         except Exception as exc:
             raise ApiKeyError("API key authentication boundary is unavailable") from exc
