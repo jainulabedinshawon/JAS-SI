@@ -12,7 +12,7 @@ import hmac
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 KEY_PREFIX = "jassi_live_"
@@ -92,12 +92,15 @@ def parse_token(token: str) -> tuple[uuid.UUID, bytes]:
 class PostgresApiKeyRegistry:
     """Tenant/key metadata operations against the JAS-SI PostgreSQL database."""
 
-    def __init__(self, dsn: str, pepper: bytes) -> None:
+    def __init__(self, dsn: str, pepper: bytes, customer_session_pepper: bytes | None = None) -> None:
         if not isinstance(dsn, str) or not dsn.strip():
             raise ApiKeyError("Database DSN is required")
         _validate_pepper(pepper)
         self._dsn = dsn.strip()
         self._pepper = pepper
+        self._customer_session_pepper = customer_session_pepper
+        if customer_session_pepper is not None and (not isinstance(customer_session_pepper, bytes) or len(customer_session_pepper) < 32):
+            raise ApiKeyError("Customer session pepper must contain at least 32 bytes")
 
     def verify_schema(self) -> bool:
         """Fail closed unless both tenant registry tables exist."""
@@ -172,54 +175,67 @@ class PostgresApiKeyRegistry:
         )
 
     def verify_customer_audit_isolation(self) -> bool:
-        """Fail closed if the customer role can directly access global audit or identity tables.
-
-        Customer key lifecycle operations must move behind database-owned routines
-        before this guard can pass. Column-level grants are checked as well as
-        table-level grants.
-        """
+        """Fail closed unless the customer role has zero direct protected-table privileges."""
         import psycopg
 
-        protected = {
-            "public.jas_si_audit_events": (
-                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
-            ),
-            "public.jas_si_audit_chain_state": (
-                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
-            ),
-            "public.jas_si_customer_sessions": (
-                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
-            ),
-            "public.jas_si_customer_auth_tokens": (
-                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
-            ),
-            "public.jas_si_customer_accounts": (
-                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"
-            ),
+        protected = [
+            "public.jas_si_tenants",
+            "public.jas_si_api_keys",
+            "public.jas_si_api_key_provisioning_runs",
+            "public.jas_si_audit_events",
+            "public.jas_si_audit_chain_state",
+            "public.jas_si_customer_sessions",
+            "public.jas_si_customer_auth_tokens",
+            "public.jas_si_customer_accounts",
+        ]
+        privileges = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+        tables = [table for table in protected for _ in privileges]
+        grants = [privilege for _ in protected for privilege in privileges]
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     COALESCE(pg_catalog.bool_and(pg_catalog.to_regclass(t) IS NOT NULL), false),
+                     COALESCE(pg_catalog.bool_or(
+                       has_table_privilege(current_user, pg_catalog.to_regclass(t), p)
+                       OR (p = ANY(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']::text[])
+                           AND has_any_column_privilege(current_user, pg_catalog.to_regclass(t), p))
+                     ), false)
+                   FROM pg_catalog.unnest(%s::text[], %s::text[]) AS x(t,p)""",
+                (tables, grants),
+            )
+            row = cursor.fetchone()
+        return bool(row and row[0] and not row[1])
+
+    def verify_customer_key_routines(self) -> bool:
+        """Require the session-bound database-owned customer key routines."""
+        import psycopg
+
+        expected = {
+            "customer_api_key_list": "bytea",
+            "customer_api_key_issue": "bytea, uuid, text, text, bytea, smallint, text[], text, text",
+            "customer_api_key_revoke": "bytea, uuid, text",
         }
-        with psycopg.connect(self._dsn) as connection:
-            with connection.cursor() as cursor:
-                for table, privileges in protected.items():
-                    cursor.execute("SELECT to_regclass(%s)", (table,))
-                    exists = cursor.fetchone()
-                    if not exists or exists[0] is None:
-                        return False
-                    for privilege in privileges:
-                        if privilege in {"SELECT", "INSERT", "UPDATE", "REFERENCES"}:
-                            cursor.execute(
-                                """SELECT
-                                    has_table_privilege(current_user, %s, %s)
-                                    OR has_any_column_privilege(current_user, %s, %s)""",
-                                (table, privilege, table, privilege),
-                            )
-                        else:
-                            cursor.execute(
-                                "SELECT has_table_privilege(current_user, %s, %s)",
-                                (table, privilege),
-                            )
-                        row = cursor.fetchone()
-                        if row is None or row[0]:
-                            return False
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            for name, signature in expected.items():
+                cursor.execute(
+                    """SELECT p.prosecdef, p.proconfig,
+                              pg_catalog.pg_get_userbyid(p.proowner),
+                              has_function_privilege(current_user,p.oid,'EXECUTE'),
+                              EXISTS (
+                                SELECT 1 FROM pg_catalog.aclexplode(
+                                  COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+                                ) a
+                                WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+                              )
+                       FROM pg_catalog.pg_proc p
+                       JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                       WHERE n.nspname='public' AND p.proname=%s
+                         AND pg_catalog.oidvectortypes(p.proargtypes)=%s""",
+                    (name, signature),
+                )
+                row = cursor.fetchone()
+                if not row or row[0] is not True or row[1] != ["search_path=pg_catalog"] or row[2] != "jas_si_customer_key_owner" or row[3] is not True or row[4] is True:
+                    return False
         return True
 
     def _require_customer_runtime_boundary(self) -> None:
@@ -228,6 +244,8 @@ class PostgresApiKeyRegistry:
             raise ApiKeyError("Customer database runtime role is not authorized")
         if not self.verify_customer_audit_isolation():
             raise ApiKeyError("Customer database audit isolation is not configured")
+        if not self.verify_customer_key_routines():
+            raise ApiKeyError("Customer API-key database routines are not configured")
 
     def _enforce_customer_tenant_scope(self, tenant_scope: uuid.UUID | None) -> None:
         """Require an explicit authenticated tenant scope on the customer DB role.
@@ -446,6 +464,89 @@ class PostgresApiKeyRegistry:
             ) from exc
 
         return IssuedApiKey(key_id, token, prefix, expires_at)
+
+
+    def _customer_session_digest(self, token: str) -> bytes:
+        if self._customer_session_pepper is None:
+            raise ApiKeyError("Customer session pepper is not configured")
+        if not isinstance(token, str) or not 32 <= len(token) <= 128:
+            raise ApiKeyError("Customer session is invalid")
+        return hmac.new(self._customer_session_pepper, token.encode("utf-8"), hashlib.sha256).digest()
+
+    def customer_list_keys(self, session_token: str) -> list[dict]:
+        """List keys only after PostgreSQL independently authenticates the session."""
+        import psycopg
+        self._require_customer_runtime_boundary()
+        digest = self._customer_session_digest(session_token)
+        try:
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM public.customer_api_key_list(%s)", (digest,))
+                rows = cursor.fetchall()
+            return [
+                {
+                    "key_id": str(r[0]), "key_name": r[1], "key_prefix": r[2],
+                    "scopes": list(r[3]), "status": r[4],
+                    "created_at": r[5].isoformat(),
+                    "expires_at": r[6].isoformat() if r[6] else None,
+                    "last_used_at": r[7].isoformat() if r[7] else None,
+                    "revoked_at": r[8].isoformat() if r[8] else None,
+                } for r in rows
+            ]
+        except Exception as exc:
+            raise ApiKeyError("Unable to list customer API keys") from exc
+
+    def customer_issue_key(self, session_token: str, key_name: str, scopes: Iterable[str], expires_at: datetime | None = None) -> IssuedApiKey:
+        """Issue a key; tenant and account are derived from the live DB session."""
+        import psycopg
+        self._require_customer_runtime_boundary()
+        session_digest = self._customer_session_digest(session_token)
+        name = key_name.strip() if isinstance(key_name, str) else ""
+        scope_list = list(scopes)
+        scope_set = frozenset(scope_list)
+        if not name or len(name) > 120:
+            raise ApiKeyError("Key name must contain 1 to 120 characters")
+        if not scope_set or not scope_set.issubset(ALLOWED_SCOPES) or len(scope_set) != len(scope_list):
+            raise ApiKeyError("One or more API key scopes are invalid")
+        if expires_at is not None and (expires_at.tzinfo is None or expires_at <= datetime.now(timezone.utc) or expires_at > datetime.now(timezone.utc) + timedelta(days=365)):
+            raise ApiKeyError("Expiry must be a future timezone-aware timestamp within 365 days")
+        key_id = uuid.uuid4()
+        secret = secrets.token_bytes(KEY_SECRET_BYTES)
+        token = f"{KEY_PREFIX}{key_id.hex}_{_encode_secret(secret)}"
+        prefix = f"{KEY_PREFIX}{key_id.hex}"
+        run_id = f"customer-api:{uuid.uuid4()}"
+        try:
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM public.customer_api_key_issue(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (session_digest,key_id,name,prefix,_digest(secret,self._pepper),PEPPER_VERSION,
+                     sorted(scope_set),expires_at.isoformat() if expires_at else None,run_id),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise ApiKeyError("Customer API key was not issued")
+            return IssuedApiKey(row[0], token, row[1], row[2])
+        except ApiKeyError:
+            raise
+        except Exception as exc:
+            raise ApiKeyError("Customer API key could not be issued") from exc
+
+    def customer_revoke_key(self, session_token: str, key_id: uuid.UUID) -> bool:
+        """Revoke only a key belonging to the account bound to the live session."""
+        import psycopg
+        self._require_customer_runtime_boundary()
+        if not isinstance(key_id, uuid.UUID):
+            raise ApiKeyError("A valid key UUID is required")
+        session_digest = self._customer_session_digest(session_token)
+        try:
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT public.customer_api_key_revoke(%s,%s,%s)",
+                    (session_digest,key_id,f"customer-revoke:{uuid.uuid4()}"),
+                )
+                row = cursor.fetchone()
+            return bool(row and row[0])
+        except Exception as exc:
+            raise ApiKeyError("Customer API key revocation failed") from exc
 
     def authenticate(self, token: str) -> AuthenticatedApiKey | None:
         try:

@@ -57,6 +57,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "007_customer_api_key_self_service.sql",
                 "20261110_customer_identity.sql",
                 "20261112_customer_identity_routines.sql",
+                "20261113_customer_api_key_routines.sql",
                 "20261110_customer_rate_limits.sql",
                 "20261110_usage_metering.sql",
                 "20261110_usage_idempotency_fingerprint.sql",
