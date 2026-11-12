@@ -1,6 +1,7 @@
 """Tenant-scoped PostgreSQL usage metering with atomic monthly quota enforcement."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -288,3 +289,187 @@ class PostgresUsageMeter:
             }
         except Exception as exc:
             raise UsageMeterError("Unable to read tenant usage") from exc
+
+
+    def record_authenticated(
+        self, *, api_key_id: str, candidate_digest: bytes, required_scope: str,
+        request_id: str, idempotency_key: str, operation: str,
+        request_fingerprint: str, monthly_limit: int, units: int = 1,
+    ) -> dict[str, Any]:
+        """Reserve usage through a DB routine that validates the bearer key and derives tenant."""
+        try:
+            key_id = uuid.UUID(api_key_id)
+        except (TypeError, ValueError):
+            raise ValueError("Authenticated API key ID must be a UUID") from None
+        if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+            raise ValueError("Authenticated API-key digest must be 32 bytes")
+        if required_scope not in {"authorization:check", "outcomes:submit", "github:evidence:verify"}:
+            raise ValueError("Unsupported server-mapped usage scope")
+        if operation not in {"authorization.evaluate", "outcome.submit", "github.evidence.verify"}:
+            raise ValueError("Unsupported usage operation")
+        if units != 1:
+            raise ValueError("Usage units must be exactly one")
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 128:
+            raise ValueError("A 1-128 character idempotency key is required")
+        if not isinstance(request_fingerprint, str) or len(request_fingerprint) != 64 or any(c not in "0123456789abcdef" for c in request_fingerprint):
+            raise ValueError("A lowercase SHA-256 request fingerprint is required")
+        if not isinstance(monthly_limit, int) or isinstance(monthly_limit, bool) or not 1 <= monthly_limit <= 1_000_000:
+            raise ValueError("Monthly quota must be between 1 and 1000000 units")
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 64:
+            raise ValueError("A server-generated request ID is required")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    """SELECT event_id,operation,units,occurred_at,replayed,
+                              monthly_limit,used_units,remaining_units,period_start,resets_at
+                       FROM public.jas_si_api_key_usage_reserve(
+                         %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (key_id,candidate_digest,required_scope,request_id,idempotency_key,
+                     operation,request_fingerprint,units,monthly_limit),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise UsageMeterError("API-key usage reservation returned no result")
+            return {
+                "event_id": str(row[0]), "operation": row[1], "units": int(row[2]),
+                "occurred_at": row[3].isoformat(), "replayed": bool(row[4]),
+                "monthly_limit": int(row[5]), "used_units": int(row[6]),
+                "remaining_units": int(row[7]), "period_start": row[8].isoformat(),
+                "resets_at": row[9].isoformat(),
+            }
+        except UsageMeterError:
+            raise
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) == "P0001":
+                try:
+                    detail = json.loads(exc.diag.message_detail or "{}")
+                    raise UsageQuotaExceeded(
+                        monthly_limit=int(detail["monthly_limit"]),
+                        used_units=int(detail["used_units"]),
+                        requested_units=int(detail["requested_units"]),
+                        resets_at=datetime.fromisoformat(detail["resets_at"]),
+                    ) from None
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    raise UsageMeterError("Usage quota routine returned invalid quota metadata") from None
+            if getattr(exc, "sqlstate", None) in {"23505", "28000", "42501", "22023"}:
+                raise UsageMeterError("API-key usage request was rejected by the database") from None
+            raise UsageMeterError("Unable to reserve API-key-bound usage") from exc
+
+    def summary_authenticated(
+        self, *, api_key_id: str, candidate_digest: bytes, since: datetime,
+        tenant_id_for_response: str,
+    ) -> dict[str, Any]:
+        """Read usage summary after PostgreSQL independently validates the API key."""
+        try:
+            key_id = uuid.UUID(api_key_id)
+            response_tenant = uuid.UUID(tenant_id_for_response)
+        except (TypeError, ValueError):
+            raise ValueError("Authenticated API key and response tenant IDs must be UUIDs") from None
+        if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+            raise ValueError("Authenticated API-key digest must be 32 bytes")
+        if since.tzinfo is None:
+            raise ValueError("Usage summary timestamp must be timezone-aware")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    """SELECT operation,event_count,total_units,last_recorded_at
+                       FROM public.jas_si_api_key_usage_summary(%s,%s,'usage:read',%s)""",
+                    (key_id,candidate_digest,since),
+                )
+                rows = cur.fetchall()
+            items = [
+                {"operation": row[0], "events": int(row[1]), "units": int(row[2]),
+                 "last_recorded_at": row[3].isoformat() if row[3] else None}
+                for row in rows
+            ]
+            return {
+                "tenant_id": str(response_tenant), "since": since.isoformat(),
+                "units": sum(item["units"] for item in items),
+                "events": sum(item["events"] for item in items),
+                "by_operation": items, "billing_status": "not_connected",
+                "note": "Measured technical usage only; no monetary balance or paid entitlement is inferred.",
+            }
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) in {"28000", "42501", "22023"}:
+                raise UsageMeterError("API-key usage read was rejected by the database") from None
+            raise UsageMeterError("Unable to read API-key-bound usage summary") from exc
+
+    def quota_status_authenticated(
+        self, *, api_key_id: str, candidate_digest: bytes, monthly_limit: int,
+    ) -> dict[str, Any]:
+        """Read quota after PostgreSQL independently validates usage:read scope."""
+        try:
+            key_id = uuid.UUID(api_key_id)
+        except (TypeError, ValueError):
+            raise ValueError("Authenticated API key ID must be a UUID") from None
+        if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+            raise ValueError("Authenticated API-key digest must be 32 bytes")
+        if not isinstance(monthly_limit, int) or isinstance(monthly_limit, bool) or not 1 <= monthly_limit <= 1_000_000:
+            raise ValueError("Monthly quota must be between 1 and 1000000 units")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    """SELECT period,period_start,resets_at,monthly_limit,
+                              used_units,remaining_units,exhausted
+                       FROM public.jas_si_api_key_usage_quota(%s,%s,'usage:read',%s)""",
+                    (key_id,candidate_digest,monthly_limit),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise UsageMeterError("API-key quota routine returned no result")
+            return {
+                "period": row[0], "period_start": row[1].isoformat(),
+                "resets_at": row[2].isoformat(), "monthly_limit": int(row[3]),
+                "used_units": int(row[4]), "remaining_units": int(row[5]),
+                "exhausted": bool(row[6]),
+            }
+        except UsageMeterError:
+            raise
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) in {"28000", "42501", "22023"}:
+                raise UsageMeterError("API-key quota read was rejected by the database") from None
+            raise UsageMeterError("Unable to read API-key-bound quota") from exc
+
+    def events_authenticated(
+        self, *, api_key_id: str, candidate_digest: bytes, limit: int = 50,
+        before: datetime | None = None, before_event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Read an API-key-bound keyset page; tenant identity is derived in PostgreSQL."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("Usage history limit must be between 1 and 100")
+        try:
+            key_id = uuid.UUID(api_key_id)
+            cursor_id = uuid.UUID(before_event_id) if before_event_id else None
+        except (TypeError, ValueError):
+            raise ValueError("Invalid API key or usage history cursor UUID") from None
+        if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+            raise ValueError("Authenticated API-key digest must be 32 bytes")
+        if (before is None) != (cursor_id is None):
+            raise ValueError("Both usage history cursor fields must be provided together")
+        if before is not None and before.tzinfo is None:
+            raise ValueError("Usage history cursor timestamp must be timezone-aware")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    """SELECT event_id,request_id,operation,units,occurred_at
+                       FROM public.jas_si_api_key_usage_events(%s,%s,'usage:read',%s,%s,%s)""",
+                    (key_id,candidate_digest,limit,
+                     before.astimezone(timezone.utc) if before else None,cursor_id),
+                )
+                rows = cur.fetchall()
+            has_more = len(rows)>limit
+            page = rows[:limit]
+            items = [{"event_id":str(r[0]),"request_id":r[1],"operation":r[2],
+                      "units":int(r[3]),"occurred_at":r[4].isoformat()} for r in page]
+            next_cursor = None
+            if has_more and page:
+                next_cursor={"before":page[-1]["occurred_at"],"before_event_id":page[-1]["event_id"]}
+            return {"items":items,"next_cursor":next_cursor}
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) in {"28000", "42501", "22023"}:
+                raise UsageMeterError("API-key usage history read was rejected by the database") from None
+            raise UsageMeterError("Unable to read API-key-bound usage history") from exc
