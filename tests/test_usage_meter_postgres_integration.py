@@ -89,6 +89,9 @@ class TestPostgresUsageMeter(unittest.TestCase):
                          ["authorization:check", "usage:read"] if key_id != self.key_c else ["authorization:check"]),
                     )
 
+    def test_api_key_usage_routine_readiness_verifies_owner_and_grants(self):
+        self.assertTrue(self.meter.verify_api_key_usage_routines())
+
     def test_api_key_bound_usage_routines_validate_digest_and_scope(self):
         import psycopg
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
