@@ -21,7 +21,7 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 
 
 class FakeQuotaMeter:
-    def record(self, **event):
+    def record_authenticated(self, **event):
         return {
             "event_id": "00000000-0000-0000-0000-000000000099",
             "operation": event["operation"],
