@@ -29,6 +29,18 @@ class TestApiKeyPrimitives(unittest.TestCase):
         self.assertEqual(parsed_id, key_id)
         self.assertEqual(parsed_secret, secret)
 
+    def test_noncanonical_base64url_secret_encoding_is_rejected(self):
+        import uuid
+
+        secret = bytes(range(32))
+        encoded = base64.urlsafe_b64encode(secret).decode().rstrip("=")
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        last = alphabet.index(encoded[-1])
+        alias = encoded[:-1] + alphabet[last ^ 1]
+        token = f"{KEY_PREFIX}{uuid.uuid4().hex}_{alias}"
+        with self.assertRaises(ApiKeyError):
+            parse_token(token)
+
     def test_digest_is_keyed_and_stable(self):
         secret = b"s" * 32
         pepper = b"p" * 32
