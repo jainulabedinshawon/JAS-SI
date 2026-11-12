@@ -72,9 +72,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
             )
             cur.execute(f'GRANT jas_si_customer_runtime TO "{cls.login_role}" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE')
+        cls.login_dsn = make_conninfo(
+            cls.admin_dsn, user=cls.login_role, password=cls.login_password
+        )
         cls.dsn = make_conninfo(
-            cls.admin_dsn, user=cls.login_role, password=cls.login_password,
-            options="-c role=jas_si_customer_runtime"
+            cls.login_dsn, options="-c role=jas_si_customer_runtime"
         )
         cls.pepper = b"customer-identity-test-pepper-32-bytes-minimum"
         cls.store = PostgresCustomerIdentityStore(cls.dsn, cls.pepper)
@@ -98,7 +100,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             cur.execute("RESET ROLE")
             cur.execute("SELECT session_user, current_user")
             self.assertEqual(cur.fetchone(), (self.login_role, self.login_role))
-        self.assertFalse(self.store.verify_schema())
+        self.assertFalse(PostgresCustomerIdentityStore(self.login_dsn, self.pepper).verify_schema())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
                 cur.execute("RESET ROLE")

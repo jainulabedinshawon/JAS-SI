@@ -65,9 +65,11 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
             )
             cur.execute(f'GRANT jas_si_customer_key_runtime TO "{cls.login_role}" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE')
+        cls.login_dsn = make_conninfo(
+            DATABASE_URL, user=cls.login_role, password=cls.login_password
+        )
         cls.customer_dsn = make_conninfo(
-            DATABASE_URL, user=cls.login_role, password=cls.login_password,
-            options="-c role=jas_si_customer_key_runtime"
+            cls.login_dsn, options="-c role=jas_si_customer_key_runtime"
         )
         cls.registry = PostgresApiKeyRegistry(cls.customer_dsn, cls.pepper)
 
@@ -95,7 +97,7 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             cur.execute("RESET ROLE")
             cur.execute("SELECT session_user, current_user")
             self.assertEqual(cur.fetchone(), (self.login_role, self.login_role))
-        self.assertFalse(self.registry.verify_customer_runtime_role())
+        self.assertFalse(PostgresApiKeyRegistry(self.login_dsn, self.pepper).verify_customer_runtime_role())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
                 cur.execute("RESET ROLE")
