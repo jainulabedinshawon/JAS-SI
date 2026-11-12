@@ -171,6 +171,18 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         keys = self.registry.customer_list_keys(session_a)
         self.assertEqual([row["key_id"] for row in keys], [str(key_a.key_id)])
 
+    def test_customer_key_routine_readiness_rejects_unsafe_owner_role(self):
+        # A SECURITY DEFINER owner must remain a non-login, non-privileged,
+        # non-member role after migration; drift must fail closed.
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute("ALTER ROLE jas_si_customer_key_owner LOGIN")
+        try:
+            self.assertFalse(self.registry.verify_customer_key_routines())
+        finally:
+            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                cur.execute("ALTER ROLE jas_si_customer_key_owner NOLOGIN")
+        self.assertTrue(self.registry.verify_customer_key_routines())
+
     def test_customer_runtime_has_execute_only_not_direct_table_privileges(self):
         protected = (
             "jas_si_tenants", "jas_si_api_keys", "jas_si_api_key_provisioning_runs",
