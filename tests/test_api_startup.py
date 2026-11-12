@@ -139,10 +139,30 @@ class TestAPIStartup(unittest.TestCase):
 
         fake_store.verify_integrity.assert_called_once_with()
         registry.return_value.verify_schema.assert_called_once_with()
+        registry.return_value.verify_api_key_auth_boundary.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
         )
+
+    def test_preview_denies_startup_when_api_key_auth_boundary_is_unsafe(self):
+        fake_store = unittest.mock.Mock()
+        fake_store.verify_integrity.return_value = {
+            "valid": True,
+            "verified_event_count": 0,
+        }
+
+        with (
+            patch.object(api, "settings", self.configure()),
+            patch.object(api, "PostgresSecurityEventStore", return_value=fake_store),
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
+        ):
+            registry.return_value.verify_schema.return_value = True
+            registry.return_value.verify_api_key_auth_boundary.return_value = False
+            with self.assertRaisesRegex(RuntimeError, "authentication security boundary"):
+                api.initialize_security_event_store()
+
+        self.assertIs(self.original_store, self.jsonl_store)
 
     def test_valid_integrity_switches_to_postgres(self):
         fake_store = unittest.mock.Mock()
