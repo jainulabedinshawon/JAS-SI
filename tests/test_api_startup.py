@@ -134,12 +134,15 @@ class TestAPIStartup(unittest.TestCase):
                 return_value=fake_store,
             ),
             patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
         ):
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = True
             api.initialize_security_event_store()
 
         fake_store.verify_integrity.assert_called_once_with()
         registry.return_value.verify_schema.assert_called_once_with()
         registry.return_value.verify_api_key_auth_boundary.assert_called_once_with()
+        usage_meter.return_value.verify_api_key_usage_routines.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
@@ -183,7 +186,9 @@ class TestAPIStartup(unittest.TestCase):
                 return_value=fake_store,
             ) as postgres,
             patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
         ):
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = True
             api.initialize_security_event_store()
 
         postgres.assert_called_once_with(
@@ -192,10 +197,27 @@ class TestAPIStartup(unittest.TestCase):
         fake_store.verify_integrity.assert_called_once_with()
         registry.return_value.verify_schema.assert_called_once_with()
         registry.return_value.verify_api_key_auth_boundary.assert_called_once_with()
+        usage_meter.return_value.verify_api_key_usage_routines.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
         )
+
+    def test_preview_denies_startup_when_usage_routines_are_not_ready(self):
+        fake_store = unittest.mock.Mock()
+        fake_store.verify_integrity.return_value = {"valid": True, "verified_event_count": 0}
+        with (
+            patch.object(api, "settings", self.configure()),
+            patch.object(api, "PostgresSecurityEventStore", return_value=fake_store),
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
+        ):
+            registry.return_value.verify_schema.return_value = True
+            registry.return_value.verify_api_key_auth_boundary.return_value = True
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = False
+            with self.assertRaisesRegex(RuntimeError, "usage readiness check failed"):
+                api.initialize_security_event_store()
+        self.assertIs(api.app.state.security_event_store, self.jsonl_store)
 
     def test_invalid_integrity_denies_startup_without_fallback(self):
         fake_store = unittest.mock.Mock()
