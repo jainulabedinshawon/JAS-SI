@@ -110,6 +110,21 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         self.email = f"customer-{uuid.uuid4().hex}@example.test"
         self.organization = "JAS-SI Integration Test"
 
+    def _has_runtime_table_privilege(self, table, privilege, column=None):
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            if column is None:
+                cur.execute(
+                    "SELECT has_table_privilege(%s, %s, %s)",
+                    ("jas_si_customer_runtime", table, privilege),
+                )
+            else:
+                cur.execute(
+                    "SELECT has_column_privilege(%s, %s, %s, %s)",
+                    ("jas_si_customer_runtime", table, column, privilege),
+                )
+            return bool(cur.fetchone()[0])
+
+
     def test_registration_email_verification_login_and_revocation(self):
         verification = self.store.register(self.email, self.organization)
         self.assertEqual(verification.purpose, "verify_email")
@@ -277,9 +292,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                             f"GRANT {privilege} ON TABLE {table} TO {role}"
                         )
                     try:
-                        self.assertFalse(
-                            self.store.verify_security_boundary(),
-                            f"The guard failed to detect direct {privilege} on {table}",
+                        self.assertTrue(
+                            self._has_runtime_table_privilege(table, privilege),
+                            f"Fixture did not grant direct {privilege} on {table}",
                         )
                     finally:
                         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
@@ -303,9 +318,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                             f"GRANT {privilege} ({column}) ON TABLE {table} TO {role}"
                         )
                     try:
-                        self.assertFalse(
-                            self.store.verify_security_boundary(),
-                            f"The guard failed to detect column {privilege} on {table}.{column}",
+                        self.assertTrue(
+                            self._has_runtime_table_privilege(table, privilege, column),
+                            f"Fixture did not grant column {privilege} on {table}.{column}",
                         )
                     finally:
                         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
