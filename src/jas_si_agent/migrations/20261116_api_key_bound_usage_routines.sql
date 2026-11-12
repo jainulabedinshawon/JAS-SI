@@ -127,7 +127,7 @@ BEGIN
            AND e.occurred_at>=v_period_start AND e.occurred_at<v_period_end;
         RETURN QUERY SELECT v_existing.event_id,v_existing.operation::text,
             v_existing.units,v_existing.occurred_at,true,p_monthly_limit,v_used,
-            pg_catalog.greatest(0,p_monthly_limit-v_used),v_period_start,v_period_end;
+            CASE WHEN p_monthly_limit>v_used THEN p_monthly_limit-v_used ELSE 0 END,v_period_start,v_period_end;
         RETURN;
     END IF;
 
@@ -153,7 +153,7 @@ BEGIN
         p_operation,p_units,v_now,p_request_fingerprint
     );
     RETURN QUERY SELECT v_event_id,p_operation,p_units,v_now,false,p_monthly_limit,
-        v_used+p_units,pg_catalog.greatest(0,p_monthly_limit-v_used-p_units),
+        v_used+p_units,CASE WHEN p_monthly_limit>v_used+p_units THEN p_monthly_limit-v_used-p_units ELSE 0 END,
         v_period_start,v_period_end;
 END;
 $function$;
@@ -188,7 +188,7 @@ BEGIN
       FROM public.jas_si_usage_events e
      WHERE e.tenant_id=v_tenant_id AND e.occurred_at>=v_start AND e.occurred_at<v_end;
     RETURN QUERY SELECT 'utc_calendar_month'::text,v_start,v_end,p_monthly_limit,
-        v_used,pg_catalog.greatest(0,p_monthly_limit-v_used),v_used>=p_monthly_limit;
+        v_used,CASE WHEN p_monthly_limit>v_used THEN p_monthly_limit-v_used ELSE 0 END,v_used>=p_monthly_limit;
 END;
 $function$;
 
