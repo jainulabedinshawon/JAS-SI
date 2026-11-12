@@ -1,4 +1,6 @@
 -- API-key-bound usage metering routines.
+-- Validation uses SELECT-only grants; an in-flight request already authorized at its
+-- database statement snapshot may complete if revocation commits concurrently.
 -- Additive stage only: existing runtime table grants remain until every API path
 -- is cut over and a separately reviewed revocation migration is approved.
 
@@ -96,7 +98,7 @@ BEGIN
        AND k.pepper_version=1 AND k.status='active'
        AND (k.expires_at IS NULL OR k.expires_at>v_now)
        AND t.status='active' AND p_required_scope=ANY(k.scopes)
-     FOR SHARE OF k,t;
+     ;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Invalid API-key usage authorization' USING ERRCODE='28000';
     END IF;
@@ -178,7 +180,7 @@ BEGIN
        AND k.pepper_version=1 AND k.status='active'
        AND (k.expires_at IS NULL OR k.expires_at>v_now)
        AND t.status='active' AND p_required_scope=ANY(k.scopes)
-     FOR SHARE OF k,t;
+     ;
     IF NOT FOUND THEN RAISE EXCEPTION 'Invalid API-key usage authorization' USING ERRCODE='28000'; END IF;
     v_start:=pg_catalog.date_trunc('month',v_now AT TIME ZONE 'UTC') AT TIME ZONE 'UTC';
     v_end:=v_start+interval '1 month';
@@ -209,7 +211,7 @@ BEGIN
        AND k.pepper_version=1 AND k.status='active'
        AND (k.expires_at IS NULL OR k.expires_at>v_now)
        AND t.status='active' AND p_required_scope=ANY(k.scopes)
-     FOR SHARE OF k,t;
+     ;
     IF NOT FOUND THEN RAISE EXCEPTION 'Invalid API-key usage authorization' USING ERRCODE='28000'; END IF;
     RETURN QUERY
     SELECT e.operation::text,pg_catalog.count(*)::bigint,
@@ -242,7 +244,7 @@ BEGIN
        AND k.pepper_version=1 AND k.status='active'
        AND (k.expires_at IS NULL OR k.expires_at>v_now)
        AND t.status='active' AND p_required_scope=ANY(k.scopes)
-     FOR SHARE OF k,t;
+     ;
     IF NOT FOUND THEN RAISE EXCEPTION 'Invalid API-key usage authorization' USING ERRCODE='28000'; END IF;
     IF p_before IS NULL THEN
         RETURN QUERY SELECT e.event_id,e.request_id,e.operation,e.units,e.occurred_at
