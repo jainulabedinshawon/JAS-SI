@@ -145,3 +145,37 @@ A further source audit of `api_key_registry.py` and `api.py` found an important 
 7. Only after the application uses both the authentication and metering routines, stage the privilege-revocation migration. This migration must account for every API path that still legitimately needs other tables; do not revoke unrelated application access blindly.
 
 This dependency means the earlier proposal to revoke direct usage-table access alone is insufficient. The full registry authentication and usage call chain must be migrated together before the runtime privilege boundary can be tightened.
+
+
+## 10. Verified call-chain inventory and implementation gate (PR head 44e932f)
+
+The latest source inspection confirms the following exact call chain:
+
+| Layer | Current implementation | Required change |
+|---|---|---|
+| Token parsing | `parse_token()` returns key UUID + 32-byte secret | Keep parsing in process; never log token or secret |
+| Digest | `_digest(secret, pepper)` returns HMAC-SHA256 bytes | Compute candidate digest once; keep request-local and non-repr |
+| Registry authentication | `authenticate()` directly SELECTs key + tenant and UPDATEs `last_used_at` | Replace with narrow database authentication routine |
+| Authenticated context | key ID, tenant ID, tenant name, scopes | Carry candidate digest in a non-repr, non-serialized internal field only until metering |
+| API middleware | maps route path to exact scope, then sets tenant/key/scopes on request state | Pass required scope from fixed server-side route map to database routine; never trust request-supplied scope |
+| Usage write | meter accepts tenant ID + key ID and directly reads/inserts usage table | Replace with database routine; tenant ID must not be a routine input |
+| Usage read | `/v1/usage` checks `usage:read`; usage query methods accept tenant ID | Read routines must independently validate key ID + digest + fixed scope and derive tenant |
+
+### Route-to-scope mapping verified in source
+
+- `/v1/authorize`: `authorization:check`
+- `/v1/verify`: `outcomes:submit`
+- `/v1/github/evidence`: `github:evidence:verify`
+- `/v1/usage`: `usage:read`
+
+### Important implementation safeguards
+
+- Do not put the candidate digest on a Pydantic response model, dataclass repr, exception, logger context, tracing attributes, or audit event.
+- Prefer a private request-state field with a narrow lifetime, or an internal immutable auth context whose digest field uses `repr=False`; clear it after the metering operation if feasible.
+- The DB authentication routine should return only non-secret identity and scope metadata. The candidate digest remains supplied by the caller to the subsequent metering routine and is never returned by PostgreSQL.
+- The routine must compare the candidate digest against the stored digest using a constant-time comparison where supported by the selected database implementation; if PostgreSQL's available primitives cannot provide a defensible constant-time comparison, document the residual timing risk and keep application-side HMAC verification as an additional check until a reviewed alternative is selected.
+- Authentication and usage routines must use exact typed signatures and strict input bounds. No dynamic SQL or caller-controlled object names.
+- Before removing direct registry SELECT/UPDATE privileges, inventory all other API-key lifecycle operations and their dedicated customer-session routines; do not break issuance, listing, or revocation.
+- The current PR head has green CI, but none of those checks establishes the proposed database-enforced API-key usage boundary. New migration and application tests must prove it explicitly.
+
+This inventory is a source audit only. No code path, schema, privilege, or database was changed by this section.
