@@ -147,9 +147,17 @@ def initialize_security_event_store() -> None:
 
     app.state.security_event_store = store
 
-    # Metering is prepared without running a migration at startup.
-    # The approved database migration must precede production deployment.
-    app.state.usage_meter = PostgresUsageMeter(settings.database_url)
+    # Metering is prepared without running a migration at startup. All API-key
+    # usage routines must already exist and pass their independent readiness gate.
+    try:
+        usage_meter = PostgresUsageMeter(settings.database_url)
+        if not usage_meter.verify_api_key_usage_routines():
+            raise RuntimeError("API-key usage database routines are not ready")
+    except Exception as exc:
+        raise RuntimeError(
+            "API-key usage readiness check failed; startup denied"
+        ) from exc
+    app.state.usage_meter = usage_meter
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
