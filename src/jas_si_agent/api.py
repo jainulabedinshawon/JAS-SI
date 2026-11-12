@@ -508,15 +508,22 @@ def _record_usage_for_authenticated_tenant(request: Request) -> None:
     api_key_id = getattr(request.state, "api_key_id", None)
     if operation is None or not tenant_id or not api_key_id:
         return
+    candidate_digest = getattr(request.state, "api_key_candidate_digest", None)
+    required_scope = {
+        "authorization.evaluate": "authorization:check",
+        "outcome.submit": "outcomes:submit",
+        "github.evidence.verify": "github:evidence:verify",
+    }[operation]
     meter = getattr(request.app.state, "usage_meter", None)
     fingerprint = getattr(request.state, "request_fingerprint", None)
     if meter is None or fingerprint is None:
         _log_security_event("usage_quota_unavailable", request, reason_code="durable_quota_meter_not_ready")
         raise HTTPException(status_code=503, detail="Usage quota service is not ready; request denied")
     try:
-        request.state.usage_event = meter.record(
-            tenant_id=tenant_id,
+        request.state.usage_event = meter.record_authenticated(
             api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            required_scope=required_scope,
             request_id=request.state.request_id,
             idempotency_key=request.headers.get("Idempotency-Key") or request.state.request_id,
             operation=operation,
@@ -647,6 +654,7 @@ def _require_api_key(
         request.state.api_key_scopes = sorted(authenticated.scopes)
         # Keep only the peppered digest in this request context; never retain the raw token.
         request.state.api_key_candidate_digest = authenticated.candidate_digest
+        request.state.api_key_required_scope = required_scope
         _record_usage_for_authenticated_tenant(request)
         return
 
@@ -1184,9 +1192,16 @@ def usage_summary(request: Request, since: Optional[datetime] = None) -> dict:
         meter = getattr(request.app.state, "usage_meter", None)
         if meter is None:
             meter = PostgresUsageMeter(settings.database_url)
-        result = meter.summary(tenant_id=tenant_id, since=window_start)
-        result["quota"] = meter.quota_status(
-            tenant_id=tenant_id,
+        candidate_digest = getattr(request.state, "api_key_candidate_digest", None)
+        api_key_id = getattr(request.state, "api_key_id", None)
+        if not api_key_id or not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+            raise RuntimeError("Authenticated API-key proof is unavailable")
+        result = meter.summary_authenticated(
+            api_key_id=api_key_id, candidate_digest=candidate_digest,
+            since=window_start, tenant_id_for_response=tenant_id,
+        )
+        result["quota"] = meter.quota_status_authenticated(
+            api_key_id=api_key_id, candidate_digest=candidate_digest,
             monthly_limit=get_free_monthly_units(),
         )
         return result
