@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from jas_si_agent import api
 from jas_si_agent.customer_identity import CustomerAccount, CustomerLink, CustomerSession
+from jas_si_agent.customer_portal import CUSTOMER_PORTAL_HTML
 
 
 class FakeCustomerIdentityStore:
@@ -447,6 +448,15 @@ class TestCustomerIdentityApi(unittest.TestCase):
             request.app.state.customer_usage_read_boundary_store,
             verified_store,
         )
+
+
+    def test_customer_portal_usage_history_controls_exist(self):
+        # The portal script dereferences these nodes during account bootstrap.
+        # Keep the markup and script contract aligned to prevent JS startup failure.
+        self.assertIn('id="usage-events"', CUSTOMER_PORTAL_HTML)
+        self.assertIn('id="usage-more"', CUSTOMER_PORTAL_HTML)
+        self.assertIn("document.getElementById('usage-events')", CUSTOMER_PORTAL_HTML)
+        self.assertIn("document.getElementById('usage-more')", CUSTOMER_PORTAL_HTML)
 
 
 
