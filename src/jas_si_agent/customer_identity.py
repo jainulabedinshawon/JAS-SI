@@ -113,21 +113,21 @@ class PostgresCustomerIdentityStore:
                        to_regclass('public.jas_si_customer_accounts') IS NOT NULL,
                        to_regclass('public.jas_si_customer_auth_tokens') IS NOT NULL,
                        to_regclass('public.jas_si_customer_sessions') IS NOT NULL,
-                       has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'SELECT')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'INSERT')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'UPDATE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'DELETE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'TRUNCATE'),
-                       has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'SELECT')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'INSERT')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'UPDATE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'DELETE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRUNCATE'),
-                       has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'SELECT')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'INSERT')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'UPDATE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'DELETE')
-                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRUNCATE')
+                       has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'SELECT') OR has_any_column_privilege(current_user, 'public.jas_si_customer_accounts', 'SELECT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'INSERT') OR has_any_column_privilege(current_user, 'public.jas_si_customer_accounts', 'INSERT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'UPDATE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_accounts', 'UPDATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'DELETE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_accounts', 'DELETE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'TRUNCATE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_accounts', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'SELECT') OR has_any_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'SELECT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'INSERT') OR has_any_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'INSERT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'UPDATE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'UPDATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'DELETE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'DELETE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRUNCATE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'SELECT') OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'SELECT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'INSERT') OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'INSERT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'UPDATE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'UPDATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'DELETE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'DELETE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRUNCATE') OR has_any_column_privilege(current_user, 'public.jas_si_customer_sessions', 'TRUNCATE')
                 """
             )
             row = cur.fetchone()
