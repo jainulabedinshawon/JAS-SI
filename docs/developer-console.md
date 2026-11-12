@@ -5,8 +5,9 @@ The root route serves a static, responsive developer landing page. The page read
 ## Security and product boundaries
 
 - The public console never displays, requests, or stores an API key.
-- API credentials remain managed by the existing tenant-scoped provisioning and revocation workflow.
-- Usage/billing counters are explicitly marked unavailable until a trustworthy metering source exists.
+- Customer self-service API-key creation and revocation are exposed only in the signed-in `/customer` portal and only when the dedicated database roles, migrations and secrets are configured. Otherwise, keys remain operator-provisioned.
+- Tenant usage summary and event history are available in the signed-in customer portal when its database boundary is enabled. The public console does not display tenant usage.
+- Usage values are technical units, not money, invoices, paid credit or payment status. Billing remains disconnected until a reviewed payment and entitlement implementation is enabled.
 - Quickstart examples use the currently implemented `X-API-Key` header and `/v1/authorize` schema.
 - The API evaluates authorization and verifies outcomes; it does not execute actions.
 - No production environment, database, secret, deployment, or existing API route is modified by this feature branch.
