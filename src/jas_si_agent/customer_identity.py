@@ -205,80 +205,49 @@ class PostgresCustomerIdentityStore:
         return direct_table_access_removed and routines_ready
 
     def register(self, email: str, organization_name: str) -> CustomerLink:
-        normalized, organization = normalize_email(email), normalize_organization_name(organization_name)
-        account_id, tenant_id, token_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-        token, now = self._new_token(), datetime.now(timezone.utc)
-        expires = now + self._verification_ttl
-        tenant_label = f"{organization[:109]} [{tenant_id.hex[:8]}]"
-        import psycopg
-        try:
-            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-                cur.execute("INSERT INTO jas_si_tenants (tenant_id, tenant_name) VALUES (%s, %s)", (tenant_id, tenant_label))
-                cur.execute("INSERT INTO jas_si_customer_accounts (account_id, tenant_id, email, email_normalized, organization_name) VALUES (%s, %s, %s, %s, %s)", (account_id, tenant_id, email.strip(), normalized, organization))
-                cur.execute("INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)", (token_id, account_id, self._digest(token), expires))
-        except Exception as exc:
-            try:
-                import psycopg
-                if isinstance(exc, psycopg.errors.UniqueViolation):
-                    raise CustomerIdentityConflict("Customer registration conflicts with an existing account") from None
-            except ImportError:
-                pass
-            if isinstance(exc, CustomerIdentityError):
-                raise
-            raise CustomerIdentityError("Customer registration could not be completed") from exc
-        return CustomerLink(account_id, normalized, "verify_email", token, expires)
-
-    def issue_verification_link(self, email: str) -> CustomerLink | None:
         normalized = normalize_email(email)
-        token_id, token = uuid.uuid4(), self._new_token()
+        organization = normalize_organization_name(organization_name)
+        account_id, tenant_id, token_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        token = self._new_token()
         expires = datetime.now(timezone.utc) + self._verification_ttl
         import psycopg
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-                cur.execute(
-                    "SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='pending' FOR UPDATE",
-                    (normalized,),
-                )
+                cur.execute("SELECT * FROM public.customer_register(%s,%s,%s,%s,%s,%s,%s,%s)", (email.strip(), normalized, organization, account_id, tenant_id, token_id, self._digest(token), expires))
                 row = cur.fetchone()
-                if row is None:
-                    return None
-                cur.execute(
-                    "INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'verify_email', %s)",
-                    (token_id, row[0], self._digest(token), expires),
-                )
-            return CustomerLink(row[0], normalized, "verify_email", token, expires)
-        except CustomerIdentityError:
-            raise
+            if row is None:
+                raise CustomerIdentityError("Customer registration could not be completed")
+            return CustomerLink(row[0], normalized, "verify_email", token, row[5])
         except Exception as exc:
-            raise CustomerIdentityError("Customer verification link could not be issued") from exc
+            if isinstance(exc, CustomerIdentityError):
+                raise
+            if isinstance(exc, psycopg.errors.UniqueViolation):
+                raise CustomerIdentityConflict("Customer registration conflicts with an existing account") from None
+            raise CustomerIdentityError("Customer registration could not be completed") from exc
+
+    def issue_verification_link(self, email: str) -> CustomerLink | None:
+        return self._issue_link(email, "verify_email", self._verification_ttl)
 
     def issue_login_link(self, email: str) -> CustomerLink | None:
+        return self._issue_link(email, "login", self._login_ttl)
+
+    def _issue_link(self, email: str, purpose: str, ttl: timedelta) -> CustomerLink | None:
         normalized = normalize_email(email)
         token_id, token = uuid.uuid4(), self._new_token()
-        expires = datetime.now(timezone.utc) + self._login_ttl
+        expires = datetime.now(timezone.utc) + ttl
         import psycopg
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-                cur.execute(
-                    "SELECT account_id FROM jas_si_customer_accounts WHERE email_normalized=%s AND status='active' FOR UPDATE",
-                    (normalized,),
-                )
+                cur.execute("SELECT * FROM public.customer_issue_link(%s,%s,%s,%s,%s)", (normalized, purpose, token_id, self._digest(token), expires))
                 row = cur.fetchone()
-                if row is None:
-                    return None
-                cur.execute(
-                    "INSERT INTO jas_si_customer_auth_tokens (token_id, account_id, token_digest, purpose, expires_at) VALUES (%s, %s, %s, 'login', %s)",
-                    (token_id, row[0], self._digest(token), expires),
-                )
-            return CustomerLink(row[0], normalized, "login", token, expires)
+            return CustomerLink(row[0], row[1], purpose, token, row[4]) if row else None
         except CustomerIdentityError:
             raise
         except Exception as exc:
             raise CustomerIdentityError("Customer sign-in link could not be issued") from exc
 
     def verify_email(self, token: str) -> CustomerAccount:
-        result = self._consume_link(token, "verify_email", create_session=False)
-        return result
+        return self._consume_link(token, "verify_email", create_session=False)
 
     def consume_login_link(self, token: str) -> CustomerSession:
         return self._consume_link(token, "login", create_session=True)
@@ -286,30 +255,18 @@ class PostgresCustomerIdentityStore:
     def _consume_link(self, token: str, purpose: str, *, create_session: bool):
         if not isinstance(token, str) or not 32 <= len(token) <= 128:
             raise CustomerIdentityError("Invalid or expired customer link")
-        import psycopg
-        now = datetime.now(timezone.utc)
         session_token = self._new_token() if create_session else None
         session_id = uuid.uuid4() if create_session else None
-        session_expiry = now + self._session_ttl if create_session else None
+        session_expiry = datetime.now(timezone.utc) + self._session_ttl if create_session else None
+        import psycopg
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-                cur.execute("""SELECT t.token_id, t.account_id, t.expires_at, t.consumed_at, a.tenant_id, a.email, a.organization_name, a.status, a.email_verified_at FROM jas_si_customer_auth_tokens t JOIN jas_si_customer_accounts a ON a.account_id=t.account_id WHERE t.token_digest=%s AND t.purpose=%s FOR UPDATE OF t, a""", (self._digest(token), purpose))
+                cur.execute("SELECT * FROM public.customer_consume_link(%s,%s,%s,%s,%s)", (self._digest(token), purpose, session_id, self._digest(session_token) if session_token else None, session_expiry))
                 row = cur.fetchone()
-                if row is None or row[3] is not None or row[2] <= now or row[7] == "suspended":
-                    raise CustomerIdentityError("Invalid or expired customer link")
-                if purpose == "verify_email":
-                    if row[7] != "pending" or row[8] is not None:
-                        raise CustomerIdentityError("Customer email is already verified or unavailable")
-                    cur.execute("UPDATE jas_si_customer_accounts SET status='active', email_verified_at=%s, updated_at=%s WHERE account_id=%s", (now, now, row[1]))
-                elif row[7] != "active" or row[8] is None:
-                    raise CustomerIdentityError("Customer account is not active")
-                cur.execute("UPDATE jas_si_customer_auth_tokens SET consumed_at=%s WHERE token_id=%s", (now, row[0]))
-                if create_session:
-                    cur.execute("INSERT INTO jas_si_customer_sessions (session_id, account_id, token_digest, expires_at) VALUES (%s, %s, %s, %s)", (session_id, row[1], self._digest(session_token), session_expiry))
-            account = CustomerAccount(row[1], row[4], row[5], row[6], "active" if purpose == "verify_email" else row[7])
-            if create_session:
-                return CustomerSession(account, session_token, session_expiry)
-            return account
+            if row is None:
+                raise CustomerIdentityError("Invalid or expired customer link")
+            account = CustomerAccount(row[0], row[1], row[2], row[3], row[4])
+            return CustomerSession(account, session_token, row[5]) if create_session else account
         except CustomerIdentityError:
             raise
         except Exception as exc:
@@ -320,7 +277,7 @@ class PostgresCustomerIdentityStore:
             return None
         import psycopg
         with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-            cur.execute("""SELECT a.account_id, a.tenant_id, a.email, a.organization_name, a.status FROM jas_si_customer_sessions s JOIN jas_si_customer_accounts a ON a.account_id=s.account_id WHERE s.token_digest=%s AND s.revoked_at IS NULL AND s.expires_at>%s AND a.status='active'""", (self._digest(token), datetime.now(timezone.utc)))
+            cur.execute("SELECT * FROM public.customer_authenticate_session(%s)", (self._digest(token),))
             row = cur.fetchone()
         return CustomerAccount(*row) if row else None
 
@@ -329,5 +286,6 @@ class PostgresCustomerIdentityStore:
             return False
         import psycopg
         with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-            cur.execute("UPDATE jas_si_customer_sessions SET revoked_at=NOW() WHERE token_digest=%s AND revoked_at IS NULL", (self._digest(token),))
-            return cur.rowcount == 1
+            cur.execute("SELECT public.customer_revoke_session(%s)", (self._digest(token),))
+            row = cur.fetchone()
+        return bool(row and row[0])
