@@ -99,6 +99,40 @@ class PostgresCustomerIdentityStore:
                 and all(row[5:])
             )
 
+    def verify_security_boundary(self) -> bool:
+        """Fail closed while the identity role retains direct table access.
+
+        The current application SQL still performs direct table operations.
+        Until those paths are replaced by database-owned, session-bound
+        routines, this check deliberately keeps customer onboarding disabled.
+        """
+        import psycopg
+        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                       to_regclass('public.jas_si_customer_accounts') IS NOT NULL,
+                       to_regclass('public.jas_si_customer_auth_tokens') IS NOT NULL,
+                       to_regclass('public.jas_si_customer_sessions') IS NOT NULL,
+                       has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'SELECT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'INSERT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'UPDATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'DELETE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_accounts', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'SELECT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'INSERT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'UPDATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'DELETE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_auth_tokens', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'SELECT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'INSERT')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'UPDATE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'DELETE')
+                         OR has_table_privilege(current_user, 'public.jas_si_customer_sessions', 'TRUNCATE')
+                """
+            )
+            row = cur.fetchone()
+        return bool(row and all(row[:3]) and not any(row[3:]))
+
     def register(self, email: str, organization_name: str) -> CustomerLink:
         normalized, organization = normalize_email(email), normalize_organization_name(organization_name)
         account_id, tenant_id, token_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
