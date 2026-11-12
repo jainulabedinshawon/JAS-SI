@@ -30,7 +30,7 @@ END
 $$;
 
 GRANT USAGE ON SCHEMA public TO jas_si_customer_key_owner, jas_si_customer_key_runtime;
-DO $
+DO $body$
 DECLARE v_schema text;
 BEGIN
     SELECT n.nspname INTO v_schema
@@ -42,7 +42,7 @@ BEGIN
     END IF;
     EXECUTE pg_catalog.format('GRANT USAGE ON SCHEMA %I TO jas_si_customer_key_owner',v_schema);
 END
-$;
+$body$;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_key_runtime;
 
 -- The SECURITY DEFINER owner receives only the columns and tables needed by its routines.

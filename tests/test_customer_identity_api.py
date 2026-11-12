@@ -251,14 +251,14 @@ class TestCustomerIdentityApi(unittest.TestCase):
             expires_at=datetime.now(timezone.utc) + timedelta(days=90),
         )
         registry = SimpleNamespace(
-            list_tenant_keys=lambda tenant_id, tenant_scope=None: [
+            customer_list_keys=lambda session_token: [
                 {"key_id": str(issued.key_id), "key_name": "test", "key_prefix": issued.prefix,
                  "scopes": ["authorization:check"], "status": "active",
                  "created_at": datetime.now(timezone.utc).isoformat(),
                  "expires_at": issued.expires_at.isoformat(), "last_used_at": None, "revoked_at": None}
             ],
-            issue_key_with_audit=lambda **kwargs: issued,
-            revoke_key_with_audit=lambda **kwargs: True,
+            customer_issue_key=lambda session_token, key_name, scopes, expires_at: issued,
+            customer_revoke_key=lambda session_token, key_id: True,
         )
         with patch.object(api, "_get_customer_api_key_registry", return_value=registry):
             denied = self.client.post(

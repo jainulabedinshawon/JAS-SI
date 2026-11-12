@@ -200,7 +200,7 @@ class PostgresApiKeyRegistry:
                        OR (p = ANY(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']::text[])
                            AND has_any_column_privilege(current_user, pg_catalog.to_regclass(t), p))
                      ), false)
-                   FROM pg_catalog.unnest(%s::text[], %s::text[]) AS x(t,p)""",
+                   FROM ROWS FROM (pg_catalog.unnest(%s::text[]), pg_catalog.unnest(%s::text[])) AS x(t,p)""",
                 (tables, grants),
             )
             row = cursor.fetchone()
