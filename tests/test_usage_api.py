@@ -177,7 +177,7 @@ class TestUsageAPI(TestCase):
 
     def test_quota_exhaustion_denies_before_authorization_handler(self):
         class ExhaustedMeter:
-            def record(self, **kwargs):
+            def record_authenticated(self, **kwargs):
                 raise UsageQuotaExceeded(
                     monthly_limit=100, used_units=100, requested_units=1,
                     resets_at=datetime(2026, 12, 1, tzinfo=timezone.utc),
