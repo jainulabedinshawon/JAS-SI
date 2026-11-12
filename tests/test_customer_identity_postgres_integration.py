@@ -240,6 +240,38 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             )
             self.assertEqual(cur.fetchone(), (False, False, False, False, False, False, False, False))
 
+    def test_identity_and_usage_readiness_reject_unsafe_owner_role_drift(self):
+        owner = "jas_si_customer_identity_owner"
+        temporary_role = "jas_si_owner_membership_" + uuid.uuid4().hex
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(f'ALTER ROLE "{owner}" LOGIN')
+        try:
+            self.assertFalse(self.store.verify_security_boundary())
+            self.assertFalse(self.store.verify_usage_read_boundary())
+        finally:
+            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                cur.execute(f'ALTER ROLE "{owner}" NOLOGIN')
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(f'ALTER ROLE "{owner}" CREATEDB')
+        try:
+            self.assertFalse(self.store.verify_security_boundary())
+            self.assertFalse(self.store.verify_usage_read_boundary())
+        finally:
+            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                cur.execute(f'ALTER ROLE "{owner}" NOCREATEDB')
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(f'CREATE ROLE "{temporary_role}" NOLOGIN')
+            cur.execute(f'GRANT "{temporary_role}" TO "{owner}"')
+        try:
+            self.assertFalse(self.store.verify_security_boundary())
+            self.assertFalse(self.store.verify_usage_read_boundary())
+        finally:
+            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                cur.execute(f'REVOKE "{temporary_role}" FROM "{owner}"')
+                cur.execute(f'DROP ROLE "{temporary_role}"')
+
     def test_runtime_cannot_read_identity_tables_or_tenants_directly(self):
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             for table in ('public.jas_si_tenants','public.jas_si_customer_accounts',
