@@ -100,6 +100,25 @@ class TestCustomerIdentityApi(unittest.TestCase):
             headers={"X-Forwarded-For": "203.0.113.10"},
         )
 
+    def test_identity_store_fails_closed_when_database_privileges_are_not_isolated(self):
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+        unsafe_store = SimpleNamespace(
+            verify_schema=lambda: True,
+            verify_security_boundary=lambda: False,
+        )
+        configured = replace(
+            api.settings,
+            customer_database_url="postgresql://identity-test",
+            customer_token_pepper=b"customer-identity-test-pepper-32-bytes-minimum",
+        )
+        with patch.object(api, "settings", configured), patch.object(
+            api, "PostgresCustomerIdentityStore", return_value=unsafe_store
+        ):
+            with self.assertRaises(api.HTTPException) as raised:
+                api._get_customer_identity_store(request)
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertFalse(hasattr(request.app.state, "customer_identity_store"))
+
     def test_registration_sends_verification_link_without_returning_token(self):
         response = self.client.post(
             "/v1/customer/register",
