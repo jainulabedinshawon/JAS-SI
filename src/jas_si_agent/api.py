@@ -645,6 +645,8 @@ def _require_api_key(
         request.state.tenant_id = str(authenticated.tenant_id)
         request.state.api_key_id = str(authenticated.key_id)
         request.state.api_key_scopes = sorted(authenticated.scopes)
+        # Keep only the peppered digest in this request context; never retain the raw token.
+        request.state.api_key_candidate_digest = authenticated.candidate_digest
         _record_usage_for_authenticated_tenant(request)
         return
 
