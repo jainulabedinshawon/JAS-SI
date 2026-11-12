@@ -74,9 +74,9 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         (tenant_id, tenant_name),
                     )
                 for key_id, tenant_id, prefix in (
-                    (self.key_a, self.tenant_a, "jassi_test_a"),
-                    (self.key_b, self.tenant_b, "jassi_test_b"),
-                    (self.key_c, self.tenant_a, "jassi_test_c"),
+                    (self.key_a, self.tenant_a, f"jassi_test_a_{uuid.uuid4().hex}"),
+                    (self.key_b, self.tenant_b, f"jassi_test_b_{uuid.uuid4().hex}"),
+                    (self.key_c, self.tenant_a, f"jassi_test_c_{uuid.uuid4().hex}"),
                 ):
                     cur.execute(
                         """INSERT INTO jas_si_api_keys
