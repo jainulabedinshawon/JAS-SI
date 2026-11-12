@@ -110,11 +110,11 @@ class PostgresCustomerIdentityStore:
             )
 
     def verify_security_boundary(self) -> bool:
-        """Fail closed while the identity role retains direct table access.
+        """Fail closed until the complete database-owned identity boundary exists.
 
-        The current application SQL still performs direct table operations.
-        Until those paths are replaced by database-owned, session-bound
-        routines, this check deliberately keeps customer onboarding disabled.
+        Removing direct table grants is necessary but not sufficient: all five
+        SECURITY DEFINER routines, their trusted owner, hardened search_path,
+        runtime EXECUTE grants, and absence of PUBLIC EXECUTE are required too.
         """
         import psycopg
         with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
@@ -150,7 +150,56 @@ class PostgresCustomerIdentityStore:
                 """
             )
             row = cur.fetchone()
-        return bool(row and all(row[:3]) and not any(row[3:]))
+            direct_table_access_removed = bool(
+                row and all(row[:3]) and not any(row[3:])
+            )
+            cur.execute(
+                """WITH required(signature) AS (
+                       VALUES
+                         ('customer_register(text,text,text,uuid,uuid,uuid,bytea,timestamptz)'),
+                         ('customer_issue_link(text,text,uuid,bytea,timestamptz)'),
+                         ('customer_consume_link(bytea,text,uuid,bytea,timestamptz)'),
+                         ('customer_authenticate_session(bytea)'),
+                         ('customer_revoke_session(bytea)')
+                   ),
+                   routines AS (
+                       SELECT signature,
+                              to_regprocedure('public.' || signature) AS routine_oid
+                       FROM required
+                   )
+                   SELECT count(procedure.oid) = 5
+                      AND bool_and(
+                          procedure.prosecdef
+                          AND owner.rolname = 'jas_si_customer_identity_owner'
+                          AND NOT owner.rolcanlogin
+                          AND NOT owner.rolsuper
+                          AND NOT owner.rolbypassrls
+                          AND NOT EXISTS (
+                              SELECT 1 FROM pg_auth_members AS membership
+                              WHERE membership.member = owner.oid
+                          )
+                          AND procedure.proconfig @> ARRAY['search_path=pg_catalog, public']
+                          AND has_function_privilege(current_user, procedure.oid, 'EXECUTE')
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM aclexplode(
+                                  COALESCE(
+                                      procedure.proacl,
+                                      acldefault('f', procedure.proowner)
+                                  )
+                              ) AS privilege
+                              WHERE privilege.grantee = 0
+                                AND privilege.privilege_type = 'EXECUTE'
+                          )
+                      )
+                   FROM routines
+                   LEFT JOIN pg_proc AS procedure
+                     ON procedure.oid = routines.routine_oid
+                   LEFT JOIN pg_roles AS owner
+                     ON owner.oid = procedure.proowner"""
+            )
+            routines_ready = bool(cur.fetchone()[0])
+        return direct_table_access_removed and routines_ready
 
     def register(self, email: str, organization_name: str) -> CustomerLink:
         normalized, organization = normalize_email(email), normalize_organization_name(organization_name)

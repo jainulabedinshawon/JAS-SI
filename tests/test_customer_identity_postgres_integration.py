@@ -199,6 +199,24 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         """The current broad identity-table grants must block onboarding readiness."""
         self.assertFalse(self.store.verify_security_boundary())
 
+    def test_identity_readiness_requires_database_owned_routines(self):
+        """Direct grants removed without the replacement routines must stay fail-closed."""
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT count(*)
+                   FROM pg_proc
+                   WHERE pronamespace = 'public'::regnamespace
+                     AND proname IN (
+                         'customer_register',
+                         'customer_issue_link',
+                         'customer_consume_link',
+                         'customer_authenticate_session',
+                         'customer_revoke_session'
+                     )"""
+            )
+            self.assertEqual(cur.fetchone()[0], 0)
+        self.assertFalse(self.store.verify_security_boundary())
+
     def test_identity_privilege_guard_rejects_table_and_column_grants(self):
         """Exercise forbidden privileges and restore the migration's exact grants."""
         role = "jas_si_customer_runtime"
@@ -233,9 +251,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             for statement in revokes:
                 cur.execute(statement)
         try:
-            self.assertTrue(
+            self.assertFalse(
                 self.store.verify_security_boundary(),
-                "The guard should pass after direct identity table grants are removed",
+                "Revoking direct grants alone must not pass readiness before all five trusted routines exist",
             )
             probes = (
                 ("public.jas_si_customer_accounts", "SELECT"),
