@@ -728,12 +728,14 @@ def _get_customer_identity_store(request: Request) -> PostgresCustomerIdentitySt
 
 def _get_customer_usage_identity_store(request: Request) -> PostgresCustomerIdentityStore:
     store = _get_customer_identity_store(request)
-    if getattr(request.app.state, "customer_usage_read_boundary_verified", False):
+    # Bind the cached verification to the exact store instance. A process-wide
+    # boolean can outlive a DSN/store change and must never authorize a new store.
+    if getattr(request.app.state, "customer_usage_read_boundary_store", None) is store:
         return store
     try:
-        if not store.verify_usage_read_boundary():
+        if store.verify_usage_read_boundary() is not True:
             raise RuntimeError("Customer usage database boundary is not installed")
-        request.app.state.customer_usage_read_boundary_verified = True
+        request.app.state.customer_usage_read_boundary_store = store
         return store
     except Exception:
         raise HTTPException(
