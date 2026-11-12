@@ -64,8 +64,11 @@ class TestPostgresUsageMeter(unittest.TestCase):
         with psycopg.connect(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute("TRUNCATE jas_si_usage_events")
-                # Provisioning-run rows reference API keys; clear dependents first.
-                cur.execute("DELETE FROM jas_si_api_key_provisioning_runs")
+                # The integration database also runs customer-identity migrations.
+                # Clear all dependent records before replacing tenant fixtures.
+                cur.execute("DELETE FROM jas_si_customer_sessions")
+                cur.execute("DELETE FROM jas_si_customer_auth_tokens")
+                cur.execute("DELETE FROM jas_si_customer_accounts")
                 cur.execute("DELETE FROM jas_si_api_keys")
                 cur.execute("DELETE FROM jas_si_tenants")
                 for tenant_id, tenant_name in (
