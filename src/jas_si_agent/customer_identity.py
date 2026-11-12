@@ -176,10 +176,14 @@ class PostgresCustomerIdentityStore:
                           AND owner.rolname = 'jas_si_customer_identity_owner'
                           AND NOT owner.rolcanlogin
                           AND NOT owner.rolsuper
+                          AND NOT owner.rolcreatedb
+                          AND NOT owner.rolcreaterole
+                          AND NOT owner.rolreplication
                           AND NOT owner.rolbypassrls
+                          AND NOT owner.rolinherit
                           AND NOT EXISTS (
-                              SELECT 1 FROM pg_auth_members AS membership
-                              WHERE membership.member = owner.oid
+                              SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                              WHERE membership.member = owner.oid OR membership.roleid = owner.oid
                           )
                           AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
                           AND has_function_privilege(current_user, procedure.oid, 'EXECUTE')
@@ -249,7 +253,15 @@ class PostgresCustomerIdentityStore:
                           AND owner.rolname='jas_si_customer_identity_owner'
                           AND NOT owner.rolcanlogin
                           AND NOT owner.rolsuper
+                          AND NOT owner.rolcreatedb
+                          AND NOT owner.rolcreaterole
+                          AND NOT owner.rolreplication
                           AND NOT owner.rolbypassrls
+                          AND NOT owner.rolinherit
+                          AND NOT EXISTS (
+                              SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                              WHERE membership.member = owner.oid OR membership.roleid = owner.oid
+                          )
                           AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
                           AND has_function_privilege(current_user,procedure.oid,'EXECUTE')
                           AND NOT EXISTS (
