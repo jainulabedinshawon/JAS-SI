@@ -62,6 +62,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261110_usage_metering.sql",
                 "20261110_usage_idempotency_fingerprint.sql",
                 "20261111_usage_append_only_role_grants.sql",
+                "20261114_customer_usage_read_routines.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
@@ -314,3 +315,73 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_customer_usage_reads_are_session_bound_and_not_directly_selectable(self):
+        from datetime import datetime, timezone
+
+        def create_session(label):
+            email = f"usage-{label}-{uuid.uuid4().hex}@example.test"
+            verification = self.store.register(email, f"Usage {label}")
+            self.store.verify_email(verification.token)
+            login = self.store.issue_login_link(email)
+            return self.store.consume_login_link(login.token)
+
+        session_a = create_session("a")
+        session_b = create_session("b")
+        now = datetime.now(timezone.utc)
+        event_a1, event_a2, event_b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        key_a, key_b = uuid.uuid4(), uuid.uuid4()
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for key_id, tenant_id in (
+                (key_a, session_a.account.tenant_id),
+                (key_b, session_b.account.tenant_id),
+            ):
+                cur.execute(
+                    """INSERT INTO public.jas_si_api_keys
+                       (key_id,tenant_id,key_name,key_prefix,secret_digest,scopes,created_by)
+                       VALUES (%s,%s,'usage-read-test',%s,%s,
+                               ARRAY['authorization:check'],'integration')""",
+                    (key_id, tenant_id, f"jassi_usage_{uuid.uuid4().hex}", b"u" * 32),
+                )
+            for event_id, tenant_id, key_id, request_id, idem in (
+                (event_a1, session_a.account.tenant_id, key_a, "a-1", "usage-a-1"),
+                (event_a2, session_a.account.tenant_id, key_a, "a-2", "usage-a-2"),
+                (event_b, session_b.account.tenant_id, key_b, "b-1", "usage-b-1"),
+            ):
+                cur.execute(
+                    """INSERT INTO public.jas_si_usage_events
+                       (event_id,tenant_id,api_key_id,request_id,idempotency_key,
+                        operation,units,occurred_at)
+                       VALUES (%s,%s,%s,%s,%s,'authorization.evaluate',1,%s)""",
+                    (event_id, tenant_id, key_id, request_id, idem, now),
+                )
+
+        summary_a = self.store.usage_summary(session_a.token, now.replace(day=1))
+        summary_b = self.store.usage_summary(session_b.token, now.replace(day=1))
+        self.assertEqual(summary_a["tenant_id"], str(session_a.account.tenant_id))
+        self.assertEqual(summary_a["units"], 2)
+        self.assertEqual(summary_b["tenant_id"], str(session_b.account.tenant_id))
+        self.assertEqual(summary_b["units"], 1)
+
+        first_page = self.store.usage_events(session_a.token, limit=1)
+        self.assertEqual(len(first_page["items"]), 1)
+        self.assertIsNotNone(first_page["next_cursor"])
+        cursor = first_page["next_cursor"]
+        second_page = self.store.usage_events(
+            session_a.token, limit=1,
+            before=datetime.fromisoformat(cursor["before"]),
+            before_event_id=cursor["before_event_id"],
+        )
+        first_ids = {first_page["items"][0]["event_id"]}
+        second_ids = {item["event_id"] for item in second_page["items"]}
+        self.assertEqual(len(second_ids), 1)
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+        self.assertEqual(
+            {item["event_id"] for item in self.store.usage_events(session_b.token)["items"]},
+            {str(event_b)},
+        )
+
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+                cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
+\n

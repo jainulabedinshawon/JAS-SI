@@ -1001,32 +1001,36 @@ def customer_logout(
 
 @app.get("/v1/customer/usage")
 def customer_usage_summary(request: Request) -> dict:
-    """Return only the signed-in customer's technical usage and Free quota."""
-    account = _require_customer_session(request)
-    if not settings.database_url:
-        raise HTTPException(status_code=503, detail="Usage storage is not configured")
+    """Return technical usage through a database routine bound to the live session."""
+    _require_customer_session(request)
+    session_token = request.cookies.get("jassi_customer_session") or ""
+    store = _get_customer_identity_store(request)
     try:
-        meter = getattr(request.app.state, "usage_meter", None)
-        if meter is None:
-            meter = PostgresUsageMeter(settings.database_url)
         since = datetime.now(timezone.utc) - timedelta(days=30)
-        result = meter.summary(tenant_id=str(account.tenant_id), since=since)
-        result["quota"] = meter.quota_status(
-            tenant_id=str(account.tenant_id),
-            monthly_limit=get_free_monthly_units(),
-        )
-        result["billing_status"] = "not_connected"
-        result["note"] = (
-            "Measured technical usage only. No monetary balance, invoice, "
-            "or paid entitlement is inferred."
-        )
+        result = store.usage_summary(session_token, since)
+        used = int(result.pop("current_month_units"))
+        now = datetime.now(timezone.utc)
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if period_start.month == 12:
+            period_end = period_start.replace(year=period_start.year + 1, month=1)
+        else:
+            period_end = period_start.replace(month=period_start.month + 1)
+        monthly_limit = get_free_monthly_units()
+        result["quota"] = {
+            "period": "utc_calendar_month",
+            "period_start": period_start.isoformat(),
+            "resets_at": period_end.isoformat(),
+            "monthly_limit": monthly_limit,
+            "used_units": used,
+            "remaining_units": max(0, monthly_limit - used),
+            "exhausted": used >= monthly_limit,
+        }
         return result
     except Exception:
         raise HTTPException(
             status_code=503,
             detail="Customer usage summary is temporarily unavailable",
         ) from None
-
 
 
 @app.get("/v1/customer/usage/events")
@@ -1036,25 +1040,16 @@ def customer_usage_events(
     before: Optional[datetime] = None,
     before_event_id: Optional[uuid.UUID] = None,
 ) -> dict:
-    """Return a keyset-paginated history for the authenticated customer only."""
-    account = _require_customer_session(request)
-    if not settings.database_url:
-        raise HTTPException(status_code=503, detail="Usage storage is not configured")
-    if not 1 <= limit <= 100:
-        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
-    if (before is None) != (before_event_id is None):
-        raise HTTPException(status_code=422, detail="Both cursor fields are required together")
-    if before is not None and before.tzinfo is None:
-        raise HTTPException(status_code=422, detail="before must include a timezone")
+    """Return a keyset page using tenant identity resolved inside PostgreSQL."""
+    _require_customer_session(request)
+    session_token = request.cookies.get("jassi_customer_session") or ""
+    store = _get_customer_identity_store(request)
     try:
-        meter = getattr(request.app.state, "usage_meter", None)
-        if meter is None:
-            meter = PostgresUsageMeter(settings.database_url)
-        return meter.events(
-            tenant_id=str(account.tenant_id), limit=limit, before=before,
+        return store.usage_events(
+            session_token, limit=limit, before=before,
             before_event_id=str(before_event_id) if before_event_id else None,
         )
-    except ValueError as exc:
+    except CustomerIdentityError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except Exception:
         raise HTTPException(status_code=503, detail="Customer usage history is temporarily unavailable") from None

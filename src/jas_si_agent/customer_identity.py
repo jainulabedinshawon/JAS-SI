@@ -163,14 +163,16 @@ class PostgresCustomerIdentityStore:
                          ('customer_issue_link(text,text,uuid,bytea,timestamptz)'),
                          ('customer_consume_link(bytea,text,uuid,bytea,timestamptz)'),
                          ('customer_authenticate_session(bytea)'),
-                         ('customer_revoke_session(bytea)')
+                         ('customer_revoke_session(bytea)'),
+                         ('customer_usage_summary(bytea,timestamptz)'),
+                         ('customer_usage_events(bytea,integer,timestamptz,uuid)')
                    ),
                    routines AS (
                        SELECT signature,
                               to_regprocedure('public.' || signature) AS routine_oid
                        FROM required
                    )
-                   SELECT count(procedure.oid) = 5
+                   SELECT count(procedure.oid) = 7
                       AND bool_and(
                           procedure.prosecdef
                           AND owner.rolname = 'jas_si_customer_identity_owner'
@@ -289,3 +291,88 @@ class PostgresCustomerIdentityStore:
             cur.execute("SELECT public.customer_revoke_session(%s)", (self._digest(token),))
             row = cur.fetchone()
         return bool(row and row[0])
+
+    def usage_summary(self, session_token: str, since: datetime) -> dict:
+        """Read usage through a database routine bound to the live customer session."""
+        if not isinstance(session_token, str) or not 32 <= len(session_token) <= 128:
+            raise CustomerIdentityError("Invalid or expired customer session")
+        if not isinstance(since, datetime) or since.tzinfo is None:
+            raise CustomerIdentityError("Usage start time must be timezone-aware")
+        import psycopg
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM public.customer_usage_summary(%s,%s)",
+                    (self._digest(session_token), since.astimezone(timezone.utc)),
+                )
+                row = cur.fetchone()
+            if row is None:
+                raise CustomerIdentityError("Customer usage session is invalid or expired")
+            return {
+                "tenant_id": str(row[0]),
+                "since": since.astimezone(timezone.utc).isoformat(),
+                "units": int(row[1]),
+                "events": int(row[2]),
+                "by_operation": row[3] or [],
+                "current_month_units": int(row[4]),
+                "billing_status": "not_connected",
+                "note": "Measured technical usage only; no monetary balance or paid entitlement is inferred.",
+            }
+        except CustomerIdentityError:
+            raise
+        except Exception as exc:
+            raise CustomerIdentityError("Unable to read customer usage summary") from exc
+
+    def usage_events(
+        self, session_token: str, *, limit: int = 50,
+        before: datetime | None = None, before_event_id: str | None = None,
+    ) -> dict:
+        """Read one keyset page; the database derives tenant from the live session."""
+        if not isinstance(session_token, str) or not 32 <= len(session_token) <= 128:
+            raise CustomerIdentityError("Invalid or expired customer session")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise CustomerIdentityError("Usage history limit must be between 1 and 100")
+        if (before is None) != (before_event_id is None):
+            raise CustomerIdentityError("Both usage history cursor fields are required together")
+        cursor_id = None
+        if before is not None:
+            if not isinstance(before, datetime) or before.tzinfo is None:
+                raise CustomerIdentityError("Usage history cursor timestamp must be timezone-aware")
+            try:
+                cursor_id = uuid.UUID(before_event_id)
+            except (TypeError, ValueError):
+                raise CustomerIdentityError("Usage history cursor event ID is invalid") from None
+            before = before.astimezone(timezone.utc)
+        import psycopg
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM public.customer_usage_events(%s,%s,%s,%s)",
+                    (self._digest(session_token), limit, before, cursor_id),
+                )
+                rows = cur.fetchall()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            items = [
+                {
+                    "event_id": str(row[0]),
+                    "request_id": row[1],
+                    "operation": row[2],
+                    "units": int(row[3]),
+                    "occurred_at": row[4].isoformat(),
+                }
+                for row in page
+            ]
+            next_cursor = None
+            if has_more and page:
+                last = page[-1]
+                next_cursor = {
+                    "before": last[4].isoformat(),
+                    "before_event_id": str(last[0]),
+                }
+            return {"items": items, "next_cursor": next_cursor}
+        except CustomerIdentityError:
+            raise
+        except Exception as exc:
+            raise CustomerIdentityError("Unable to read customer usage history") from exc
+\n
