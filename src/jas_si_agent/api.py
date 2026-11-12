@@ -714,6 +714,8 @@ def _get_customer_identity_store(request: Request) -> PostgresCustomerIdentitySt
         )
         if not store.verify_schema():
             raise RuntimeError("Customer identity schema is not installed")
+        if not store.verify_security_boundary():
+            raise RuntimeError("Customer identity database privileges are not isolated")
         request.app.state.customer_identity_store = store
         return store
     except Exception:
