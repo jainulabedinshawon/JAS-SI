@@ -725,6 +725,22 @@ def _get_customer_identity_store(request: Request) -> PostgresCustomerIdentitySt
         ) from None
 
 
+
+def _get_customer_usage_identity_store(request: Request) -> PostgresCustomerIdentityStore:
+    store = _get_customer_identity_store(request)
+    if getattr(request.app.state, "customer_usage_read_boundary_verified", False):
+        return store
+    try:
+        if not store.verify_usage_read_boundary():
+            raise RuntimeError("Customer usage database boundary is not installed")
+        request.app.state.customer_usage_read_boundary_verified = True
+        return store
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Customer usage service is temporarily unavailable",
+        ) from None
+
 def _get_customer_api_key_registry() -> PostgresApiKeyRegistry:
     if not settings.customer_api_key_database_url or not settings.api_key_pepper or not settings.customer_token_pepper:
         raise HTTPException(
@@ -1004,7 +1020,7 @@ def customer_usage_summary(request: Request) -> dict:
     """Return technical usage through a database routine bound to the live session."""
     _require_customer_session(request)
     session_token = request.cookies.get("jassi_customer_session") or ""
-    store = _get_customer_identity_store(request)
+    store = _get_customer_usage_identity_store(request)
     try:
         since = datetime.now(timezone.utc) - timedelta(days=30)
         result = store.usage_summary(session_token, since)
@@ -1043,7 +1059,7 @@ def customer_usage_events(
     """Return a keyset page using tenant identity resolved inside PostgreSQL."""
     _require_customer_session(request)
     session_token = request.cookies.get("jassi_customer_session") or ""
-    store = _get_customer_identity_store(request)
+    store = _get_customer_usage_identity_store(request)
     try:
         return store.usage_events(
             session_token, limit=limit, before=before,

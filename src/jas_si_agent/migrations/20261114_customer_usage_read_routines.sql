@@ -1,5 +1,23 @@
 -- Customer-session-bound usage reads. The customer runtime receives EXECUTE only;
 -- tenant identity is derived and validated inside PostgreSQL from the session digest.
+REVOKE ALL PRIVILEGES ON TABLE public.jas_si_usage_events
+    FROM PUBLIC, jas_si_customer_runtime;
+DO $body$
+DECLARE v_column text;
+BEGIN
+    FOR v_column IN
+        SELECT a.attname FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid='public.jas_si_usage_events'::regclass
+          AND a.attnum>0 AND NOT a.attisdropped
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE ALL PRIVILEGES (%I) ON TABLE public.jas_si_usage_events FROM PUBLIC, jas_si_customer_runtime',
+            v_column
+        );
+    END LOOP;
+END
+$body$;
+
 GRANT SELECT (tenant_id,event_id,request_id,operation,units,occurred_at)
     ON public.jas_si_usage_events TO jas_si_customer_identity_owner;
 

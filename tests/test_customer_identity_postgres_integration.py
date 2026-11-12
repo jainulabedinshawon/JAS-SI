@@ -353,6 +353,10 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     (event_id, tenant_id, key_id, request_id, idem, now),
                 )
 
+        self.assertTrue(self.store.verify_usage_read_boundary())
+        self.assertFalse(
+            PostgresCustomerIdentityStore(self.admin_dsn, self.pepper).verify_usage_read_boundary()
+        )
         summary_a = self.store.usage_summary(session_a.token, now.replace(day=1))
         summary_b = self.store.usage_summary(session_b.token, now.replace(day=1))
         self.assertEqual(summary_a["tenant_id"], str(session_a.account.tenant_id))

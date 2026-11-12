@@ -163,16 +163,14 @@ class PostgresCustomerIdentityStore:
                          ('customer_issue_link(text,text,uuid,bytea,timestamptz)'),
                          ('customer_consume_link(bytea,text,uuid,bytea,timestamptz)'),
                          ('customer_authenticate_session(bytea)'),
-                         ('customer_revoke_session(bytea)'),
-                         ('customer_usage_summary(bytea,timestamptz)'),
-                         ('customer_usage_events(bytea,integer,timestamptz,uuid)')
+                         ('customer_revoke_session(bytea)')
                    ),
                    routines AS (
                        SELECT signature,
                               to_regprocedure('public.' || signature) AS routine_oid
                        FROM required
                    )
-                   SELECT count(procedure.oid) = 7
+                   SELECT count(procedure.oid) = 5
                       AND bool_and(
                           procedure.prosecdef
                           AND owner.rolname = 'jas_si_customer_identity_owner'
@@ -205,6 +203,69 @@ class PostgresCustomerIdentityStore:
             )
             routines_ready = bool(cur.fetchone()[0])
         return direct_table_access_removed and routines_ready
+
+
+    def verify_usage_read_boundary(self) -> bool:
+        """Fail closed unless usage reads are session-bound database routines only."""
+        import psycopg
+        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT current_user = 'jas_si_customer_runtime'
+                          AND to_regclass('public.jas_si_usage_events') IS NOT NULL
+                          AND NOT (
+                              has_table_privilege(current_user,'public.jas_si_usage_events','SELECT')
+                              OR has_any_column_privilege(current_user,'public.jas_si_usage_events','SELECT')
+                              OR has_table_privilege(current_user,'public.jas_si_usage_events','INSERT')
+                              OR has_any_column_privilege(current_user,'public.jas_si_usage_events','INSERT')
+                              OR has_table_privilege(current_user,'public.jas_si_usage_events','UPDATE')
+                              OR has_any_column_privilege(current_user,'public.jas_si_usage_events','UPDATE')
+                              OR has_table_privilege(current_user,'public.jas_si_usage_events','DELETE')
+                              OR has_table_privilege(current_user,'public.jas_si_usage_events','TRUNCATE')
+                              OR has_table_privilege(current_user,'public.jas_si_usage_events','REFERENCES')
+                              OR has_any_column_privilege(current_user,'public.jas_si_usage_events','REFERENCES')
+                              OR has_table_privilege(current_user,'public.jas_si_usage_events','TRIGGER')
+                          )
+                          AND has_column_privilege('jas_si_customer_identity_owner','public.jas_si_usage_events','tenant_id','SELECT')
+                          AND has_column_privilege('jas_si_customer_identity_owner','public.jas_si_usage_events','event_id','SELECT')
+                          AND has_column_privilege('jas_si_customer_identity_owner','public.jas_si_usage_events','request_id','SELECT')
+                          AND has_column_privilege('jas_si_customer_identity_owner','public.jas_si_usage_events','operation','SELECT')
+                          AND has_column_privilege('jas_si_customer_identity_owner','public.jas_si_usage_events','units','SELECT')
+                          AND has_column_privilege('jas_si_customer_identity_owner','public.jas_si_usage_events','occurred_at','SELECT')"""
+            )
+            direct_boundary_ready = bool(cur.fetchone()[0])
+            cur.execute(
+                """WITH required(signature) AS (
+                       VALUES
+                         ('customer_usage_summary(bytea,timestamptz)'),
+                         ('customer_usage_events(bytea,integer,timestamptz,uuid)')
+                   ),
+                   routines AS (
+                       SELECT signature,to_regprocedure('public.'||signature) AS routine_oid
+                       FROM required
+                   )
+                   SELECT count(procedure.oid)=2
+                      AND bool_and(
+                          procedure.prosecdef
+                          AND owner.rolname='jas_si_customer_identity_owner'
+                          AND NOT owner.rolcanlogin
+                          AND NOT owner.rolsuper
+                          AND NOT owner.rolbypassrls
+                          AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
+                          AND has_function_privilege(current_user,procedure.oid,'EXECUTE')
+                          AND NOT EXISTS (
+                              SELECT 1 FROM aclexplode(
+                                  COALESCE(procedure.proacl,acldefault('f',procedure.proowner))
+                              ) AS privilege
+                              WHERE privilege.grantee=0
+                                AND privilege.privilege_type='EXECUTE'
+                          )
+                      )
+                   FROM routines
+                   LEFT JOIN pg_proc AS procedure ON procedure.oid=routines.routine_oid
+                   LEFT JOIN pg_roles AS owner ON owner.oid=procedure.proowner"""
+            )
+            routines_ready = bool(cur.fetchone()[0])
+        return direct_boundary_ready and routines_ready
 
     def register(self, email: str, organization_name: str) -> CustomerLink:
         normalized = normalize_email(email)
