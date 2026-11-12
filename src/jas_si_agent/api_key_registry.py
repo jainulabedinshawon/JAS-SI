@@ -578,6 +578,7 @@ class PostgresApiKeyRegistry:
             raise ApiKeyError("Customer API key revocation failed") from exc
 
     def authenticate(self, token: str) -> AuthenticatedApiKey | None:
+        """Authenticate through the database-owned boundary; never read key digests directly."""
         try:
             key_id, secret = parse_token(token)
         except ApiKeyError:
@@ -585,41 +586,26 @@ class PostgresApiKeyRegistry:
 
         import psycopg
 
-        with psycopg.connect(self._dsn) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """SELECT k.tenant_id, k.secret_digest, k.pepper_version,
-                              k.scopes, k.status, k.expires_at,
-                              t.tenant_name, t.status
-                       FROM jas_si_api_keys AS k
-                       JOIN jas_si_tenants AS t ON t.tenant_id = k.tenant_id
-                       WHERE k.key_id = %s""",
-                    (key_id,),
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    return None
-                tenant_id, stored, pepper_version, scopes, key_status, expiry, tenant_name, tenant_status = row
-                if pepper_version != PEPPER_VERSION:
-                    return None
-                if key_status != "active" or tenant_status != "active":
-                    return None
-                now = datetime.now(timezone.utc)
-                if expiry is not None and expiry <= now:
-                    return None
-                if not hmac.compare_digest(bytes(stored), _digest(secret, self._pepper)):
-                    return None
-                cursor.execute(
-                    """UPDATE jas_si_api_keys SET last_used_at = NOW()
-                       WHERE key_id = %s""",
-                    (key_id,),
-                )
-                return AuthenticatedApiKey(
-                    key_id=key_id,
-                    tenant_id=tenant_id,
-                    tenant_name=tenant_name,
-                    scopes=frozenset(scopes),
-                )
+        candidate_digest = _digest(secret, self._pepper)
+        try:
+            with psycopg.connect(self._dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT auth_key_id, auth_tenant_id, auth_tenant_name, auth_scopes "
+                        "FROM public.jas_si_api_key_authenticate(%s, %s)",
+                        (key_id, candidate_digest),
+                    )
+                    row = cursor.fetchone()
+            if row is None:
+                return None
+            return AuthenticatedApiKey(
+                key_id=row[0],
+                tenant_id=row[1],
+                tenant_name=row[2],
+                scopes=frozenset(row[3]),
+            )
+        except Exception as exc:
+            raise ApiKeyError("API key authentication boundary is unavailable") from exc
 
 
     def list_tenant_keys(
