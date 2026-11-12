@@ -523,6 +523,7 @@ class PostgresUsageMeter:
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_tenants','status','SELECT')
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','tenant_id','SELECT')
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','event_id','INSERT')
+        FROM inspected
         """
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
