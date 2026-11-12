@@ -181,7 +181,7 @@ class PostgresCustomerIdentityStore:
                               SELECT 1 FROM pg_auth_members AS membership
                               WHERE membership.member = owner.oid
                           )
-                          AND procedure.proconfig @> ARRAY['search_path=pg_catalog, public']
+                          AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
                           AND has_function_privilege(current_user, procedure.oid, 'EXECUTE')
                           AND NOT EXISTS (
                               SELECT 1

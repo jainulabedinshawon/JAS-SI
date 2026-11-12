@@ -56,6 +56,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "006_api_key_registry_role_grants.sql",
                 "007_customer_api_key_self_service.sql",
                 "20261110_customer_identity.sql",
+                "20261112_customer_identity_routines.sql",
                 "20261110_customer_rate_limits.sql",
                 "20261110_usage_metering.sql",
                 "20261110_usage_idempotency_fingerprint.sql",
@@ -214,127 +215,80 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             row = cur.fetchone()
         self.assertIsNotNone(row)
 
-    def test_identity_role_is_not_ready_while_direct_table_grants_remain(self):
-        """The current broad identity-table grants must block onboarding readiness."""
-        self.assertFalse(self.store.verify_security_boundary())
-
-    def test_identity_readiness_requires_database_owned_routines(self):
-        """Direct grants removed without the replacement routines must stay fail-closed."""
+    def test_identity_routines_are_database_owned_and_ready(self):
+        self.assertTrue(self.store.verify_security_boundary())
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
-                """SELECT count(*)
+                """SELECT count(*), bool_and(prosecdef),
+                          bool_and(proconfig @> ARRAY['search_path=pg_catalog']),
+                          bool_and(pg_get_userbyid(proowner) = 'jas_si_customer_identity_owner')
                    FROM pg_proc
                    WHERE pronamespace = 'public'::regnamespace
-                     AND proname IN (
-                         'customer_register',
-                         'customer_issue_link',
-                         'customer_consume_link',
-                         'customer_authenticate_session',
-                         'customer_revoke_session'
-                     )"""
+                     AND proname IN ('customer_register','customer_issue_link',
+                         'customer_consume_link','customer_authenticate_session',
+                         'customer_revoke_session')"""
             )
-            self.assertEqual(cur.fetchone()[0], 0)
-        self.assertFalse(self.store.verify_security_boundary())
+            self.assertEqual(cur.fetchone(), (5, True, True, True))
+            cur.execute(
+                """SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
+                          rolreplication, rolbypassrls, rolinherit,
+                          EXISTS (SELECT 1 FROM pg_auth_members m WHERE
+                                  m.member = r.oid OR m.roleid = r.oid)
+                   FROM pg_roles r WHERE rolname='jas_si_customer_identity_owner'"""
+            )
+            self.assertEqual(cur.fetchone(), (False, False, False, False, False, False, False, False))
+
+    def test_runtime_cannot_read_identity_tables_or_tenants_directly(self):
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            for table in ('public.jas_si_tenants','public.jas_si_customer_accounts',
+                          'public.jas_si_customer_auth_tokens','public.jas_si_customer_sessions'):
+                with self.subTest(table=table):
+                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                        cur.execute(f'SELECT * FROM {table} LIMIT 1')
+                    conn.rollback()
 
     def test_identity_privilege_guard_rejects_table_and_column_grants(self):
-        """Exercise forbidden privileges and restore the migration's exact grants."""
-        role = "jas_si_customer_runtime"
-        tables = (
-            "public.jas_si_customer_accounts",
-            "public.jas_si_customer_auth_tokens",
-            "public.jas_si_customer_sessions",
+        role = 'jas_si_customer_runtime'
+        probes = (
+            ('public.jas_si_customer_accounts', 'SELECT', None),
+            ('public.jas_si_customer_accounts', 'INSERT', None),
+            ('public.jas_si_customer_accounts', 'UPDATE', None),
+            ('public.jas_si_customer_accounts', 'DELETE', None),
+            ('public.jas_si_customer_accounts', 'TRUNCATE', None),
+            ('public.jas_si_customer_accounts', 'REFERENCES', None),
+            ('public.jas_si_customer_accounts', 'TRIGGER', None),
+            ('public.jas_si_customer_auth_tokens', 'SELECT', None),
+            ('public.jas_si_customer_auth_tokens', 'INSERT', None),
+            ('public.jas_si_customer_auth_tokens', 'UPDATE', None),
+            ('public.jas_si_customer_sessions', 'SELECT', None),
+            ('public.jas_si_customer_sessions', 'INSERT', None),
+            ('public.jas_si_customer_sessions', 'UPDATE', None),
+            ('public.jas_si_customer_accounts', 'SELECT', 'organization_name'),
+            ('public.jas_si_customer_accounts', 'INSERT', 'email'),
+            ('public.jas_si_customer_accounts', 'UPDATE', 'status'),
+            ('public.jas_si_customer_auth_tokens', 'SELECT', 'token_digest'),
+            ('public.jas_si_customer_auth_tokens', 'UPDATE', 'consumed_at'),
+            ('public.jas_si_customer_sessions', 'SELECT', 'token_digest'),
+            ('public.jas_si_customer_sessions', 'UPDATE', 'revoked_at'),
+            ('public.jas_si_customer_tenants', 'INSERT', 'tenant_id'),
         )
-        grants = (
-            "GRANT SELECT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime",
-            "GRANT INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime",
-            "GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime",
-            "GRANT SELECT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime",
-            "GRANT INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime",
-            "GRANT UPDATE (consumed_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime",
-            "GRANT SELECT ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
-            "GRANT INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
-            "GRANT UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
-        )
-        revokes = (
-            "REVOKE SELECT ON TABLE public.jas_si_customer_accounts FROM jas_si_customer_runtime",
-            "REVOKE INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts FROM jas_si_customer_runtime",
-            "REVOKE UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts FROM jas_si_customer_runtime",
-            "REVOKE SELECT ON TABLE public.jas_si_customer_auth_tokens FROM jas_si_customer_runtime",
-            "REVOKE INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens FROM jas_si_customer_runtime",
-            "REVOKE UPDATE (consumed_at) ON TABLE public.jas_si_customer_auth_tokens FROM jas_si_customer_runtime",
-            "REVOKE SELECT ON TABLE public.jas_si_customer_sessions FROM jas_si_customer_runtime",
-            "REVOKE INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions FROM jas_si_customer_runtime",
-            "REVOKE UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions FROM jas_si_customer_runtime",
-        )
-        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-            for statement in revokes:
-                cur.execute(statement)
-        try:
-            self.assertFalse(
-                self.store.verify_security_boundary(),
-                "Revoking direct grants alone must not pass readiness before all five trusted routines exist",
-            )
-            probes = (
-                ("public.jas_si_customer_accounts", "SELECT"),
-                ("public.jas_si_customer_accounts", "INSERT"),
-                ("public.jas_si_customer_accounts", "UPDATE"),
-                ("public.jas_si_customer_accounts", "DELETE"),
-                ("public.jas_si_customer_accounts", "TRUNCATE"),
-                ("public.jas_si_customer_accounts", "REFERENCES"),
-                ("public.jas_si_customer_accounts", "TRIGGER"),
-                ("public.jas_si_customer_auth_tokens", "SELECT"),
-                ("public.jas_si_customer_auth_tokens", "INSERT"),
-                ("public.jas_si_customer_auth_tokens", "UPDATE"),
-                ("public.jas_si_customer_sessions", "SELECT"),
-                ("public.jas_si_customer_sessions", "INSERT"),
-                ("public.jas_si_customer_sessions", "UPDATE"),
-            )
-            for table, privilege in probes:
-                with self.subTest(table=table, privilege=privilege):
+        for table, privilege, column in probes:
+            if table == 'public.jas_si_customer_tenants':
+                table = 'public.jas_si_tenants'
+            with self.subTest(table=table, privilege=privilege, column=column):
+                with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                    if column:
+                        cur.execute(f'GRANT {privilege} ({column}) ON TABLE {table} TO {role}')
+                    else:
+                        cur.execute(f'GRANT {privilege} ON TABLE {table} TO {role}')
+                try:
+                    self.assertFalse(self.store.verify_security_boundary())
+                finally:
                     with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-                        cur.execute(
-                            f"GRANT {privilege} ON TABLE {table} TO {role}"
-                        )
-                    try:
-                        self.assertTrue(
-                            self._has_runtime_table_privilege(table, privilege),
-                            f"Fixture did not grant direct {privilege} on {table}",
-                        )
-                    finally:
-                        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-                            cur.execute(
-                                f"REVOKE {privilege} ON TABLE {table} FROM {role}"
-                            )
-            column_probes = (
-                ("public.jas_si_customer_accounts", "organization_name", "SELECT"),
-                ("public.jas_si_customer_accounts", "email", "INSERT"),
-                ("public.jas_si_customer_accounts", "status", "UPDATE"),
-                ("public.jas_si_customer_auth_tokens", "token_digest", "SELECT"),
-                ("public.jas_si_customer_auth_tokens", "consumed_at", "UPDATE"),
-                ("public.jas_si_customer_sessions", "token_digest", "SELECT"),
-                ("public.jas_si_customer_sessions", "revoked_at", "UPDATE"),
-                ("public.jas_si_customer_accounts", "organization_name", "REFERENCES"),
-            )
-            for table, column, privilege in column_probes:
-                with self.subTest(table=table, column=column, privilege=privilege):
-                    with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-                        cur.execute(
-                            f"GRANT {privilege} ({column}) ON TABLE {table} TO {role}"
-                        )
-                    try:
-                        self.assertTrue(
-                            self._has_runtime_table_privilege(table, privilege, column),
-                            f"Fixture did not grant column {privilege} on {table}.{column}",
-                        )
-                    finally:
-                        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-                            cur.execute(
-                                f"REVOKE {privilege} ({column}) ON TABLE {table} FROM {role}"
-                            )
-        finally:
-            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-                for statement in grants:
-                    cur.execute(statement)
+                        if column:
+                            cur.execute(f'REVOKE {privilege} ({column}) ON TABLE {table} FROM {role}')
+                        else:
+                            cur.execute(f'REVOKE {privilege} ON TABLE {table} FROM {role}')
 
     def test_runtime_role_is_limited_to_customer_identity_tables(self):
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
@@ -343,8 +297,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_tenants', 'SELECT'),
                      has_column_privilege('jas_si_customer_runtime', 'jas_si_tenants', 'tenant_id', 'INSERT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'SELECT'),
-                     has_column_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'account_id', 'INSERT'),
-                     has_column_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'status', 'INSERT'),
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_accounts', 'INSERT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_auth_tokens', 'SELECT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_sessions', 'SELECT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_api_keys', 'INSERT'),
@@ -356,11 +309,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'DELETE')"""
             )
             privileges = cur.fetchone()
-        self.assertEqual(
-            privileges,
-            (False, True, True, True, False, True, True, False, False, False, True, True, True, False),
-        )
-
+        self.assertEqual(privileges, (False, False, False, False, False, False, False, False, False, True, True, True, False))
 
 if __name__ == "__main__":
     unittest.main()
