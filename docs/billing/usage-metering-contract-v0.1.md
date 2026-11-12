@@ -45,6 +45,7 @@ Exact replay returns the original event without consuming another unit, includin
 - Runtime role receives only minimum INSERT/SELECT privileges required.
 - Customer queries must be tenant-scoped using authenticated tenant context; a tenant identifier in query parameters must never authorize access.
 - Usage summaries aggregate recorded units by operation and time window. They are usage reports, not invoices or payment balances.
+- The signed-in customer portal exposes a keyset-paginated event history containing only event ID, server request ID, operation, units, and occurrence timestamp. Every page is filtered by the tenant derived from the authenticated customer session; cursor ordering is `(occurred_at DESC, event_id DESC)`. Cursor timestamp and event ID must be supplied together. The endpoint does not expose raw request bodies, API key material, prompts, or evidence payloads.
 - Reconciliation compares JAS-SI usage events with JAS Platform entitlement-consumption acknowledgements using stable event IDs/idempotency keys.
 
 ## 5. JAS Platform integration boundary

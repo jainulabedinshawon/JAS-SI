@@ -169,6 +169,65 @@ class PostgresUsageMeter:
         except Exception as exc:
             raise UsageMeterError("Unable to persist and enforce tenant usage quota") from exc
 
+    def events(
+        self, *, tenant_id: str, limit: int = 50,
+        before: datetime | None = None, before_event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a tenant-scoped, stable keyset page of non-secret usage metadata."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("Usage history limit must be between 1 and 100")
+        tenant = uuid.UUID(tenant_id)
+        if (before is None) != (before_event_id is None):
+            raise ValueError("Both usage history cursor fields must be provided together")
+        cursor_id = None
+        if before is not None:
+            if before.tzinfo is None:
+                raise ValueError("Usage history cursor timestamp must be timezone-aware")
+            cursor_id = uuid.UUID(before_event_id)
+            before = before.astimezone(timezone.utc)
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as conn:
+                with conn.cursor() as cur:
+                    if before is None:
+                        cur.execute(
+                            """SELECT event_id, request_id, operation, units, occurred_at
+                               FROM public.jas_si_usage_events
+                               WHERE tenant_id=%s
+                               ORDER BY occurred_at DESC, event_id DESC
+                               LIMIT %s""",
+                            (tenant, limit + 1),
+                        )
+                    else:
+                        cur.execute(
+                            """SELECT event_id, request_id, operation, units, occurred_at
+                               FROM public.jas_si_usage_events
+                               WHERE tenant_id=%s
+                                 AND (occurred_at, event_id) < (%s, %s)
+                               ORDER BY occurred_at DESC, event_id DESC
+                               LIMIT %s""",
+                            (tenant, before, cursor_id, limit + 1),
+                        )
+                    rows = cur.fetchall()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            items = [
+                {"event_id": str(row[0]), "request_id": row[1],
+                 "operation": row[2], "units": int(row[3]),
+                 "occurred_at": row[4].isoformat()}
+                for row in page
+            ]
+            next_cursor = None
+            if has_more and page:
+                last = page[-1]
+                next_cursor = {"before": last[4].isoformat(),
+                               "before_event_id": str(last[0])}
+            return {"items": items, "next_cursor": next_cursor}
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise UsageMeterError("Unable to read tenant usage history") from exc
+
     def quota_status(self, *, tenant_id: str, monthly_limit: int) -> dict[str, Any]:
         """Return the caller tenant's current UTC-month quota status."""
         if not isinstance(monthly_limit, int) or isinstance(monthly_limit, bool) or not 1 <= monthly_limit <= 1_000_000:

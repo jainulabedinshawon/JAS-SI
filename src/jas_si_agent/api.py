@@ -1029,6 +1029,37 @@ def customer_usage_summary(request: Request) -> dict:
 
 
 
+@app.get("/v1/customer/usage/events")
+def customer_usage_events(
+    request: Request,
+    limit: int = 50,
+    before: Optional[datetime] = None,
+    before_event_id: Optional[uuid.UUID] = None,
+) -> dict:
+    """Return a keyset-paginated history for the authenticated customer only."""
+    account = _require_customer_session(request)
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="Usage storage is not configured")
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    if (before is None) != (before_event_id is None):
+        raise HTTPException(status_code=422, detail="Both cursor fields are required together")
+    if before is not None and before.tzinfo is None:
+        raise HTTPException(status_code=422, detail="before must include a timezone")
+    try:
+        meter = getattr(request.app.state, "usage_meter", None)
+        if meter is None:
+            meter = PostgresUsageMeter(settings.database_url)
+        return meter.events(
+            tenant_id=str(account.tenant_id), limit=limit, before=before,
+            before_event_id=str(before_event_id) if before_event_id else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="Customer usage history is temporarily unavailable") from None
+
+
 @app.get("/v1/customer/api-keys")
 def customer_list_api_keys(request: Request) -> dict:
     _require_customer_session(request)

@@ -177,6 +177,47 @@ class TestPostgresUsageMeter(unittest.TestCase):
                 operation="authorization.evaluate",
             )
 
+    def test_usage_history_is_tenant_scoped_and_keyset_paginated(self):
+        event_time = datetime(2026, 11, 10, 12, tzinfo=timezone.utc)
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                for tenant_id, key_id, request_id in (
+                    (self.tenant_a, self.key_a, "history-a1"),
+                    (self.tenant_a, self.key_a, "history-a2"),
+                    (self.tenant_b, self.key_b, "history-b1"),
+                ):
+                    cur.execute(
+                        """INSERT INTO jas_si_usage_events
+                           (event_id, tenant_id, api_key_id, request_id, idempotency_key,
+                            operation, units, occurred_at, request_fingerprint)
+                           VALUES (%s,%s,%s,%s,%s,'authorization.evaluate',1,%s,%s)""",
+                        (uuid.uuid4(), tenant_id, key_id, request_id, request_id,
+                         event_time, hashlib.sha256(request_id.encode()).hexdigest()),
+                    )
+        page_one = self.meter.events(tenant_id=str(self.tenant_a), limit=1)
+        self.assertEqual(len(page_one["items"]), 1)
+        self.assertIsNotNone(page_one["next_cursor"])
+        cursor = page_one["next_cursor"]
+        page_two = self.meter.events(
+            tenant_id=str(self.tenant_a), limit=1,
+            before=datetime.fromisoformat(cursor["before"]),
+            before_event_id=cursor["before_event_id"],
+        )
+        self.assertEqual(len(page_two["items"]), 1)
+        self.assertIsNone(page_two["next_cursor"])
+        seen = {item["request_id"] for item in page_one["items"] + page_two["items"]}
+        self.assertEqual(seen, {"history-a1", "history-a2"})
+        self.assertNotIn("history-b1", seen)
+
+    def test_usage_history_rejects_invalid_cursor_and_limit(self):
+        with self.assertRaises(ValueError):
+            self.meter.events(tenant_id=str(self.tenant_a), limit=0)
+        with self.assertRaises(ValueError):
+            self.meter.events(tenant_id=str(self.tenant_a), before=datetime.now(timezone.utc))
+        with self.assertRaises(ValueError):
+            self.meter.events(tenant_id=str(self.tenant_a), before=datetime.now(timezone.utc),
+                              before_event_id="not-a-uuid")
+
     def test_usage_rows_are_immutable(self):
         event = self._record(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),

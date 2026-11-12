@@ -110,8 +110,31 @@ async function loadUsage(){
    item.textContent=op.operation+': '+op.units+' units ('+op.events+' events)';
    operations.appendChild(item);
   }
+  await loadUsageEvents(false);
  }catch(error){summary.textContent=error.message}
 }
+let usageCursor=null;
+async function loadUsageEvents(append=false){
+ const list=document.getElementById('usage-events');
+ if(!append){usageCursor=null;list.replaceChildren()}
+ const button=document.getElementById('usage-more');button.hidden=true;
+ try{
+  const params=new URLSearchParams({limit:'20'});
+  if(usageCursor){params.set('before',usageCursor.before);params.set('before_event_id',usageCursor.before_event_id)}
+  const response=await fetch('/v1/customer/usage/events?'+params.toString(),{credentials:'same-origin'});
+  if(!response.ok)throw new Error('Usage history is temporarily unavailable.');
+  const data=await response.json();
+  for(const event of data.items){
+   const item=document.createElement('li');
+   item.textContent=event.occurred_at+' · '+event.operation+' · '+event.units+' unit · '+event.request_id;
+   list.appendChild(item);
+  }
+  usageCursor=data.next_cursor;button.hidden=!usageCursor;
+ }catch(error){
+  const item=document.createElement('li');item.textContent=error.message;list.appendChild(item);
+ }
+}
+document.getElementById('usage-more').addEventListener('click',()=>loadUsageEvents(true));
 async function loadApiKeys(){
  const list=document.getElementById('key-list');list.replaceChildren();
  try{

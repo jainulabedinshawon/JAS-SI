@@ -190,6 +190,12 @@ class TestCustomerIdentityApi(unittest.TestCase):
         response = self.client.get("/v1/customer/usage")
         self.assertEqual(response.status_code, 401)
 
+    def test_customer_usage_history_requires_customer_session(self):
+        with patch.object(api, "_get_customer_identity_store") as identity:
+            response = self.client.get("/v1/customer/usage/events")
+        self.assertEqual(response.status_code, 401)
+        identity.assert_not_called()
+
     def test_customer_usage_is_scoped_to_authenticated_tenant_and_not_billing(self):
         self.client.post(
             "/v1/customer/session", json={"token": self.store.login_link.token}
@@ -204,6 +210,13 @@ class TestCustomerIdentityApi(unittest.TestCase):
             def quota_status(self, *, tenant_id, monthly_limit):
                 observed["quota_tenant_id"] = tenant_id
                 return {"monthly_limit": monthly_limit, "used_units": 7, "remaining_units": monthly_limit - 7}
+            def events(self, *, tenant_id, limit, before, before_event_id):
+                observed.update(events_tenant_id=tenant_id, events_limit=limit,
+                                events_before=before, events_before_event_id=before_event_id)
+                return {"items": [{"event_id": str(uuid.uuid4()), "request_id": "req-1",
+                                   "operation": "authorization.evaluate", "units": 1,
+                                   "occurred_at": datetime.now(timezone.utc).isoformat()}],
+                        "next_cursor": None}
         fake_meter = FakeUsageMeter()
         api.app.state.usage_meter = fake_meter
         try:
@@ -222,6 +235,40 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertEqual(response.json()["quota"]["remaining_units"], 93)
         self.assertEqual(response.json()["billing_status"], "not_connected")
         self.assertIn("No monetary balance", response.json()["note"])
+
+    def test_customer_usage_history_is_session_scoped_and_cursor_validated(self):
+        self.client.post("/v1/customer/session", json={"token": self.store.login_link.token})
+        previous_meter = getattr(api.app.state, "usage_meter", None)
+        observed = {}
+        class FakeUsageMeter:
+            def events(self, *, tenant_id, limit, before, before_event_id):
+                observed.update(tenant_id=tenant_id, limit=limit, before=before,
+                                before_event_id=before_event_id)
+                return {"items": [{"event_id": str(uuid.uuid4()), "request_id": "req-1",
+                                   "operation": "authorization.evaluate", "units": 1,
+                                   "occurred_at": datetime.now(timezone.utc).isoformat()}],
+                        "next_cursor": None}
+        api.app.state.usage_meter = FakeUsageMeter()
+        try:
+            with patch.object(api, "settings", replace(api.settings, database_url="postgresql://test")):
+                response = self.client.get("/v1/customer/usage/events?limit=25")
+                partial = self.client.get("/v1/customer/usage/events?before=2026-11-01T00:00:00Z")
+                naive = self.client.get(
+                    "/v1/customer/usage/events?before=2026-11-01T00:00:00&before_event_id="+str(uuid.uuid4())
+                )
+        finally:
+            if previous_meter is None:
+                if hasattr(api.app.state, "usage_meter"):
+                    delattr(api.app.state, "usage_meter")
+            else:
+                api.app.state.usage_meter = previous_meter
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"][0]["request_id"], "req-1")
+        self.assertEqual(observed["tenant_id"], str(self.store.account.tenant_id))
+        self.assertEqual(observed["limit"], 25)
+        self.assertEqual(partial.status_code, 422)
+        self.assertEqual(naive.status_code, 422)
+
 
     def test_customer_api_key_list_requires_customer_session(self):
         with patch.object(api, "_get_customer_api_key_registry") as registry:
@@ -305,6 +352,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertIn("plan-list", response.text)
         self.assertIn("Manual TrxID checkout is not active", response.text)
         self.assertIn("create-key", response.text)
+        self.assertIn("usage-events", response.text)
 
 
     def test_vercel_preserved_client_ip_takes_precedence_over_generic_forwarded_header(self):
