@@ -473,3 +473,61 @@ class PostgresUsageMeter:
             if getattr(exc, "sqlstate", None) in {"28000", "42501", "22023"}:
                 raise UsageMeterError("API-key usage history read was rejected by the database") from None
             raise UsageMeterError("Unable to read API-key-bound usage history") from exc
+
+
+    def verify_api_key_usage_routines(self) -> bool:
+        """Fail closed unless all key-bound usage routines and owner grants are hardened."""
+        import psycopg
+        query = """WITH expected(signature) AS (
+            VALUES
+              ('public.jas_si_api_key_usage_reserve(uuid,bytea,text,text,text,text,text,bigint,bigint)'),
+              ('public.jas_si_api_key_usage_summary(uuid,bytea,text,timestamptz)'),
+              ('public.jas_si_api_key_usage_quota(uuid,bytea,text,bigint)'),
+              ('public.jas_si_api_key_usage_events(uuid,bytea,text,integer,timestamptz,uuid)')
+        ), resolved AS (
+            SELECT signature,pg_catalog.to_regprocedure(signature) AS oid
+              FROM expected
+        ), inspected AS (
+            SELECT p.oid,p.prosecdef,p.proconfig,owner.rolname,
+                   owner.rolcanlogin,owner.rolsuper,owner.rolcreatedb,
+                   owner.rolcreaterole,owner.rolreplication,owner.rolbypassrls,
+                   owner.rolinherit,
+                   pg_catalog.has_function_privilege('jas_si_runtime',p.oid,'EXECUTE') AS runtime_execute,
+                   EXISTS (
+                       SELECT 1 FROM pg_catalog.aclexplode(
+                           COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+                       ) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                   ) AS public_execute,
+                   EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_auth_members m
+                        WHERE m.member=owner.oid OR m.roleid=owner.oid
+                   ) AS owner_has_membership
+              FROM resolved r
+              JOIN pg_catalog.pg_proc p ON p.oid=r.oid
+              JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
+        )
+        SELECT
+          (SELECT pg_catalog.count(*) FROM inspected)=4
+          AND COALESCE(pg_catalog.bool_and(
+              prosecdef
+              AND proconfig @> ARRAY['search_path=pg_catalog']::text[]
+              AND rolname='jas_si_api_key_usage_owner'
+              AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+              AND NOT rolcreaterole AND NOT rolreplication
+              AND NOT rolbypassrls AND NOT rolinherit
+              AND NOT owner_has_membership
+              AND runtime_execute AND NOT public_execute
+          ),false)
+          AND pg_catalog.has_schema_privilege('jas_si_api_key_usage_owner','public','USAGE')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','secret_digest','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_tenants','status','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','tenant_id','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','event_id','INSERT')
+        """
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(query)
+                row = cur.fetchone()
+                return bool(row and row[0])
+        except Exception:
+            return False
