@@ -63,21 +63,46 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
-            # The CI owner may SET ROLE only inside this test connection.
-            cur.execute("GRANT jas_si_customer_runtime TO CURRENT_USER")
+            # The admin DSN is fixture-only; app traffic uses a dedicated NOINHERIT login.
+            cls.login_role = "jas_si_identity_login_" + uuid.uuid4().hex
+            cls.login_password = uuid.uuid4().hex + uuid.uuid4().hex
+            cur.execute(
+                f"CREATE ROLE \"{cls.login_role}\" LOGIN NOINHERIT "
+                f"PASSWORD '{cls.login_password}' NOSUPERUSER NOCREATEDB "
+                "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+            )
+            cur.execute(f'GRANT jas_si_customer_runtime TO "{cls.login_role}"')
         cls.dsn = make_conninfo(
-            cls.admin_dsn, options="-c role=jas_si_customer_runtime"
+            cls.admin_dsn, user=cls.login_role, password=cls.login_password,
+            options="-c role=jas_si_customer_runtime"
         )
         cls.pepper = b"customer-identity-test-pepper-32-bytes-minimum"
         cls.store = PostgresCustomerIdentityStore(cls.dsn, cls.pepper)
         if not cls.store.verify_schema():
-            raise AssertionError(
-                "Customer identity DSN did not assume the dedicated least-privilege role"
-            )
+            raise AssertionError("Customer identity DSN did not validate its dedicated LOGIN principal")
         if PostgresCustomerIdentityStore(cls.admin_dsn, cls.pepper).verify_schema():
-            raise AssertionError(
-                "Administrative test DSN unexpectedly passed the customer role guard"
-            )
+            raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "login_role", None):
+            with psycopg.connect(cls.admin_dsn) as conn, conn.cursor() as cur:
+                cur.execute(f'REVOKE jas_si_customer_runtime FROM "{cls.login_role}"')
+                cur.execute(f'DROP ROLE "{cls.login_role}"')
+        super().tearDownClass()
+
+    def test_runtime_login_is_separate_non_inheriting_and_cannot_assume_operator_role(self):
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute("SELECT session_user, current_user")
+            self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
+            cur.execute("RESET ROLE")
+            cur.execute("SELECT session_user, current_user")
+            self.assertEqual(cur.fetchone(), (self.login_role, self.login_role))
+        self.assertFalse(self.store.verify_schema())
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+                cur.execute("RESET ROLE")
+                cur.execute("SET ROLE jas_si_provisioner")
 
     def setUp(self):
         self.email = f"customer-{uuid.uuid4().hex}@example.test"

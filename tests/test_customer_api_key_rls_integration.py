@@ -56,8 +56,18 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 if path.exists():
                     cur.execute(path.read_text(encoding="utf-8"))
         cls.pepper = b"customer-api-key-test-pepper-32-bytes-minimum"
+        cls.login_role = "jas_si_key_login_" + uuid.uuid4().hex
+        cls.login_password = uuid.uuid4().hex + uuid.uuid4().hex
+        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"CREATE ROLE \"{cls.login_role}\" LOGIN NOINHERIT "
+                f"PASSWORD '{cls.login_password}' NOSUPERUSER NOCREATEDB "
+                "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+            )
+            cur.execute(f'GRANT jas_si_customer_key_runtime TO "{cls.login_role}"')
         cls.customer_dsn = make_conninfo(
-            DATABASE_URL, options="-c role=jas_si_customer_key_runtime"
+            DATABASE_URL, user=cls.login_role, password=cls.login_password,
+            options="-c role=jas_si_customer_key_runtime"
         )
         cls.registry = PostgresApiKeyRegistry(cls.customer_dsn, cls.pepper)
 
@@ -69,6 +79,27 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             raise AssertionError(
                 "Expected the current migration's direct audit grants to be detected until the hardened migration replaces them"
             )
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "login_role", None):
+            with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
+                cur.execute(f'REVOKE jas_si_customer_key_runtime FROM "{cls.login_role}"')
+                cur.execute(f'DROP ROLE "{cls.login_role}"')
+        super().tearDownClass()
+
+    def test_runtime_login_is_separate_non_inheriting_and_cannot_assume_operator_role(self):
+        with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
+            cur.execute("SELECT session_user, current_user")
+            self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_key_runtime"))
+            cur.execute("RESET ROLE")
+            cur.execute("SELECT session_user, current_user")
+            self.assertEqual(cur.fetchone(), (self.login_role, self.login_role))
+        self.assertFalse(self.registry.verify_customer_runtime_role())
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
+                cur.execute("RESET ROLE")
+                cur.execute("SET ROLE jas_si_provisioner")
 
     def setUp(self):
         self.tenant_a, self.tenant_b = uuid.uuid4(), uuid.uuid4()

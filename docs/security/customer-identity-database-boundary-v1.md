@@ -9,7 +9,7 @@ The customer-facing identity runtime must not read or mutate customer account, a
 ## 2. Required trust boundaries
 
 - `jas_si_customer_runtime`: NOLOGIN application group role; no direct table privileges on accounts, auth tokens, sessions, or global audit tables.
-- A separately controlled deployment LOGIN principal may assume only the identity runtime role. It must not inherit owner, provisioner, audit-verifier, or key-runtime roles.
+- A separately controlled deployment LOGIN principal may assume only the identity runtime role. It must be NOINHERIT, non-superuser, non-BYPASSRLS, without CREATEDB/CREATEROLE/REPLICATION, and have exactly one direct membership in the identity runtime role with SET allowed and ADMIN OPTION disabled. It must not inherit owner, provisioner, audit-verifier, or key-runtime roles.
 - Table ownership remains with a migration/owner principal unavailable to the application.
 - SECURITY DEFINER routines are owned by a dedicated non-login routine-owner role. The runtime role receives EXECUTE only on the minimum required routines. PUBLIC receives no EXECUTE.
 - Every SECURITY DEFINER routine sets a fixed safe `search_path` (prefer `pg_catalog, public` with all objects schema-qualified), rejects unexpected caller role assumptions, and validates every input.

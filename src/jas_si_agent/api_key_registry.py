@@ -140,25 +140,34 @@ class PostgresApiKeyRegistry:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT r.rolname, r.rolsuper, r.rolbypassrls,
-                           r.rolcanlogin,
-                           EXISTS (
-                               SELECT 1
-                               FROM pg_auth_members AS membership
-                               WHERE membership.member = r.oid
-                           ) AS has_inherited_role
-                    FROM pg_roles AS r
-                    WHERE r.rolname = current_user
+                    SELECT effective.rolname, effective.rolsuper, effective.rolbypassrls,
+                          effective.rolcanlogin,
+                          EXISTS (SELECT 1 FROM pg_auth_members AS membership
+                                  WHERE membership.member = effective.oid) AS effective_has_memberships,
+                          login.rolname, login.rolsuper, login.rolbypassrls,
+                          login.rolcanlogin, login.rolinherit,
+                          login.rolcreatedb, login.rolcreaterole, login.rolreplication,
+                          (SELECT count(*) FROM pg_auth_members AS membership
+                           WHERE membership.member = login.oid) AS login_membership_count,
+                          EXISTS (SELECT 1 FROM pg_auth_members AS membership
+                                  WHERE membership.member = login.oid
+                                    AND membership.roleid = effective.oid
+                                    AND NOT membership.admin_option
+                                    AND membership.set_option) AS login_has_only_settable_runtime_membership
+                    FROM pg_roles AS effective
+                    JOIN pg_roles AS login ON login.rolname = session_user
+                    WHERE effective.rolname = current_user
                     """
                 )
                 row = cursor.fetchone()
         return bool(
             row
             and row[0] == "jas_si_customer_key_runtime"
-            and row[1] is False
-            and row[2] is False
-            and row[3] is False
-            and row[4] is False
+            and row[1] is False and row[2] is False and row[3] is False and row[4] is False
+            and row[5] != row[0]
+            and row[6] is False and row[7] is False and row[8] is True
+            and row[9] is False and row[10] is False and row[11] is False and row[12] is False
+            and row[13] == 1 and row[14] is True
         )
 
     def verify_customer_audit_isolation(self) -> bool:

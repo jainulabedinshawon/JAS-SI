@@ -75,28 +75,37 @@ class PostgresCustomerIdentityStore:
         import psycopg
         with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
             cur.execute(
-                """SELECT current_user, r.rolsuper, r.rolbypassrls,
-                          r.rolcanlogin,
-                          EXISTS (
-                              SELECT 1 FROM pg_auth_members AS membership
-                              WHERE membership.member = r.oid
-                          ) AS has_inherited_role,
+                """SELECT effective.rolname, effective.rolsuper, effective.rolbypassrls,
+                          effective.rolcanlogin,
+                          EXISTS (SELECT 1 FROM pg_auth_members AS membership
+                                  WHERE membership.member = effective.oid) AS effective_has_memberships,
+                          login.rolname, login.rolsuper, login.rolbypassrls,
+                          login.rolcanlogin, login.rolinherit,
+                          login.rolcreatedb, login.rolcreaterole, login.rolreplication,
+                          (SELECT count(*) FROM pg_auth_members AS membership
+                           WHERE membership.member = login.oid) AS login_membership_count,
+                          EXISTS (SELECT 1 FROM pg_auth_members AS membership
+                                  WHERE membership.member = login.oid
+                                    AND membership.roleid = effective.oid
+                                    AND NOT membership.admin_option
+                                    AND membership.set_option) AS login_has_only_settable_runtime_membership,
                           to_regclass('public.jas_si_customer_accounts'),
                           to_regclass('public.jas_si_customer_auth_tokens'),
                           to_regclass('public.jas_si_customer_sessions'),
                           to_regclass('public.jas_si_customer_rate_limits')
-                   FROM pg_roles AS r
-                   WHERE r.rolname = current_user"""
+                   FROM pg_roles AS effective
+                   JOIN pg_roles AS login ON login.rolname = session_user
+                   WHERE effective.rolname = current_user"""
             )
             row = cur.fetchone()
             return bool(
                 row
                 and row[0] == "jas_si_customer_runtime"
-                and not row[1]
-                and not row[2]
-                and not row[3]
-                and not row[4]
-                and all(row[5:])
+                and not row[1] and not row[2] and not row[3] and not row[4]
+                and row[5] != row[0]
+                and not row[6] and not row[7] and row[8]
+                and not row[9] and not row[10] and not row[11] and not row[12]
+                and row[13] == 1 and row[14] and all(row[15:])
             )
 
     def verify_security_boundary(self) -> bool:
