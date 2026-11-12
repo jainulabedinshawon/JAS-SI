@@ -12,6 +12,12 @@ The root route serves a static, responsive developer landing page. The page read
 - The API evaluates authorization and verifies outcomes; it does not execute actions.
 - No production environment, database, secret, deployment, or existing API route is modified by this feature branch.
 
+## Developer quickstart
+
+The copy-ready API integration guide is maintained at [Developer Quickstart](developer-quickstart.md). It covers environment selection, API-key handling, authorization evaluation, caller-claim verification, GitHub content-integrity checks, tenant usage, HTTP error handling, and the current customer/billing limitations.
+
+Before using the examples against a deployed environment, compare that environment's generated `/openapi.json` and configuration with the branch documentation. A branch-level guide is not proof of production availability.
+
 ## Local verification
 
 Run the repository test suite in the project’s supported Python environment. The dashboard-specific tests verify the root HTML response and preserve the health endpoint’s JSON contract.
