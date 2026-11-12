@@ -64,7 +64,7 @@ GRANT SELECT (event_id,event_payload,previous_hash,event_hash),
 -- RLS remains enabled; the non-login function owner receives narrowly scoped policies.
 DROP POLICY IF EXISTS jas_si_tenants_customer_key_owner_read ON public.jas_si_tenants;
 CREATE POLICY jas_si_tenants_customer_key_owner_read ON public.jas_si_tenants
-    FOR SELECT TO jas_si_customer_key_owner USING (true);
+    FOR ALL TO jas_si_customer_key_owner USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS jas_si_api_keys_customer_key_owner ON public.jas_si_api_keys;
 CREATE POLICY jas_si_api_keys_customer_key_owner ON public.jas_si_api_keys
     FOR ALL TO jas_si_customer_key_owner USING (true) WITH CHECK (true);
