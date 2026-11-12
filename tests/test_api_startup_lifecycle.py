@@ -46,8 +46,11 @@ class TestAPIStartupLifecycle(unittest.TestCase):
                 return_value=fake_store,
             ),
             patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
         ):
             registry.return_value.verify_schema.return_value = True
+            registry.return_value.verify_api_key_auth_boundary.return_value = True
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = True
             with TestClient(api.app) as client:
                 response = client.get("/health")
 
@@ -55,6 +58,8 @@ class TestAPIStartupLifecycle(unittest.TestCase):
         self.assertEqual(response.json()["status"], "ok")
         fake_store.verify_integrity.assert_called_once_with()
         registry.return_value.verify_schema.assert_called_once_with()
+        registry.return_value.verify_api_key_auth_boundary.assert_called_once_with()
+        usage_meter.return_value.verify_api_key_usage_routines.assert_called_once_with()
         self.assertIs(api.app.state.security_event_store, fake_store)
 
     def test_preview_startup_rejects_missing_database_url(self):
