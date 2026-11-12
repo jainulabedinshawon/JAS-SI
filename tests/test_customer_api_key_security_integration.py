@@ -237,6 +237,19 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
             issued.token[:-1] + ("A" if issued.token[-1] != "A" else "B")
         ))
 
+    def test_api_key_auth_boundary_readiness_verifies_routine_and_runtime_isolation(self):
+        self.assertTrue(self.auth_registry.verify_api_key_auth_boundary())
+
+    def test_api_key_auth_boundary_readiness_rejects_unsafe_owner_role(self):
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute("ALTER ROLE jas_si_api_key_auth_owner LOGIN")
+        try:
+            self.assertFalse(self.auth_registry.verify_api_key_auth_boundary())
+        finally:
+            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                cur.execute("ALTER ROLE jas_si_api_key_auth_owner NOLOGIN")
+        self.assertTrue(self.auth_registry.verify_api_key_auth_boundary())
+
     def test_api_key_auth_owner_is_non_login_unprivileged_and_isolated(self):
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
