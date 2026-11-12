@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import sys
 import unittest
@@ -20,7 +22,7 @@ except ImportError:
     psycopg = None
     make_conninfo = None
 
-from jas_si_agent.api_key_registry import ApiKeyError, PostgresApiKeyRegistry
+from jas_si_agent.api_key_registry import ApiKeyError, PostgresApiKeyRegistry, parse_token
 from jas_si_agent.customer_identity import PostgresCustomerIdentityStore
 from jas_si_agent.postgres_security_event_store import PostgresSecurityEventStore
 
@@ -215,6 +217,10 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
             authenticated.scopes,
             frozenset({"authorization:check", "usage:read"}),
         )
+        _, secret = parse_token(issued.token)
+        expected_digest = hmac.new(self.api_pepper, secret, hashlib.sha256).digest()
+        self.assertEqual(authenticated.candidate_digest, expected_digest)
+        self.assertNotIn(expected_digest.hex(), repr(authenticated))
 
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute("SELECT has_function_privilege('jas_si_runtime', "
