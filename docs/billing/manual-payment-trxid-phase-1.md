@@ -1,12 +1,15 @@
-# JAS-SI Manual Payment Phase 1 — TrxID Reconciliation
+# Historical Concept — Manual Payment / TrxID Reconciliation
 
-**Status:** Approved product direction; implementation design only. No payment number, live checkout, transaction acceptance, paid entitlement, or production migration is enabled by this document.
+**Status:** Historical product exploration only; superseded by `JAS-SI-BILLING-CORE-ARCHITECTURE-v0.1.md`. It is not an approved implementation plan for JAS-SI. No payment number, live checkout, transaction acceptance, paid entitlement, or production migration is enabled.
 
-## Decision
+> [!WARNING]
+> **Commerce ownership:** JAS Platform is the sole owner of checkout, payment collection and verification, TrxID reconciliation, invoices, refunds, financial ledger and authoritative paid entitlements. JAS-SI must not implement the manual payment workflow described below. JAS-SI may consume an authenticated entitlement decision from JAS Platform and enforce service quota. This historical document is retained only to preserve the original requirements and fraud-control analysis.
 
-Use manual bank/mobile-financial-service transfer as a temporary, low-fixed-cost payment collection workflow before integrating a hosted gateway. It is a manual reconciliation process, not a payment gateway and not a zero-risk substitute for one.
+## Historical proposal (not approved for JAS-SI implementation)
 
-Potential channels: bKash, Nagad and Rocket. A channel is enabled only after the business confirms the correct account type, account ownership, provider terms, permitted commercial use, and exact receiving number. Never publish a personal number by default. Prefer a merchant/business account where the provider requires one for commercial collection.
+The original proposal considered manual bank/mobile-financial-service transfer as a temporary, low-fixed-cost payment collection workflow before a hosted gateway. Under the current architecture, this workflow—if ever selected—belongs entirely to JAS Platform, not JAS-SI.
+
+Potential channels considered were bKash, Nagad and Rocket. A channel may be enabled only by the JAS Platform business owner after confirming account type, ownership, provider terms, permitted commercial use and exact receiving account. Never publish a personal number by default. Prefer a merchant/business account where the provider requires one for commercial collection.
 
 ## Customer journey
 
@@ -79,4 +82,4 @@ No overage, credit wallet or automatic top-up is part of Phase 1. Technical usag
 - No refund, reversal, chargeback, customer support or accounting process has been approved.
 - No live bKash/Nagad/Rocket transaction verification integration exists.
 
-Therefore this phase may be developed and tested with synthetic records, but live collection and paid entitlement activation remain disabled. A personal Send Money number should not be assumed to be a permitted or suitable commercial checkout method.
+Therefore this historical proposal must not be developed inside JAS-SI. Any synthetic or live manual-payment workflow requires a separate JAS Platform specification and authorization. JAS-SI remains unable to collect money or activate paid entitlements directly. A personal Send Money number should not be assumed to be a permitted or suitable commercial checkout method.
