@@ -29,9 +29,9 @@ Paid plan prices must be set only after measuring compute, database, network, su
 ## Next implementation gates
 
 1. Persist tenant plan assignment and billing-period boundaries before enabling any paid tier.
-2. Extend the existing basic customer portal (account, API-key and technical-usage sections) with tenant-scoped plan assignment, billing-period, invoice/receipt and payment-status views. The current portal is not a complete billing dashboard and does not support checkout.
-3. Define provider-neutral payment adapter interfaces; implement sandbox only after provider eligibility and commercial terms are verified.
-4. Test tenant plan changes, payment reconciliation, plan downgrade and refund/chargeback handling before paid checkout.
+2. Extend the existing basic customer portal (account, API-key and technical-usage sections) with a read-only tenant-scoped entitlement/plan-status view sourced from the authoritative commerce owner. Invoice, receipt and payment records remain owned by JAS Platform; the current portal is not a complete billing dashboard and does not support checkout.
+3. Keep payment-provider adapter, sandbox checkout, webhook verification and payment reconciliation work in JAS Platform. JAS-SI implements only an authenticated entitlement-consumption adapter; no provider integration or payment state machine belongs in this repository.
+4. Test tenant entitlement changes, quota enforcement, expiry and revocation in JAS-SI. JAS Platform must test payment reconciliation, plan downgrade, refunds and chargebacks before paid checkout.
 5. Publish paid prices only after cost model and unit economics review.
 
 ## Non-goals
