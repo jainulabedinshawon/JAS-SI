@@ -84,7 +84,9 @@ def parse_token(token: str) -> tuple[uuid.UUID, bytes]:
         secret = _decode_secret(parts[1])
     except (ValueError, ApiKeyError):
         raise ApiKeyError("Malformed API key") from None
-    if len(secret) != KEY_SECRET_BYTES:
+    if len(secret) != KEY_SECRET_BYTES or _encode_secret(secret) != parts[1]:
+        # Reject non-canonical Base64url spellings. The decoder can otherwise
+        # accept distinct final characters that decode to the same secret bytes.
         raise ApiKeyError("Malformed API key")
     return key_id, secret
 
