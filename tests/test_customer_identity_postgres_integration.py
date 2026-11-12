@@ -114,8 +114,12 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             if column is None:
                 cur.execute(
-                    "SELECT has_table_privilege(%s, %s, %s)",
-                    ("jas_si_customer_runtime", table, privilege),
+                    """SELECT has_table_privilege(%s, %s, %s)
+                              OR has_any_column_privilege(%s, %s, %s)""",
+                    (
+                        "jas_si_customer_runtime", table, privilege,
+                        "jas_si_customer_runtime", table, privilege,
+                    ),
                 )
             else:
                 cur.execute(
