@@ -66,8 +66,8 @@ class TestPostgresUsageMeter(unittest.TestCase):
                 # Fixtures use fresh UUIDs; never delete shared tenant/key rows.
                 # This keeps parallel suites isolated and preserves FK history.
                 for tenant_id, tenant_name in (
-                    (self.tenant_a, "Usage Test A"),
-                    (self.tenant_b, "Usage Test B"),
+                    (self.tenant_a, f"Usage Test A {uuid.uuid4().hex}"),
+                    (self.tenant_b, f"Usage Test B {uuid.uuid4().hex}"),
                 ):
                     cur.execute(
                         "INSERT INTO jas_si_tenants (tenant_id, tenant_name) VALUES (%s, %s)",
