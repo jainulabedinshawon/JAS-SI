@@ -64,7 +64,7 @@ class TestCustomerApiKeyRls(unittest.TestCase):
                 f"PASSWORD '{cls.login_password}' NOSUPERUSER NOCREATEDB "
                 "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
             )
-            cur.execute(f'GRANT jas_si_customer_key_runtime TO "{cls.login_role}"')
+            cur.execute(f'GRANT jas_si_customer_key_runtime TO "{cls.login_role}" WITH INHERIT FALSE, SET TRUE, ADMIN FALSE')
         cls.customer_dsn = make_conninfo(
             DATABASE_URL, user=cls.login_role, password=cls.login_password,
             options="-c role=jas_si_customer_key_runtime"

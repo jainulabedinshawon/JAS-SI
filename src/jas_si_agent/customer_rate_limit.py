@@ -55,6 +55,7 @@ class PostgresCustomerRateLimiter:
                                   WHERE membership.member = login.oid
                                     AND membership.roleid = effective.oid
                                     AND NOT membership.admin_option
+                                    AND NOT membership.inherit_option
                                     AND membership.set_option) AS login_has_only_settable_runtime_membership,
                               to_regclass('public.jas_si_customer_rate_limits')
                        FROM pg_roles AS effective

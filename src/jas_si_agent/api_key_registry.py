@@ -153,6 +153,7 @@ class PostgresApiKeyRegistry:
                                   WHERE membership.member = login.oid
                                     AND membership.roleid = effective.oid
                                     AND NOT membership.admin_option
+                                    AND NOT membership.inherit_option
                                     AND membership.set_option) AS login_has_only_settable_runtime_membership
                     FROM pg_roles AS effective
                     JOIN pg_roles AS login ON login.rolname = session_user
