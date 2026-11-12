@@ -231,22 +231,39 @@ class PostgresApiKeyRegistry:
             for name, signature in expected.items():
                 cursor.execute(
                     """SELECT p.prosecdef, p.proconfig,
-                              pg_catalog.pg_get_userbyid(p.proowner),
+                              owner.rolname,
                               has_function_privilege(current_user,p.oid,'EXECUTE'),
                               EXISTS (
                                 SELECT 1 FROM pg_catalog.aclexplode(
                                   COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
                                 ) a
                                 WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+                              ),
+                              owner.rolcanlogin, owner.rolsuper, owner.rolcreatedb,
+                              owner.rolcreaterole, owner.rolreplication,
+                              owner.rolbypassrls, owner.rolinherit,
+                              EXISTS (
+                                SELECT 1 FROM pg_catalog.pg_auth_members membership
+                                WHERE membership.member=owner.oid OR membership.roleid=owner.oid
                               )
                        FROM pg_catalog.pg_proc p
                        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                       JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
                        WHERE n.nspname='public' AND p.proname=%s
                          AND pg_catalog.oidvectortypes(p.proargtypes)=%s""",
                     (name, signature),
                 )
                 row = cursor.fetchone()
-                if not row or row[0] is not True or row[1] != ["search_path=pg_catalog"] or row[2] != "jas_si_customer_key_owner" or row[3] is not True or row[4] is True:
+                if (
+                    not row or row[0] is not True
+                    or row[1] != ["search_path=pg_catalog"]
+                    or row[2] != "jas_si_customer_key_owner"
+                    or row[3] is not True or row[4] is True
+                    or row[5] is not False or row[6] is not False
+                    or row[7] is not False or row[8] is not False
+                    or row[9] is not False or row[10] is not False
+                    or row[11] is not False or row[12] is not False
+                ):
                     return False
         return True
 
