@@ -35,6 +35,7 @@ class FakeCustomerIdentityStore:
         self.unknown_email = False
         self.revoked = False
         self.usage_observed = {}
+        self.usage_calls = []
 
     def verify_usage_read_boundary(self):
         return True
@@ -51,14 +52,16 @@ class FakeCustomerIdentityStore:
             "by_operation": [],
             "current_month_units": 7,
             "billing_status": "not_connected",
-            "note": "Measured technical usage only; no monetary balance or paid entitlement is inferred.",
+            "note": "Measured technical usage only. No monetary balance, invoice, or paid entitlement is inferred.",
         }
 
     def usage_events(self, session_token, *, limit=50, before=None, before_event_id=None):
-        self.usage_observed.update(
-            session_token=session_token, limit=limit,
-            before=before, before_event_id=before_event_id,
-        )
+        call = {
+            "session_token": session_token, "limit": limit,
+            "before": before, "before_event_id": before_event_id,
+        }
+        self.usage_calls.append(call)
+        self.usage_observed.update(call)
         if session_token != self.session.token:
             raise api.CustomerIdentityError("invalid session")
         if (before is None) != (before_event_id is None):
@@ -260,7 +263,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["request_id"], "req-1")
         self.assertEqual(self.store.usage_observed["session_token"], self.store.session.token)
-        self.assertEqual(self.store.usage_observed["limit"], 25)
+        self.assertEqual(self.store.usage_calls[0]["limit"], 25)
         self.assertEqual(partial.status_code, 422)
         self.assertEqual(naive.status_code, 422)
 
