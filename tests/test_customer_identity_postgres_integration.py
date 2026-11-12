@@ -172,6 +172,96 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         """The current broad identity-table grants must block onboarding readiness."""
         self.assertFalse(self.store.verify_security_boundary())
 
+    def test_identity_privilege_guard_rejects_table_and_column_grants(self):
+        """Exercise forbidden privileges and restore the migration's exact grants."""
+        role = "jas_si_customer_runtime"
+        tables = (
+            "public.jas_si_customer_accounts",
+            "public.jas_si_customer_auth_tokens",
+            "public.jas_si_customer_sessions",
+        )
+        grants = (
+            "GRANT SELECT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime",
+            "GRANT INSERT (account_id, tenant_id, email, email_normalized, organization_name) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime",
+            "GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_runtime",
+            "GRANT SELECT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime",
+            "GRANT INSERT (token_id, account_id, token_digest, purpose, expires_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime",
+            "GRANT UPDATE (consumed_at) ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_runtime",
+            "GRANT SELECT ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
+            "GRANT INSERT (session_id, account_id, token_digest, expires_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
+            "GRANT UPDATE (revoked_at) ON TABLE public.jas_si_customer_sessions TO jas_si_customer_runtime",
+        )
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for table in tables:
+                cur.execute(f"REVOKE ALL PRIVILEGES ON TABLE {table} FROM {role}")
+            for table in tables:
+                cur.execute(f"REVOKE ALL PRIVILEGES ON TABLE {table} FROM PUBLIC")
+        try:
+            self.assertTrue(
+                self.store.verify_security_boundary(),
+                "The guard should pass after direct identity table grants are removed",
+            )
+            probes = (
+                ("public.jas_si_customer_accounts", "SELECT"),
+                ("public.jas_si_customer_accounts", "INSERT"),
+                ("public.jas_si_customer_accounts", "UPDATE"),
+                ("public.jas_si_customer_accounts", "DELETE"),
+                ("public.jas_si_customer_accounts", "TRUNCATE"),
+                ("public.jas_si_customer_accounts", "REFERENCES"),
+                ("public.jas_si_customer_accounts", "TRIGGER"),
+                ("public.jas_si_customer_auth_tokens", "SELECT"),
+                ("public.jas_si_customer_auth_tokens", "INSERT"),
+                ("public.jas_si_customer_auth_tokens", "UPDATE"),
+                ("public.jas_si_customer_sessions", "SELECT"),
+                ("public.jas_si_customer_sessions", "INSERT"),
+                ("public.jas_si_customer_sessions", "UPDATE"),
+            )
+            for table, privilege in probes:
+                with self.subTest(table=table, privilege=privilege):
+                    with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                        cur.execute(
+                            f"GRANT {privilege} ON TABLE {table} TO {role}"
+                        )
+                    try:
+                        self.assertFalse(
+                            self.store.verify_security_boundary(),
+                            f"The guard failed to detect direct {privilege} on {table}",
+                        )
+                    finally:
+                        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                            cur.execute(
+                                f"REVOKE {privilege} ON TABLE {table} FROM {role}"
+                            )
+            column_probes = (
+                ("public.jas_si_customer_accounts", "organization_name", "SELECT"),
+                ("public.jas_si_customer_accounts", "email", "INSERT"),
+                ("public.jas_si_customer_accounts", "status", "UPDATE"),
+                ("public.jas_si_customer_auth_tokens", "token_digest", "SELECT"),
+                ("public.jas_si_customer_auth_tokens", "consumed_at", "UPDATE"),
+                ("public.jas_si_customer_sessions", "token_digest", "SELECT"),
+                ("public.jas_si_customer_sessions", "revoked_at", "UPDATE"),
+            )
+            for table, column, privilege in column_probes:
+                with self.subTest(table=table, column=column, privilege=privilege):
+                    with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                        cur.execute(
+                            f"GRANT {privilege} ({column}) ON TABLE {table} TO {role}"
+                        )
+                    try:
+                        self.assertFalse(
+                            self.store.verify_security_boundary(),
+                            f"The guard failed to detect column {privilege} on {table}.{column}",
+                        )
+                    finally:
+                        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                            cur.execute(
+                                f"REVOKE {privilege} ({column}) ON TABLE {table} FROM {role}"
+                            )
+        finally:
+            with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+                for statement in grants:
+                    cur.execute(statement)
+
     def test_runtime_role_is_limited_to_customer_identity_tables(self):
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
