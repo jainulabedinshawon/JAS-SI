@@ -1,7 +1,7 @@
 # JAS-SI Standalone Billing and Pricing v1.0
 
 **Status:** Free technical quota and a basic customer portal are implemented on the PR #36 Draft branch; paid billing remains preview-only and has no live checkout or entitlement ledger.  
-**Decision:** JAS-SI owns its initial Free plan, technical usage quota, plan catalogue and customer-facing billing status. JAS Platform integration is a later adapter phase.
+**Decision:** JAS-SI owns the Free technical quota policy, metering and public display of plan metadata. JAS Platform is the authoritative owner of all paid entitlements and commercial status. The public JAS-SI catalogue is descriptive metadata only; it must not independently grant, extend, suspend or revoke paid access. A later authenticated adapter will consume Platform-issued entitlement decisions.
 
 ## Product strategy
 
