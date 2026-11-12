@@ -1,6 +1,6 @@
 # JAS-SI Standalone Billing and Pricing v1.0
 
-**Status:** Quota enforcement implementation in review; paid billing remains preview-only.  
+**Status:** Free technical quota and a basic customer portal are implemented on the PR #36 Draft branch; paid billing remains preview-only and has no live checkout or entitlement ledger.  
 **Decision:** JAS-SI owns its initial Free plan, technical usage quota, plan catalogue and customer-facing billing status. JAS Platform integration is a later adapter phase.
 
 ## Product strategy
@@ -29,7 +29,7 @@ Paid plan prices must be set only after measuring compute, database, network, su
 ## Next implementation gates
 
 1. Persist tenant plan assignment and billing-period boundaries before enabling any paid tier.
-2. Add tenant-scoped customer billing/plan endpoints and a customer dashboard.
+2. Extend the existing basic customer portal (account, API-key and technical-usage sections) with tenant-scoped plan assignment, billing-period, invoice/receipt and payment-status views. The current portal is not a complete billing dashboard and does not support checkout.
 3. Define provider-neutral payment adapter interfaces; implement sandbox only after provider eligibility and commercial terms are verified.
 4. Test tenant plan changes, payment reconciliation, plan downgrade and refund/chargeback handling before paid checkout.
 5. Publish paid prices only after cost model and unit economics review.
