@@ -136,8 +136,13 @@ class TestCustomerIdentityApi(unittest.TestCase):
         self.sender_patch = patch.object(api, "_get_customer_email_sender", return_value=self.sender)
         self.store_patch.start()
         self.sender_patch.start()
+        self.usage_store_patch = patch.object(
+            api, "_get_customer_usage_identity_store", return_value=self.store
+        )
+        self.usage_store_patch.start()
         self.addCleanup(self.store_patch.stop)
         self.addCleanup(self.sender_patch.stop)
+        self.addCleanup(self.usage_store_patch.stop)
         self.client = TestClient(
             api.app,
             base_url="https://testserver",
@@ -229,6 +234,15 @@ class TestCustomerIdentityApi(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 429)
         self.assertIn("Retry-After", blocked.headers)
+
+    def test_customer_usage_database_boundary_fails_closed(self):
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+        unsafe_store = SimpleNamespace(verify_usage_read_boundary=lambda: False)
+        with patch.object(api, "_get_customer_identity_store", return_value=unsafe_store):
+            with self.assertRaises(api.HTTPException) as raised:
+                api._get_customer_usage_identity_store(request)
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertFalse(getattr(request.app.state, "customer_usage_read_boundary_verified", False))
 
     def test_customer_usage_requires_customer_session(self):
         response = self.client.get("/v1/customer/usage")
