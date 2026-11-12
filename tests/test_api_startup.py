@@ -159,7 +159,7 @@ class TestAPIStartup(unittest.TestCase):
         ):
             registry.return_value.verify_schema.return_value = True
             registry.return_value.verify_api_key_auth_boundary.return_value = False
-            with self.assertRaisesRegex(RuntimeError, "authentication security boundary"):
+            with self.assertRaisesRegex(RuntimeError, "registry readiness check failed"):
                 api.initialize_security_event_store()
 
         self.assertIs(
