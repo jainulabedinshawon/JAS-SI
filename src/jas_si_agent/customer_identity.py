@@ -375,4 +375,3 @@ class PostgresCustomerIdentityStore:
             raise
         except Exception as exc:
             raise CustomerIdentityError("Unable to read customer usage history") from exc
-\n

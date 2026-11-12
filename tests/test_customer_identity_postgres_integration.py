@@ -381,7 +381,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
                 cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
-\n
+
 
 
 if __name__ == "__main__":
