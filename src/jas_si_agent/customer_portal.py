@@ -39,6 +39,9 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 <hr><h3>Usage</h3>
 <p id="usage-summary" class="muted">Loading technical usage…</p>
 <ul id="usage-operations"></ul>
+<h4>Recent usage events</h4>
+<ul id="usage-events" aria-live="polite"></ul>
+<button id="usage-more" class="secondary" type="button" hidden>Load more usage</button>
 <hr><h3>API keys</h3>
 <form id="create-key">
 <label for="key-name">Key name</label><input id="key-name" maxlength="120" required>
