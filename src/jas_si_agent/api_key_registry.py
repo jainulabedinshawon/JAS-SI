@@ -116,6 +116,85 @@ class PostgresApiKeyRegistry:
                 row = cursor.fetchone()
                 return bool(row and row[0] and row[1])
 
+    def verify_api_key_auth_boundary(self) -> bool:
+        """Fail closed unless bearer authentication is database-owned and isolated."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     p.prosecdef,
+                     p.proconfig,
+                     owner.rolname,
+                     has_function_privilege('jas_si_runtime', p.oid, 'EXECUTE'),
+                     EXISTS (
+                         SELECT 1 FROM pg_catalog.aclexplode(
+                             COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+                         ) acl
+                         WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                     ),
+                     owner.rolcanlogin,
+                     owner.rolsuper,
+                     owner.rolcreatedb,
+                     owner.rolcreaterole,
+                     owner.rolreplication,
+                     owner.rolbypassrls,
+                     owner.rolinherit,
+                     EXISTS (
+                         SELECT 1 FROM pg_catalog.pg_auth_members membership
+                         WHERE membership.member=owner.oid OR membership.roleid=owner.oid
+                     ),
+                     (
+                         has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'SELECT')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'INSERT')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'UPDATE')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'DELETE')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'TRUNCATE')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'REFERENCES')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'TRIGGER')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'SELECT')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'INSERT')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'UPDATE')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'REFERENCES')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'SELECT')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'INSERT')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'UPDATE')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'DELETE')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'TRUNCATE')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'REFERENCES')
+                         OR has_table_privilege('jas_si_runtime', 'public.jas_si_tenants', 'TRIGGER')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_tenants', 'SELECT')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_tenants', 'INSERT')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_tenants', 'UPDATE')
+                         OR has_any_column_privilege('jas_si_runtime', 'public.jas_si_tenants', 'REFERENCES')
+                     )
+                   FROM pg_catalog.pg_proc p
+                   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                   JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
+                   WHERE n.nspname='public'
+                     AND p.proname='jas_si_api_key_authenticate'
+                     AND pg_catalog.oidvectortypes(p.proargtypes)='uuid, bytea'"""
+            )
+            row = cursor.fetchone()
+
+        return bool(
+            row
+            and row[0] is True
+            and row[1] == ["search_path=pg_catalog"]
+            and row[2] == "jas_si_api_key_auth_owner"
+            and row[3] is True
+            and row[4] is False
+            and row[5] is False
+            and row[6] is False
+            and row[7] is False
+            and row[8] is False
+            and row[9] is False
+            and row[10] is False
+            and row[11] is False
+            and row[12] is False
+            and row[13] is False
+        )
+
     def verify_provisioning_schema(self) -> bool:
         """Fail closed unless all tables required for atomic issuance exist."""
         import psycopg
