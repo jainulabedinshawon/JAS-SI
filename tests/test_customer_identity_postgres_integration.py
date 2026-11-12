@@ -168,6 +168,10 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             row = cur.fetchone()
         self.assertIsNotNone(row)
 
+    def test_identity_role_is_not_ready_while_direct_table_grants_remain(self):
+        """The current broad identity-table grants must block onboarding readiness."""
+        self.assertFalse(self.store.verify_security_boundary())
+
     def test_runtime_role_is_limited_to_customer_identity_tables(self):
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
