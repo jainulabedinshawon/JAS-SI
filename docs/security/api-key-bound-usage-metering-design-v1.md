@@ -218,3 +218,23 @@ The current `tests/test_usage_meter_postgres_integration.py` covers tenant filte
 Do not implement the SQL migration until the full role inventory and current grants are reconciled across all migration files. In particular, the base `jas_si_runtime` role is also used by other API features; revoking its registry or usage privileges must not be conflated with revoking unrelated privileges. Add new owner/routines additively, add startup/readiness verification, migrate all API-key read/write/auth paths, run role-level PostgreSQL tests, then prepare a separately reviewed grant-revocation migration. Production remains out of scope without explicit approval.
 
 This section records inspected source and migration facts only; it does not change database behavior.
+
+
+## 12. Existing runtime privilege and RLS findings (migration source audit)
+
+The following are explicit migration facts, not inferred runtime state:
+
+1. `007_customer_api_key_self_service.sql` enables RLS on `jas_si_api_keys` and installs `jas_si_api_keys_runtime_auth` for `jas_si_runtime` with `FOR SELECT ... USING (true)`. It also installs `jas_si_api_keys_runtime_last_used` with `FOR UPDATE ... USING (true) WITH CHECK (true)`. These policies are intentionally broad for the current application-side authentication path; they do not independently bind a registry lookup or last-used update to the candidate digest.
+2. `006_api_key_registry_role_grants.sql` removes INSERT/UPDATE/DELETE table privileges from `jas_si_runtime`, but does not revoke SELECT or the column-level last-used update needed by the old authentication implementation. Do not describe this as a database-isolated key boundary.
+3. `20261110_usage_metering.sql` grants `jas_si_runtime` direct SELECT and INSERT on `jas_si_usage_events`; `20261111_usage_append_only_role_grants.sql` reasserts those privileges. The append-only trigger and revoked mutation privileges protect history integrity, but do not prevent a compromised runtime connection from reading other tenants' usage rows or inserting rows for another tenant if it can satisfy the table constraints.
+4. The usage event table has a composite foreign key binding `api_key_id` and `tenant_id`, which prevents mismatched pairs but does not prove that the caller possesses the key secret.
+5. The customer-key runtime policy in migration 007 uses `current_setting('jas_si.tenant_id', true)`. The migration itself documents that a custom GUC is settable by that role and is defense-in-depth only, not independent authentication against arbitrary SQL. The later customer API-key routines correctly move that separate customer path to session-digest validation. Do not copy the GUC approach into API-key authentication.
+6. The customer usage routines are owned by `jas_si_customer_identity_owner` and use the customer-session digest. This is a different principal and trust boundary; the API-key-bound routines need their own dedicated non-login owner and independent API-key validation.
+
+### Security consequence and rollout constraint
+
+Until API-key authentication and all API-key usage write/read paths move to database-owned routines, `jas_si_runtime` remains a high-trust application role for API-key and usage data. This is a verified privilege-design gap, not evidence of a known breach.
+
+The safe sequence is: (a) inventory all current runtime table/column grants and policies; (b) create a dedicated non-login API-key owner with verified attributes and no role memberships; (c) add SECURITY DEFINER routines with fixed search path and exact grants; (d) migrate authentication, usage writes, and summary/quota reads; (e) prove behavior using a separate runtime login with direct privileges removed; (f) only then revoke broad runtime registry/usage grants and policies in a separately reviewed migration. Preserve provisioning, customer-session routines, audit persistence, and unrelated API capabilities.
+
+No privilege was changed and no database was contacted during this source audit.
