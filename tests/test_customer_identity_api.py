@@ -245,7 +245,7 @@ class TestCustomerIdentityApi(unittest.TestCase):
             response = self.client.get("/v1/customer/usage")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.store.usage_observed["session_token"], self.store.session.token)
-        self.assertEqual(self.store.usage_observed["tenant_id"] if "tenant_id" in self.store.usage_observed else str(self.store.account.tenant_id), str(self.store.account.tenant_id))
+        self.assertNotIn("tenant_id", self.store.usage_observed)
         self.assertEqual(response.json()["quota"]["remaining_units"], 93)
         self.assertEqual(response.json()["billing_status"], "not_connected")
         self.assertIn("No monetary balance", response.json()["note"])
