@@ -255,7 +255,7 @@ class PostgresApiKeyRegistry:
         if not self.verify_customer_runtime_role():
             raise ApiKeyError("Customer database runtime role is not authorized")
         if not self.verify_customer_key_table_isolation():
-            raise ApiKeyError("Customer database table isolation is not configured")
+            raise ApiKeyError("Customer database audit isolation is not configured; customer table isolation is incomplete")
         if not self.verify_customer_key_routines():
             raise ApiKeyError("Customer API-key database routines are not configured")
 

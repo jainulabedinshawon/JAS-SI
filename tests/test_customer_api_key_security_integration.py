@@ -98,11 +98,28 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         self.identity.verify_email(verification.token)
         link = self.identity.issue_login_link(email)
         self.assertIsNotNone(link)
-        return self.identity.consume_login_link(link.token).token
+        session_token = self.identity.consume_login_link(link.token).token
+        return session_token
 
     def test_database_derives_tenant_from_session_and_audits_atomically(self):
         session_a = self._session("alpha-" + uuid.uuid4().hex + "@example.test")
         session_b = self._session("beta-" + uuid.uuid4().hex + "@example.test")
+        digest_a = self.identity._digest(session_a)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_customer_key_owner")
+            cur.execute(
+                """SELECT a.account_id,a.tenant_id,a.status,t.status,s.expires_at,s.revoked_at
+                   FROM public.jas_si_customer_sessions s
+                   JOIN public.jas_si_customer_accounts a ON a.account_id=s.account_id
+                   JOIN public.jas_si_tenants t ON t.tenant_id=a.tenant_id
+                   WHERE s.token_digest=%s AND s.revoked_at IS NULL
+                     AND s.expires_at>pg_catalog.clock_timestamp()
+                     AND a.status='active' AND t.status='active'
+                   FOR SHARE OF s,a,t""",
+                (digest_a,),
+            )
+            self.assertIsNotNone(cur.fetchone(), "SECURITY DEFINER owner must see and lock a valid customer session")
+            cur.execute("RESET ROLE")
 
         issued_a = self.registry.customer_issue_key(
             session_a, "alpha production", ["authorization:check", "usage:read"],
@@ -137,7 +154,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         session = self._session("expired-" + uuid.uuid4().hex + "@example.test")
         digest = self.identity._digest(session)
         with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
-            cur.execute("UPDATE public.jas_si_customer_sessions SET expires_at=NOW()-INTERVAL '1 minute' WHERE token_digest=%s", (digest,))
+            cur.execute("UPDATE public.jas_si_customer_sessions SET created_at=NOW()-INTERVAL '2 minutes', expires_at=NOW()-INTERVAL '1 minute' WHERE token_digest=%s", (digest,))
         with self.assertRaises(ApiKeyError):
             self.registry.customer_list_keys(session)
 
