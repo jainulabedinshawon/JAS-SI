@@ -324,7 +324,7 @@ class PostgresUsageMeter:
                     """SELECT event_id,operation,units,occurred_at,replayed,
                               monthly_limit,used_units,remaining_units,period_start,resets_at
                        FROM public.jas_si_api_key_usage_reserve(
-                         %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                         %s::uuid,%s::bytea,%s::text,%s::text,%s::text,%s::text,%s::text,%s::bigint,%s::bigint)""",
                     (key_id,candidate_digest,required_scope,request_id,idempotency_key,
                      operation,request_fingerprint,units,monthly_limit),
                 )
@@ -375,7 +375,7 @@ class PostgresUsageMeter:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
                 cur.execute(
                     """SELECT operation,event_count,total_units,last_recorded_at
-                       FROM public.jas_si_api_key_usage_summary(%s,%s,'usage:read',%s)""",
+                       FROM public.jas_si_api_key_usage_summary(%s::uuid,%s::bytea,'usage:read',%s::timestamptz)""",
                     (key_id,candidate_digest,since),
                 )
                 rows = cur.fetchall()
@@ -414,7 +414,7 @@ class PostgresUsageMeter:
                 cur.execute(
                     """SELECT period,period_start,resets_at,monthly_limit,
                               used_units,remaining_units,exhausted
-                       FROM public.jas_si_api_key_usage_quota(%s,%s,'usage:read',%s)""",
+                       FROM public.jas_si_api_key_usage_quota(%s::uuid,%s::bytea,'usage:read',%s::bigint)""",
                     (key_id,candidate_digest,monthly_limit),
                 )
                 row = cur.fetchone()
@@ -456,7 +456,7 @@ class PostgresUsageMeter:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
                 cur.execute(
                     """SELECT event_id,request_id,operation,units,occurred_at
-                       FROM public.jas_si_api_key_usage_events(%s,%s,'usage:read',%s,%s,%s)""",
+                       FROM public.jas_si_api_key_usage_events(%s::uuid,%s::bytea,'usage:read',%s::integer,%s::timestamptz,%s::uuid)""",
                     (key_id,candidate_digest,limit,
                      before.astimezone(timezone.utc) if before else None,cursor_id),
                 )
