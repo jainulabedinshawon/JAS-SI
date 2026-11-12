@@ -42,6 +42,8 @@ class TestPostgresUsageMeter(unittest.TestCase):
                     "20261110_usage_metering.sql",
                     "20261110_usage_idempotency_fingerprint.sql",
                     "20261111_usage_append_only_role_grants.sql",
+                    "20261115_api_key_auth_boundary.sql",
+                    "20261116_api_key_bound_usage_routines.sql",
                 ):
                     path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                     cur.execute(path.read_text(encoding="utf-8"))
@@ -82,10 +84,82 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         """INSERT INTO jas_si_api_keys
                            (key_id, tenant_id, key_name, key_prefix,
                             secret_digest, scopes, created_by)
-                           VALUES (%s,%s,'integration',%s,%s,
-                                   ARRAY['authorization:check'],'ci')""",
-                        (key_id, tenant_id, prefix, b"x" * 32),
+                           VALUES (%s,%s,'integration',%s,%s,%s,'ci')""",
+                        (key_id, tenant_id, prefix, b"x" * 32,
+                         ["authorization:check", "usage:read"] if key_id != self.key_c else ["authorization:check"]),
                     )
+
+    def test_api_key_bound_usage_routines_validate_digest_and_scope(self):
+        import psycopg
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_runtime")
+            cur.execute(
+                """SELECT event_id,operation,units,replayed,used_units,remaining_units
+                   FROM public.jas_si_api_key_usage_reserve(
+                     %s,%s,'authorization:check','routine-1','routine-idem',
+                     'authorization.evaluate',%s,1,10)""",
+                (self.key_a, b"x" * 32, hashlib.sha256(b"payload").hexdigest()),
+            )
+            row = cur.fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[1:4], ("authorization.evaluate", 1, False))
+            self.assertEqual(row[4:6], (1, 9))
+            cur.execute(
+                """SELECT event_id,replayed,used_units FROM public.jas_si_api_key_usage_reserve(
+                     %s,%s,'authorization:check','routine-2','routine-idem',
+                     'authorization.evaluate',%s,1,10)""",
+                (self.key_a, b"x" * 32, hashlib.sha256(b"payload").hexdigest()),
+            )
+            replay = cur.fetchone()
+            self.assertEqual(replay[0], row[0])
+            self.assertEqual(replay[1:], (True, 1))
+            with self.assertRaises(psycopg.Error):
+                cur.execute(
+                    """SELECT * FROM public.jas_si_api_key_usage_reserve(
+                         %s,%s,'authorization:check','wrong-digest','wrong-digest',
+                         'authorization.evaluate',%s,1,10)""",
+                    (self.key_a, b"z" * 32, hashlib.sha256(b"wrong").hexdigest()),
+                )
+            conn.rollback()
+
+    def test_api_key_bound_usage_reads_derive_tenant_from_key(self):
+        import psycopg
+        fingerprint_a = hashlib.sha256(b"tenant-a").hexdigest()
+        fingerprint_b = hashlib.sha256(b"tenant-b").hexdigest()
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_runtime")
+            cur.execute(
+                """SELECT event_id FROM public.jas_si_api_key_usage_reserve(
+                     %s,%s,'authorization:check','tenant-a','tenant-a',
+                     'authorization.evaluate',%s,1,100)""",
+                (self.key_a, b"x" * 32, fingerprint_a),
+            )
+            cur.execute(
+                """SELECT event_id FROM public.jas_si_api_key_usage_reserve(
+                     %s,%s,'authorization:check','tenant-b','tenant-b',
+                     'authorization.evaluate',%s,1,100)""",
+                (self.key_b, b"x" * 32, fingerprint_b),
+            )
+            cur.execute(
+                """SELECT operation,event_count,total_units
+                   FROM public.jas_si_api_key_usage_summary(%s,%s,'usage:read',%s)""",
+                (self.key_a, b"x" * 32, datetime(2000, 1, 1, tzinfo=timezone.utc)),
+            )
+            summary = cur.fetchall()
+            self.assertEqual(summary, [("authorization.evaluate", 1, 1)])
+            cur.execute(
+                """SELECT used_units,remaining_units,exhausted
+                   FROM public.jas_si_api_key_usage_quota(%s,%s,'usage:read',100)""",
+                (self.key_a, b"x" * 32),
+            )
+            self.assertEqual(cur.fetchone(), (1, 99, False))
+            with self.assertRaises(psycopg.Error):
+                cur.execute(
+                    """SELECT * FROM public.jas_si_api_key_usage_summary(
+                         %s,%s,'usage:read',%s)""",
+                    (self.key_c, b"x" * 32, datetime(2000, 1, 1, tzinfo=timezone.utc)),
+                )
+            conn.rollback()
 
     def test_runtime_role_can_append_and_read_but_not_mutate_usage(self):
         with psycopg.connect(self.dsn) as conn:
