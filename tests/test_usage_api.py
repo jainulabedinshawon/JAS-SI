@@ -19,7 +19,7 @@ class FakeUsageMeter:
     def __init__(self):
         self.records = []
 
-    def record(self, **event):
+    def record_authenticated(self, **event):
         self.records.append(event)
         return {
             "event_id": "00000000-0000-0000-0000-000000000033",
@@ -30,7 +30,8 @@ class FakeUsageMeter:
             "resets_at": "2026-12-01T00:00:00+00:00",
         }
 
-    def summary(self, *, tenant_id, since):
+    def summary_authenticated(self, *, api_key_id, candidate_digest, since, tenant_id_for_response):
+        tenant_id = tenant_id_for_response
         return {
             "tenant_id": tenant_id,
             "since": since.isoformat(),
@@ -41,7 +42,7 @@ class FakeUsageMeter:
             "note": "Technical usage only.",
         }
 
-    def quota_status(self, *, tenant_id, monthly_limit):
+    def quota_status_authenticated(self, *, api_key_id, candidate_digest, monthly_limit):
         return {
             "period": "utc_calendar_month",
             "period_start": "2026-11-01T00:00:00+00:00",
@@ -79,6 +80,8 @@ class TestUsageAPI(TestCase):
             request.state.tenant_id = self.tenant_id
             request.state.api_key_id = self.key_id
             request.state.api_key_scopes = ["usage:read", "authorization:check"]
+            request.state.api_key_candidate_digest = b"c" * 32
+            request.state.api_key_required_scope = "authorization:check"
             api._record_usage_for_authenticated_tenant(request)
 
         self.previous_override = api.app.dependency_overrides.get(api._require_api_key)
