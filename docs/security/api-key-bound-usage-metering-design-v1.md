@@ -119,3 +119,29 @@ The source-level integration points were inspected before writing a migration:
 7. The runtime direct-access revocation and production migration/deployment remain separate approval gates.
 
 This source audit is not a migration, test run, or production readiness claim. No database was contacted and no privileges were changed.
+
+
+## 9. Authentication-path dependency discovered in follow-up audit
+
+A further source audit of `api_key_registry.py` and `api.py` found an important dependency that changes the rollout design:
+
+- `PostgresApiKeyRegistry.authenticate()` currently performs a direct SELECT joining `jas_si_api_keys` and `jas_si_tenants`, validates the HMAC digest in Python, and directly updates `last_used_at`.
+- The API route maps exact scopes as follows:
+  - `/v1/authorize` → `authorization:check`
+  - `/v1/verify` → `outcomes:submit`
+  - `/v1/github/evidence` → `github:evidence:verify`
+  - `/v1/usage` → `usage:read`
+- Therefore, revoking runtime access to the API-key registry before moving authentication into a database-owned routine would break all API-key authentication, not merely usage metering.
+- The authenticated request context currently stores key ID, tenant ID, and scopes, but not the candidate digest. `parse_token()` already returns the 32-byte secret, and `_digest(secret, pepper)` computes the 32-byte HMAC-SHA256 candidate digest.
+
+### Required revised architecture
+
+1. Add a narrowly scoped SECURITY DEFINER API-key authentication routine. It accepts key ID + candidate digest, validates active key, expiry, tenant status, and pepper version, checks a server-mapped required scope, updates `last_used_at` atomically, and returns only key ID, derived tenant ID, tenant display name, and allowed scopes. It must not return the stored digest.
+2. Change `PostgresApiKeyRegistry.authenticate()` to call that routine and retain the candidate digest in the request-local authenticated context only as needed by the metering call. The digest must never enter logs, tracing, exception text, or API responses.
+3. Implement API-key-bound usage write/read routines that independently validate key ID + candidate digest and scope, then derive tenant identity from the registry. Tenant ID is never an input.
+4. Migrate the API runtime away from direct SELECT/UPDATE access to `jas_si_api_keys`, `jas_si_tenants`, and direct usage-event table access. Preserve only EXECUTE grants on reviewed routines.
+5. Customer API-key self-service remains on its separate customer-session digest routines and customer runtime role. The API runtime and customer runtime are distinct trust boundaries and must not share role ownership or credentials.
+6. Add a readiness check that proves all required authentication and usage routines are owned by the dedicated non-login owner, have fixed `search_path=pg_catalog`, have no PUBLIC EXECUTE, and that the runtime role has no direct table/column privileges or unsafe role memberships.
+7. Only after the application uses both the authentication and metering routines, stage the privilege-revocation migration. This migration must account for every API path that still legitimately needs other tables; do not revoke unrelated application access blindly.
+
+This dependency means the earlier proposal to revoke direct usage-table access alone is insufficient. The full registry authentication and usage call chain must be migrated together before the runtime privilege boundary can be tightened.
