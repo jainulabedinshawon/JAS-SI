@@ -145,8 +145,6 @@ def initialize_security_event_store() -> None:
             "API key registry readiness check failed; startup denied"
         ) from exc
 
-    app.state.security_event_store = store
-
     # Metering is prepared without running a migration at startup. All API-key
     # usage routines must already exist and pass their independent readiness gate.
     try:
@@ -157,6 +155,7 @@ def initialize_security_event_store() -> None:
         raise RuntimeError(
             "API-key usage readiness check failed; startup denied"
         ) from exc
+    app.state.security_event_store = store
     app.state.usage_meter = usage_meter
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
