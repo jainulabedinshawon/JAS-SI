@@ -46,6 +46,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
                 "20261110_customer_identity.sql",
                 "20261112_customer_identity_routines.sql",
                 "20261113_customer_api_key_routines.sql",
+                "20261115_api_key_auth_boundary.sql",
             ]
             for name in migrations:
                 path = ROOT / "src" / "jas_si_agent" / "migrations" / name
@@ -65,6 +66,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         cls.api_pepper = b"customer-api-key-test-pepper-32-bytes-minimum"
         cls.identity = PostgresCustomerIdentityStore(cls.identity_dsn, cls.identity_pepper)
         cls.registry = PostgresApiKeyRegistry(cls.key_dsn, cls.api_pepper, customer_session_pepper=cls.identity_pepper)
+        cls.auth_registry = PostgresApiKeyRegistry(cls.admin_dsn, cls.api_pepper)
         if not cls.identity.verify_security_boundary():
             raise AssertionError("Customer identity database boundary is not ready")
         if not cls.registry.verify_customer_runtime_role():
@@ -197,6 +199,60 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
                     conn.rollback()
             cur.execute("SELECT has_function_privilege(current_user,'public.customer_api_key_list(bytea)','EXECUTE'), has_function_privilege(current_user,'public.jas_si_customer_key_append_audit(jsonb)','EXECUTE')")
             self.assertEqual(cur.fetchone(), (True, False))
+
+
+    def test_bearer_api_key_authentication_is_database_owned_and_runtime_isolated(self):
+        tenant_id = self.auth_registry.create_tenant("bearer-auth-" + uuid.uuid4().hex)
+        issued = self.auth_registry.issue_key(
+            tenant_id, "bearer-auth", ["authorization:check", "usage:read"],
+            "integration-test",
+        )
+        authenticated = self.auth_registry.authenticate(issued.token)
+        self.assertIsNotNone(authenticated)
+        self.assertEqual(authenticated.tenant_id, tenant_id)
+        self.assertEqual(authenticated.key_id, issued.key_id)
+        self.assertEqual(
+            authenticated.scopes,
+            frozenset({"authorization:check", "usage:read"}),
+        )
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute("SELECT has_function_privilege('jas_si_runtime', "
+                        "'public.jas_si_api_key_authenticate(uuid,bytea)', 'EXECUTE'), "
+                        "has_function_privilege('jas_si_runtime', "
+                        "'public.jas_si_api_key_authenticate(uuid,bytea)', 'EXECUTE') "
+                        "AND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode("
+                        "COALESCE((SELECT proacl FROM pg_catalog.pg_proc "
+                        "WHERE oid='public.jas_si_api_key_authenticate(uuid,bytea)'::regprocedure), "
+                        "pg_catalog.acldefault('f', (SELECT proowner FROM pg_catalog.pg_proc "
+                        "WHERE oid='public.jas_si_api_key_authenticate(uuid,bytea)'::regprocedure)))) a "
+                        "WHERE a.grantee=0 AND a.privilege_type='EXECUTE')")
+            self.assertEqual(cur.fetchone(), (True, True))
+            cur.execute("SET ROLE jas_si_runtime")
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                cur.execute("SELECT secret_digest FROM public.jas_si_api_keys LIMIT 1")
+            conn.rollback()
+
+        self.assertIsNone(self.auth_registry.authenticate(
+            issued.token[:-1] + ("A" if issued.token[-1] != "A" else "B")
+        ))
+
+    def test_api_key_auth_owner_is_non_login_unprivileged_and_isolated(self):
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,"
+                "rolreplication,rolbypassrls,rolinherit FROM pg_catalog.pg_roles "
+                "WHERE rolname='jas_si_api_key_auth_owner'"
+            )
+            self.assertEqual(cur.fetchone(), (False, False, False, False, False, False, False))
+            cur.execute(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m "
+                "JOIN pg_catalog.pg_roles r ON r.oid=m.member "
+                "WHERE r.rolname='jas_si_api_key_auth_owner' OR "
+                "EXISTS (SELECT 1 FROM pg_catalog.pg_roles rr "
+                "WHERE rr.oid=m.roleid AND rr.rolname='jas_si_api_key_auth_owner'))"
+            )
+            self.assertFalse(cur.fetchone()[0])
 
     def test_sql_audit_hashing_accepts_existing_python_hash_chain(self):
         store = PostgresSecurityEventStore(self.admin_dsn)
