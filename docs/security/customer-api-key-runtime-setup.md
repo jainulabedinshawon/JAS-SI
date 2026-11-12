@@ -1,6 +1,6 @@
 # Customer API-key runtime database setup
 
-The customer portal API-key endpoints use `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`. This DSN is intentionally separate from the general API registry and customer identity DSNs.
+The customer portal API-key endpoints use `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`. This DSN is intentionally separate from the general API registry and customer identity DSNs. The key routines independently validate the session digest using the same customer token pepper as the identity service.
 
 ## Required connection identity
 
@@ -16,11 +16,12 @@ The application checks both `current_user` and `session_user`: the effective rol
 ## Provisioning outline (operator-controlled)
 
 1. Apply the schema migrations in dependency order through the normal migration process; do not apply them from an HTTP request or application startup:
-   - First, apply the existing core tenant/API-key/audit migrations 001–006 in their repository-defined order.
-   - Next, apply `20261110_customer_identity.sql` (creates the NOLOGIN identity group role and customer identity tables).
-   - Then apply `20261110_customer_rate_limits.sql` (depends on the identity role and grants its shared limiter access).
-   - Apply `007_customer_api_key_self_service.sql` only after the tenant, API-key, audit-chain, and provisioning-run tables/columns from the core migrations exist. It creates the NOLOGIN key-management group role and its RLS policies.
-   - Apply the usage-metering/idempotency migrations only after their own prerequisites, then `20261111_usage_append_only_role_grants.sql` after the usage-events table exists (the latter safely no-ops if that table is absent).
+   - Apply core tenant/API-key/audit migrations 001–006 in repository order.
+   - Apply `007_customer_api_key_self_service.sql` after tenant, API-key, audit-chain, and provisioning-run tables exist.
+   - Apply `20261110_customer_identity.sql` to create customer identity tables and the NOLOGIN identity role.
+   - Apply `20261112_customer_identity_routines.sql` after both the base identity migration and migration 007. This revokes direct identity-table grants and installs database-owned identity routines.
+   - Apply `20261113_customer_api_key_routines.sql` after migrations 007 and 20261112. This revokes direct customer-key, tenant, provisioning, and audit table privileges and installs session-bound key routines.
+   - Apply `20261110_customer_rate_limits.sql` and the usage-metering/idempotency migrations after their prerequisites; apply `20261111_usage_append_only_role_grants.sql` after the usage-events table exists.
    - Review the SQL and actual schema before every target environment; migration filenames alone are not evidence that a migration was applied.
 2. Create a dedicated LOGIN role for the customer API-key connection using the organization's secret-management process.
 3. Grant that login role membership in `jas_si_customer_key_runtime` only; do not grant membership in `jas_si_provisioner`, `jas_si_runtime`, or any owner role.
@@ -31,11 +32,13 @@ The application checks both `current_user` and `session_user`: the effective rol
 ## Security behavior
 
 - Customer session determines the tenant UUID; clients cannot submit tenant IDs. The HTTP API derives this value only from the server-validated session record.
-- Create, list, and revoke use the dedicated DSN and transaction-local RLS context. The RLS policy is defense-in-depth for this trusted server-derived context.
-- **Important boundary:** PostgreSQL custom settings such as `jas_si.tenant_id` are settable by a database role. RLS based on this setting does not independently authenticate a tenant against arbitrary SQL executed with the customer role. Never expose this DSN or SQL execution to customers, never accept tenant IDs from request payloads, and keep SQL parameterized. Stronger isolation against a compromised application role would require a database-verifiable signed tenant claim or per-tenant database principals; this phase does not claim that stronger guarantee.
+- Create, list, and revoke call database-owned SECURITY DEFINER routines. Each routine validates the HMAC digest of the live customer session and derives account/tenant identity from PostgreSQL; the caller does not provide a tenant ID.
+- The customer key runtime role has no direct table or column access to tenant, API-key, provisioning-run, audit, or customer identity tables. It receives EXECUTE only on the three customer lifecycle routines.
+- `jas_si.tenant_id` is not trusted for authorization. Changing the GUC cannot alter the tenant derived from the session digest.
+- The routines use a fixed `pg_catalog` search path, schema-qualified table names, constrained NOLOGIN owner role, and PUBLIC EXECUTE revocations.
 - Key secrets are shown only once; list responses contain metadata and never the raw secret/digest.
 - Create and revoke require the session CSRF cookie/header pair.
-- Audit event and key lifecycle changes are transactionally coupled in the registry.
+- Audit event and key lifecycle changes are transactionally coupled inside the database routines. The append routine locks the singleton checkpoint and verifies the full historical hash chain before appending.
 - The API rejects a database connection that can bypass RLS.
 
 ## Current status

@@ -1,82 +1,68 @@
-# Customer API-Key Database Boundary v2 — Security Design
+# Customer API-Key Database Boundary v2 — Implementation and Verification
 
-Status: design proposal only; not an approved migration or production change.
+**Status:** Implemented on PR #36's Draft branch; PostgreSQL 16 integration tests pass. Not merged or deployed. No staging or production migration has been applied.
 
-## 1. Purpose and threat model
+## Threat model
 
-The current customer-key runtime role is a NOLOGIN group role assumed by the application. It can set arbitrary transaction-local PostgreSQL custom settings, including `jas_si.tenant_id`. Therefore, RLS policies that trust this setting protect against accidental unscoped application queries but do not protect against arbitrary SQL executed with the customer-key role.
+The previous customer-key role trusted the mutable `jas_si.tenant_id` GUC and had direct privileges on global audit tables. A database credential holder could change the GUC, read audit history, or attempt to manipulate the audit checkpoint. RLS based on a caller-settable GUC is not an independent tenant authorization boundary.
 
-The current role also has direct privileges on the global audit event and checkpoint tables. This allows a holder of that database role to read global audit history and attempt direct audit writes/checkpoint changes.
+## Implemented role separation
 
-The target security boundary is: possession of the customer-key database credential alone must not let a caller choose a tenant, read another tenant's keys, or alter global audit state.
+- `jas_si_customer_key_runtime` is a NOLOGIN group role. It has no direct table/column privileges on tenant, API-key, provisioning-run, audit-event, audit-checkpoint, or customer identity tables.
+- `jas_si_customer_key_owner` is NOLOGIN, NOSUPERUSER, NOBYPASSRLS, NOINHERIT, and has no role memberships. It owns the SECURITY DEFINER routines and receives only required table/column privileges and constrained RLS policies.
+- The existing customer identity boundary uses its separate `jas_si_customer_identity_owner` and `jas_si_customer_runtime` roles.
+- Customer key runtime receives EXECUTE only on the three customer API-key entry points. PUBLIC receives no EXECUTE on these routines or the internal audit helpers.
+- SECURITY DEFINER routines use `search_path=pg_catalog` and schema-qualified object references. The owner role's temporary CREATE privilege on `public` is revoked after function ownership is transferred.
 
-## 2. Required role separation
+## Session-derived tenant authorization
 
-- `jas_si_customer_key_runtime`: NOLOGIN; may execute only narrowly scoped customer key routines. No direct SELECT/INSERT/UPDATE/DELETE/TRUNCATE on audit events or audit checkpoint.
-- `jas_si_customer_identity_runtime`: NOLOGIN; identity operations only. It must not be a member of the key runtime role or any owner/provisioner role.
-- `jas_si_customer_key_owner`: NOLOGIN, non-superuser, non-BYPASSRLS; owns the SECURITY DEFINER routines and has only the table privileges those routines require. No application login may inherit this role.
-- Existing `jas_si_runtime` and `jas_si_provisioner` remain separate; do not grant either to customer-facing logins.
+Every customer key operation passes only the HMAC-SHA256 digest of the browser session token, calculated with `JAS_SI_CUSTOMER_TOKEN_PEPPER`. The database independently joins the session, customer account, and tenant, requiring:
 
-All SECURITY DEFINER routines must set a fixed safe `search_path` (prefer `pg_catalog, public` with schema-qualified object references), revoke EXECUTE from PUBLIC, and grant EXECUTE only to the intended runtime role. No dynamic SQL from user-controlled identifiers.
+- a matching 32-byte session digest;
+- session not revoked and not expired;
+- active, verified customer account;
+- active tenant.
 
-## 3. Session-derived tenant authorization
+The routine derives `account_id` and `tenant_id` from those records. The caller cannot supply a tenant UUID. It ignores `jas_si.tenant_id` for authorization. Issue, list, and revoke are constrained to the derived tenant; revoke also predicates on that tenant.
 
-Customer HTTP handlers already authenticate the browser session and obtain an account record. The database boundary must independently validate the session for every customer key operation:
+## Customer routines
 
-1. The API computes the existing HMAC-SHA256 digest of the presented session token using the customer token pepper; it never passes the raw cookie token to SQL.
-2. A narrowly scoped SECURITY DEFINER routine receives the 32-byte digest and looks up a matching session joined to its customer account.
-3. The routine requires: session not revoked, session expiry in the future, account status active, email verified, and the account/tenant relationship intact.
-4. The routine derives `tenant_id` and `account_id` from those rows. No caller-supplied tenant UUID is accepted as an authorization input.
-5. Create/list/revoke routines operate only on that derived tenant. Revocation also checks that the requested key belongs to the derived tenant.
-6. Invalid, expired, revoked, or suspended sessions return a uniform authorization failure without revealing whether a tenant or key exists.
+Migration `20261113_customer_api_key_routines.sql` installs:
 
-A caller-supplied `jas_si.tenant_id` GUC must be ignored for authorization. Tests must deliberately set it to another tenant and prove that it cannot change the routine's derived tenant.
+- `customer_api_key_issue`: validates the live session, key prefix, 32-byte digest, pepper version, allowed/unique scopes, expiry, and run ID; inserts the key and idempotency row; appends the audit event and advances the checkpoint in the same transaction.
+- `customer_api_key_list`: validates the live session and returns non-secret metadata for the derived tenant.
+- `customer_api_key_revoke`: validates the live session and revokes only an active key belonging to the derived tenant, with an atomic audit append.
 
-The HMAC digest is a bearer proof. The customer-key role must not have direct SELECT on customer session/token tables. The application must not expose the digest in responses, logs, traces, or error messages.
+The API generates the random secret and stores only its HMAC digest. The raw key is returned once and never persisted. The API's customer endpoints use these new methods; the older operator provisioning methods remain separate.
 
-## 4. Key lifecycle routines
+## Audit-chain compatibility and verification
 
-Expose only three customer operations through SECURITY DEFINER routines:
+The database append routine serializes JSONB recursively with sorted object keys, compact separators, UTF-8, and JSON string escaping; it builds the same `{"event": ..., "previous_hash": ...}` material and SHA-256 digest as the existing Python implementation. It locks the singleton checkpoint, re-verifies the complete historical event chain before appending, and updates the checkpoint atomically. It does not replace full-chain verification with a last-row/checkpoint-only comparison.
 
-- issue: validate session digest; derive tenant/account; validate key metadata and allowed scopes; insert key and idempotency record; append audit event; advance checkpoint; return key ID only (the API retains and returns the one-time raw token it generated).
-- list: validate session digest; derive tenant; return non-secret metadata for that tenant only.
-- revoke: validate session digest; derive tenant; update only a key owned by that tenant; append audit event and advance checkpoint atomically.
+The PostgreSQL integration suite exercises an existing Python-written Unicode/nested/decimal event followed by a SQL-routine append and verifies the resulting chain with the independent Python verifier. This is a compatibility fixture, not a claim that every possible PostgreSQL JSONB numeric edge case has been exhaustively tested.
 
-The API may generate the random key secret and HMAC digest, but it must not be able to select the tenant by supplying a tenant ID. All business mutations and the corresponding audit append/checkpoint update must be in one database transaction.
+## Verification evidence
 
-## 5. Audit-chain compatibility is a hard constraint
+The latest PR head at the time of this document is `b0254610589af4c77fb4acf1e1ab527994e9bb5e`.
 
-Existing Python audit behavior is defined by:
+- PostgreSQL 16 integration: 91 tests passed, including session-derived tenant isolation, forged/expired session rejection, GUC spoofing resistance, direct table access denial, and Python/SQL audit-chain compatibility.
+- Separate PostgreSQL audit integration: 50 tests passed.
+- Agent authorization, core package, dependency lock, Docker, Vercel Python 3.12 compatibility, live console, security event persistence, and post-merge security verification workflows passed.
+- The full API-key registry integration workflow and all ten standard CI workflows completed successfully on this head.
 
-- event normalization through PostgreSQL JSONB before hashing;
-- Python canonical JSON: sorted keys, compact separators, UTF-8, `ensure_ascii=False`, `allow_nan=False`;
-- hash material is canonical JSON bytes for `{"event": normalized_event, "previous_hash": previous_hash}`;
-- SHA-256 over those exact bytes;
-- a singleton checkpoint row locked `FOR UPDATE` by all appenders.
+These results establish branch-level CI evidence only. They do not prove the production/staging schema has been migrated or that the live customer journey is enabled.
 
-A SQL replacement must not hash PostgreSQL's default JSONB text representation. It must preserve byte-for-byte compatibility with existing hashes, including Unicode, nested objects, nulls, and numeric edge cases. A candidate design is to pass canonical material bytes from the trusted application, parse them as UTF-8 JSONB inside the function, verify semantic equality with the supplied normalized event and previous hash, then hash the original bytes. This is not yet accepted: the full-chain verification path must also remain independent and must not be bypassable by a caller holding only the customer-key role.
+## Migration order and operational gates
 
-Before implementation, settle how full historical-chain verification is performed without granting global audit reads to the customer-key role. Candidate separation: a distinct trusted audit-verifier connection/role with read-only access, plus a restricted append routine; document the trust boundary and ensure the customer-key credential cannot assume that verifier role. Do not replace full-chain verification with a mere checkpoint/last-row check.
+Apply only through an operator-controlled migration process, after checking the actual target schema and roles:
 
-## 6. Migration and test gates
+1. Core migrations `001`–`006`.
+2. `007_customer_api_key_self_service.sql` after tenant, API-key, audit, and provisioning tables exist.
+3. `20261110_customer_identity.sql`.
+4. `20261112_customer_identity_routines.sql` after the base identity migration and migration 007.
+5. `20261113_customer_api_key_routines.sql` after migrations 007 and 20261112.
+6. Customer rate-limit and usage migrations in their documented dependency order.
 
-A future migration must be additive and reviewed against actual schema state. It must not run automatically at application startup. It must not be applied to Production without separate explicit approval.
+The customer key DSN must use a separately managed LOGIN principal that is a member only of `jas_si_customer_key_runtime`, with `NOINHERIT` and the connection configured to assume the group role. Configure `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`, `JAS_SI_API_KEY_PEPPER`, and `JAS_SI_CUSTOMER_TOKEN_PEPPER` through secret management. Never reuse the database owner, migration role, general API runtime, identity login, or provisioner credentials.
 
-Required PostgreSQL integration tests under the actual customer-key role:
-
-- direct SELECT/INSERT/UPDATE/DELETE/TRUNCATE on audit events and checkpoint are denied;
-- setting `jas_si.tenant_id` to Tenant B while presenting Tenant A's session digest cannot list, issue, or revoke Tenant B keys;
-- Tenant B session digest can operate only on Tenant B;
-- expired, revoked, pending, and suspended sessions are rejected;
-- a key ID from another tenant returns a non-disclosing not-found result;
-- customer role cannot read customer session/token tables or assume owner, verifier, identity, runtime, or provisioner roles;
-- routine EXECUTE grants are minimal and PUBLIC has none;
-- key mutation, idempotency record, audit event, and checkpoint commit or roll back together;
-- concurrent issuance/revocation preserves one valid audit chain;
-- old event hashes remain valid after migration;
-- canonical byte/hash parity covers Unicode, nested JSON, nulls, numeric edge cases, tampered bytes, and previous-hash mismatch;
-- failed audit verification prevents all key mutations.
-
-## 7. Current disposition
-
-PR #36 remains Draft. Existing happy-path CI is green, but it does not prove the adversarial database boundary above. The current migration's direct audit grants and GUC-derived tenant scope remain blockers. This document is a design checkpoint, not evidence of implementation, deployment, or customer readiness.
+Do not apply these migrations at application startup. Production migration, deployment, billing, and financial operations require separate explicit approval. PR #36 remains Draft and unmerged; this document is not deployment authorization.

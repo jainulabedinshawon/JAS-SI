@@ -1,6 +1,6 @@
 # Standalone customer identity and onboarding v1
 
-**Status:** Implementation branch; not deployed. Production database migration and secrets remain separate approval/configuration gates.
+**Status:** Implementation branch; not merged or deployed. PostgreSQL 16 branch CI verifies the customer identity and session-bound API-key routines. Staging/production migrations, deployment secrets, SMTP and live customer journey remain separate approval/configuration gates.
 
 ## Customer journey implemented in this phase
 
@@ -49,9 +49,9 @@ GRANT jas_si_customer_key_runtime TO jas_si_customer_key_login;
 
 Configure each DSN to assume its NOLOGIN group role on connection (for example, PostgreSQL connection option `options=-c role=jas_si_customer_runtime` or `options=-c role=jas_si_customer_key_runtime`, correctly URL-encoded). Verify from the application connection that `current_user` is exactly the expected group role, and that it is neither SUPERUSER nor BYPASSRLS. The login principal must not be a member of `jas_si_provisioner`, `jas_si_runtime`, an owner role, or any other privileged role. Do not share either login credential between services.
 
-Apply the existing tenant and audit migrations in the repository's documented order, then apply `20261110_customer_identity.sql` followed by `20261110_customer_rate_limits.sql`. Apply `007_customer_api_key_self_service.sql` only after its prerequisite tenant, audit-chain, API-key registry and provisioning tables/columns exist. Use a migration/admin role for all DDL; never run migrations from an HTTP request or application startup.
+Apply core migrations 001–006, then `007_customer_api_key_self_service.sql` after its tenant, audit-chain, API-key and provisioning prerequisites. Apply `20261110_customer_identity.sql`, then `20261112_customer_identity_routines.sql` (requires the base identity migration and 007), then `20261113_customer_api_key_routines.sql` (requires 007 and 20261112). Apply the shared rate-limit and usage migrations in their documented dependency order. Use a migration/admin role for all DDL; never run migrations from an HTTP request or application startup.
 
-The customer identity group role receives only tenant insert and customer account/token/session operations. The separate customer key group role receives tenant-scoped key metadata and audited issue/revoke privileges. Its RLS tenant context is transaction-local and server-derived from a verified customer session. The custom GUC is defense-in-depth, not independent tenant authentication against arbitrary SQL run with this trusted role. Never expose either DSN or SQL execution to customers; never accept tenant IDs from request payloads.
+The customer identity runtime receives EXECUTE on database-owned identity routines, not direct table access. The customer key runtime receives EXECUTE on database-owned issue/list/revoke routines, not direct tenant, key, provisioning, audit, or identity table access. Each key routine validates the customer session digest in PostgreSQL and derives tenant/account identity; a caller-supplied custom GUC is not trusted. Never expose either DSN or SQL execution to customers; never accept tenant IDs from request payloads.
 
 Do not run these commands against Production until the user explicitly approves the migration and the database owner has reviewed the target roles and grants. Apply and verify on an isolated Staging branch first, including membership, effective `current_user`, RLS policies, grants, cross-tenant denial, and rollback readiness.
 
