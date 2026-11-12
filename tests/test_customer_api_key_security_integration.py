@@ -71,6 +71,8 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
             raise AssertionError("Customer API-key runtime role is not ready")
         if not cls.registry.verify_customer_audit_isolation():
             raise AssertionError("Customer API-key direct-table privileges remain")
+        if not cls.registry.verify_customer_key_table_isolation():
+            raise AssertionError("Customer API-key table privileges are not isolated")
         if not cls.registry.verify_customer_key_routines():
             raise AssertionError("Customer API-key routines are not ready")
 

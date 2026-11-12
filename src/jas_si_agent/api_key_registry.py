@@ -174,20 +174,9 @@ class PostgresApiKeyRegistry:
             and row[13] == 1 and row[14] is True
         )
 
-    def verify_customer_audit_isolation(self) -> bool:
-        """Fail closed unless the customer role has zero direct protected-table privileges."""
+    def _verify_direct_table_isolation(self, protected: list[str]) -> bool:
         import psycopg
 
-        protected = [
-            "public.jas_si_tenants",
-            "public.jas_si_api_keys",
-            "public.jas_si_api_key_provisioning_runs",
-            "public.jas_si_audit_events",
-            "public.jas_si_audit_chain_state",
-            "public.jas_si_customer_sessions",
-            "public.jas_si_customer_auth_tokens",
-            "public.jas_si_customer_accounts",
-        ]
         privileges = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
         tables = [table for table in protected for _ in privileges]
         grants = [privilege for _ in protected for privilege in privileges]
@@ -205,6 +194,29 @@ class PostgresApiKeyRegistry:
             )
             row = cursor.fetchone()
         return bool(row and row[0] and not row[1])
+
+    def verify_customer_audit_isolation(self) -> bool:
+        """Fail closed if the role can directly access global audit or customer identity tables."""
+        return self._verify_direct_table_isolation([
+            "public.jas_si_audit_events",
+            "public.jas_si_audit_chain_state",
+            "public.jas_si_customer_sessions",
+            "public.jas_si_customer_auth_tokens",
+            "public.jas_si_customer_accounts",
+        ])
+
+    def verify_customer_key_table_isolation(self) -> bool:
+        """Require no direct access to any tenant, key, provisioning, audit, or identity table."""
+        return self._verify_direct_table_isolation([
+            "public.jas_si_tenants",
+            "public.jas_si_api_keys",
+            "public.jas_si_api_key_provisioning_runs",
+            "public.jas_si_audit_events",
+            "public.jas_si_audit_chain_state",
+            "public.jas_si_customer_sessions",
+            "public.jas_si_customer_auth_tokens",
+            "public.jas_si_customer_accounts",
+        ])
 
     def verify_customer_key_routines(self) -> bool:
         """Require the session-bound database-owned customer key routines."""
@@ -242,8 +254,8 @@ class PostgresApiKeyRegistry:
         """Fail closed before customer-scoped key operations on an unsafe DB role."""
         if not self.verify_customer_runtime_role():
             raise ApiKeyError("Customer database runtime role is not authorized")
-        if not self.verify_customer_audit_isolation():
-            raise ApiKeyError("Customer database audit isolation is not configured")
+        if not self.verify_customer_key_table_isolation():
+            raise ApiKeyError("Customer database table isolation is not configured")
         if not self.verify_customer_key_routines():
             raise ApiKeyError("Customer API-key database routines are not configured")
 
