@@ -132,7 +132,20 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         "FROM jas_si_api_key_usage_owner"
                     )
                     self.assertFalse(self.meter.verify_api_key_usage_routines())
+
+                    # Runtime must not regain direct table access even when
+                    # the SECURITY DEFINER routines themselves remain valid.
+                    cur.execute(
+                        "GRANT SELECT ON public.jas_si_usage_events TO jas_si_runtime"
+                    )
+                    self.assertFalse(self.meter.verify_api_key_usage_routines())
+                    cur.execute(
+                        "REVOKE SELECT ON public.jas_si_usage_events FROM jas_si_runtime"
+                    )
                 finally:
+                    cur.execute(
+                        "REVOKE SELECT ON public.jas_si_usage_events FROM jas_si_runtime"
+                    )
                     cur.execute(
                         "REVOKE UPDATE (event_id) ON public.jas_si_usage_events "
                         "FROM jas_si_api_key_usage_owner"
