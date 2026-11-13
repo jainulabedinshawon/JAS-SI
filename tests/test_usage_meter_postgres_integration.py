@@ -363,10 +363,20 @@ class TestPostgresUsageMeter(unittest.TestCase):
         # An otherwise active key must not remain usable after its expiry.
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE jas_si_api_keys SET expires_at=clock_timestamp()-interval '1 second' WHERE key_id=%s",
+                """UPDATE jas_si_api_keys
+                   SET created_at=clock_timestamp()-interval '1 hour',
+                       expires_at=clock_timestamp()-interval '1 second'
+                   WHERE key_id=%s""",
                 (self.key_b,),
             )
         assert_history_denied(self.key_b)
+
+        # Restore a valid, unexpired key so this assertion isolates tenant suspension.
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jas_si_api_keys SET expires_at=NULL WHERE key_id=%s",
+                (self.key_b,),
+            )
 
         # A valid key cannot read usage after its owning tenant is suspended.
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
