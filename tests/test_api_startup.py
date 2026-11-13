@@ -14,6 +14,7 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 class TestAPIStartup(unittest.TestCase):
     def setUp(self):
         self.original_store = api.app.state.security_event_store
+        self.original_api_limiter = getattr(api.app.state, "api_rate_limiter", None)
         self.rate_limiter_patcher = patch.object(api, "PostgresApiRateLimiter")
         self.rate_limiter_patcher.start()
         self.jsonl_store = JsonlSecurityEventStore(
@@ -23,6 +24,11 @@ class TestAPIStartup(unittest.TestCase):
 
     def tearDown(self):
         self.rate_limiter_patcher.stop()
+        if self.original_api_limiter is None:
+            if hasattr(api.app.state, "api_rate_limiter"):
+                delattr(api.app.state, "api_rate_limiter")
+        else:
+            api.app.state.api_rate_limiter = self.original_api_limiter
         api.app.state.security_event_store = self.original_store
 
     def configure(self, **overrides):
