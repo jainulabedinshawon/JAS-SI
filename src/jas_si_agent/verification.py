@@ -4,8 +4,9 @@
 This module evaluates reported outcomes against separately supplied
 evidence. It does not collect evidence or execute actions.
 
-A VERIFIED result means the supplied evidence meets this module's
-checks; it does not prove that the evidence source is trustworthy.
+This module accepts caller-supplied evidence only as untrusted input.
+A caller-controlled independence flag is not provenance. No evidence
+can produce a VERIFIED status until a trusted collector is integrated.
 """
 
 from __future__ import annotations
@@ -94,35 +95,14 @@ def verify_report(
     if not evidence.evidence_ref.strip():
         return inconclusive("EVIDENCE_REFERENCE_MISSING")
 
-    if evidence.collected_independently is not True:
-        return inconclusive("INDEPENDENCE_NOT_ESTABLISHED")
+    if not isinstance(evidence.observed_state, str):
+        return inconclusive("INVALID_OBSERVED_STATE")
 
-    if evidence.observed_state == "success":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED_SUCCESS,
-                reason="REPORT_MATCHES_SUCCESS_EVIDENCE",
-                action_id=action_id,
-            )
+    if evidence.observed_state not in {"success", "failure"}:
+        return inconclusive("UNKNOWN_OBSERVED_STATE")
 
-        return VerificationResult(
-            status=VerificationStatus.CONTRADICTED_REPORT,
-            reason="EVIDENCE_SHOWS_SUCCESS_BUT_REPORT_DOES_NOT",
-            action_id=action_id,
-        )
-
-    if evidence.observed_state == "failure":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.FALSE_SUCCESS,
-                reason="REPORT_CLAIMS_SUCCESS_BUT_EVIDENCE_SHOWS_FAILURE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.VERIFIED_FAILURE,
-            reason="REPORT_MATCHES_FAILURE_EVIDENCE",
-            action_id=action_id,
-        )
-
-    return inconclusive("UNKNOWN_OBSERVED_STATE")
+    # This SDK runs in the caller's process. A caller-controlled Boolean
+    # cannot establish evidence provenance, even when set to True. Until a
+    # trusted server-side collector supplies authenticated provenance, all
+    # caller-supplied evidence remains untrusted and must fail closed.
+    return inconclusive("UNTRUSTED_EVIDENCE_SOURCE")

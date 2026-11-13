@@ -87,7 +87,7 @@ class TestJASSI(unittest.TestCase):
         )
         self.assertEqual(result.reason, "EVIDENCE_MISSING")
 
-    def test_independent_failure_evidence_detects_false_success(self):
+    def test_caller_asserted_independent_failure_is_untrusted(self):
         result = self.jas.verify(
             ActionReport(
                 action_id="action-006",
@@ -103,8 +103,9 @@ class TestJASSI(unittest.TestCase):
 
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
     def test_non_independent_evidence_is_inconclusive(self):
         result = self.jas.verify(
@@ -126,7 +127,7 @@ class TestJASSI(unittest.TestCase):
         )
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "UNTRUSTED_EVIDENCE_SOURCE",
         )
 
     def test_invalid_gate_type_is_rejected(self):

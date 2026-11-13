@@ -41,17 +41,18 @@ class TestIndependentVerification(unittest.TestCase):
             collected_independently=independent,
         )
 
-    def test_matching_success_is_verified(self) -> None:
+    def test_caller_claimed_independence_cannot_verify_success(self) -> None:
         result = verify_report(
             self.report(True),
             self.evidence("success"),
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
-    def test_claimed_success_with_failure_evidence_is_false_success(
+    def test_claimed_success_with_failure_evidence_is_untrusted(
         self,
     ) -> None:
         result = verify_report(
@@ -60,10 +61,11 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
-    def test_reported_failure_with_success_evidence_is_contradicted(
+    def test_reported_failure_with_success_evidence_is_untrusted(
         self,
     ) -> None:
         result = verify_report(
@@ -72,18 +74,20 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.CONTRADICTED_REPORT,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
-    def test_matching_failure_is_verified(self) -> None:
+    def test_matching_failure_is_untrusted(self) -> None:
         result = verify_report(
             self.report(False),
             self.evidence("failure"),
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_FAILURE,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
     def test_missing_evidence_is_inconclusive(self) -> None:
         result = verify_report(self.report(), None)
@@ -118,7 +122,7 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "UNTRUSTED_EVIDENCE_SOURCE",
         )
 
     def test_missing_evidence_reference_is_inconclusive(self) -> None:
