@@ -470,7 +470,9 @@ async def security_and_rate_limit_middleware(
     """Add a server-generated request ID, security headers, and rate limits."""
     request.state.request_id = uuid.uuid4().hex
 
-    if request.url.path.startswith("/v1/"):
+    # Customer identity routes use their own dedicated PostgreSQL abuse limiter;
+    # the general developer API limiter applies to the non-customer /v1 surface.
+    if request.url.path.startswith("/v1/") and not request.url.path.startswith("/v1/customer/"):
         response = None
         try:
             client_ip = _api_client_ip(request)
