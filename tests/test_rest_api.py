@@ -18,6 +18,10 @@ TEST_API_KEY = "test-only-jas-si-api-key"
 
 class TestJASSIRestAPI(unittest.TestCase):
     def setUp(self):
+        self.original_api_limiter = getattr(api.app.state, "api_rate_limiter", None)
+        if hasattr(api.app.state, "api_rate_limiter"):
+            delattr(api.app.state, "api_rate_limiter")
+        self.addCleanup(self._restore_api_limiter)
         self.audit_temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.audit_temp_dir.cleanup)
 
@@ -110,6 +114,13 @@ class TestJASSIRestAPI(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 503)
         self.assertIn("temporarily unavailable", response.json()["detail"])
+
+    def _restore_api_limiter(self):
+        if self.original_api_limiter is None:
+            if hasattr(api.app.state, "api_rate_limiter"):
+                delattr(api.app.state, "api_rate_limiter")
+        else:
+            api.app.state.api_rate_limiter = self.original_api_limiter
 
     def test_health_endpoint_is_public(self):
         response = self.client.get("/health")
