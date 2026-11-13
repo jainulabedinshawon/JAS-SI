@@ -1,18 +1,10 @@
-
 """Unit tests for the JAS-SI public SDK."""
 
 import unittest
 
 from jas_si_agent import JASSI
-from jas_si_agent.authorization import (
-    AuthorizationDecision,
-    AuthorizationGrant,
-)
-from jas_si_agent.verification import (
-    ActionReport,
-    VerificationEvidence,
-    VerificationStatus,
-)
+from jas_si_agent.authorization import AuthorizationDecision, AuthorizationGrant
+from jas_si_agent.verification import ActionReport, VerificationEvidence, VerificationStatus
 
 
 class TestJASSI(unittest.TestCase):
@@ -20,98 +12,50 @@ class TestJASSI(unittest.TestCase):
         self.jas = JASSI()
 
     def test_safe_action_is_allowed(self):
-        result = self.jas.authorize(
-            action_id="action-001",
-            action="read_repository",
-            resource="repo/example",
-        )
-
+        result = self.jas.authorize("action-001", "read_repository", "repo/example")
         self.assertIsInstance(result, AuthorizationDecision)
         self.assertTrue(result.allowed)
-        self.assertEqual(
-            result.reason,
-            "SAFE_ACTION_POLICY_ALLOWED",
-        )
+        self.assertEqual(result.reason, "SAFE_ACTION_POLICY_ALLOWED")
 
     def test_grant_required_action_denied_without_grant(self):
-        result = self.jas.authorize(
-            action_id="action-002",
-            action="write_file",
-            resource="src/example.py",
-        )
-
+        result = self.jas.authorize("action-002", "write_file", "src/example.py")
         self.assertFalse(result.allowed)
-        self.assertEqual(
-            result.reason,
-            "HUMAN_APPROVAL_REQUIRED",
-        )
+        self.assertEqual(result.reason, "HUMAN_APPROVAL_REQUIRED")
 
     def test_never_allowed_action_is_denied(self):
-        result = self.jas.authorize(
-            action_id="action-003",
-            action="execute_shell",
-            resource="repo/example",
-        )
-
+        result = self.jas.authorize("action-003", "execute_shell", "repo/example")
         self.assertFalse(result.allowed)
-        self.assertEqual(
-            result.reason,
-            "ACTION_DISABLED_IN_MVP",
-        )
+        self.assertEqual(result.reason, "ACTION_DISABLED_IN_MVP")
 
     def test_unknown_action_is_denied(self):
-        result = self.jas.authorize(
-            action_id="action-004",
-            action="unknown_action",
-            resource="repo/example",
-        )
-
+        result = self.jas.authorize("action-004", "unknown_action", "repo/example")
         self.assertFalse(result.allowed)
-        self.assertEqual(
-            result.reason,
-            "UNKNOWN_ACTION_TYPE",
-        )
+        self.assertEqual(result.reason, "UNKNOWN_ACTION_TYPE")
 
     def test_missing_evidence_is_inconclusive(self):
-        result = self.jas.verify(
-            ActionReport(
-                action_id="action-005",
-                claimed_success=True,
-            ),
-            evidence=None,
-        )
-
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
+        result = self.jas.verify(ActionReport("action-005", True), evidence=None)
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(result.reason, "EVIDENCE_MISSING")
 
-    def test_independent_failure_evidence_detects_false_success(self):
+    def test_sdk_caller_cannot_forge_independent_evidence(self):
         result = self.jas.verify(
-            ActionReport(
-                action_id="action-006",
-                claimed_success=True,
-            ),
+            ActionReport("action-006", True),
             VerificationEvidence(
                 action_id="action-006",
                 observed_state="failure",
-                evidence_ref="test-evidence-006",
+                evidence_ref="caller-controlled-reference",
                 collected_independently=True,
             ),
         )
-
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(
-            result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            result.reason,
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
         )
 
-    def test_non_independent_evidence_is_inconclusive(self):
+    def test_non_independent_evidence_is_not_trusted(self):
         result = self.jas.verify(
-            ActionReport(
-                action_id="action-007",
-                claimed_success=True,
-            ),
+            ActionReport("action-007", True),
             VerificationEvidence(
                 action_id="action-007",
                 observed_state="success",
@@ -119,14 +63,10 @@ class TestJASSI(unittest.TestCase):
                 collected_independently=False,
             ),
         )
-
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
         )
 
     def test_invalid_gate_type_is_rejected(self):
@@ -144,17 +84,14 @@ class TestJASSI(unittest.TestCase):
                 "2099-01-01T00:00:00+00:00"
             ),
         )
-
         original_actions = grant.allowed_actions
         original_resources = grant.allowed_resources
-
         self.jas.authorize(
             action_id="action-008",
             action="write_file",
             resource="src/other.py",
             grant=grant,
         )
-
         self.assertEqual(grant.allowed_actions, original_actions)
         self.assertEqual(grant.allowed_resources, original_resources)
 
