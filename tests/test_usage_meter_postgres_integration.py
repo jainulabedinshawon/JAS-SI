@@ -285,6 +285,62 @@ class TestPostgresUsageMeter(unittest.TestCase):
         self.assertEqual(seen, {"history-a1", "history-a2"})
         self.assertNotIn("history-b1", seen)
 
+    def test_authenticated_usage_history_routine_is_tenant_scoped_and_keyset_paginated(self):
+        event_time = datetime.now(timezone.utc)
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                for tenant_id, key_id, request_id in (
+                    (self.tenant_a, self.key_a, "authenticated-history-a1"),
+                    (self.tenant_a, self.key_a, "authenticated-history-a2"),
+                    (self.tenant_b, self.key_b, "authenticated-history-b1"),
+                ):
+                    cur.execute(
+                        """INSERT INTO jas_si_usage_events
+                           (event_id, tenant_id, api_key_id, request_id, idempotency_key,
+                            operation, units, occurred_at, request_fingerprint)
+                           VALUES (%s,%s,%s,%s,%s,'authorization.evaluate',1,%s,%s)""",
+                        (uuid.uuid4(), tenant_id, key_id, request_id, request_id,
+                         event_time, hashlib.sha256(request_id.encode()).hexdigest()),
+                    )
+
+        # Exercise the SECURITY DEFINER routine as the real application role,
+        # rather than the legacy direct-query meter.events(tenant_id=...) path.
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET ROLE jas_si_runtime")
+                cur.execute(
+                    """SELECT event_id,request_id,operation,units,occurred_at
+                       FROM public.jas_si_api_key_usage_events(
+                         %s,%s,'usage:read',1,NULL,NULL)""",
+                    (self.key_a, b"x" * 32),
+                )
+                first_page = cur.fetchall()
+                self.assertEqual(len(first_page), 2)  # page size + one look-ahead row
+                self.assertEqual(first_page[0][1].startswith("authenticated-history-a"), True)
+                cursor_time, cursor_id = first_page[0][4], first_page[0][0]
+
+                cur.execute(
+                    """SELECT event_id,request_id,operation,units,occurred_at
+                       FROM public.jas_si_api_key_usage_events(
+                         %s,%s,'usage:read',1,%s,%s)""",
+                    (self.key_a, b"x" * 32, cursor_time, cursor_id),
+                )
+                second_page = cur.fetchall()
+                self.assertEqual(len(second_page), 1)
+                self.assertEqual(second_page[0][1].startswith("authenticated-history-a"), True)
+                self.assertNotEqual(first_page[0][1], second_page[0][1])
+                self.assertNotIn("authenticated-history-b1", {
+                    row[1] for row in first_page + second_page
+                })
+
+                with self.assertRaises(psycopg.Error):
+                    cur.execute(
+                        """SELECT * FROM public.jas_si_api_key_usage_events(
+                             %s,%s,'usage:read',10,NULL,NULL)""",
+                        (self.key_c, b"x" * 32),
+                    )
+                conn.rollback()
+
     def test_usage_history_rejects_invalid_cursor_and_limit(self):
         with self.assertRaises(ValueError):
             self.meter.events(tenant_id=str(self.tenant_a), limit=0)
