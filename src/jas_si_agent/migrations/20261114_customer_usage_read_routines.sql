@@ -20,6 +20,14 @@ $body$;
 
 GRANT SELECT (tenant_id,event_id,request_id,operation,units,occurred_at)
     ON public.jas_si_usage_events TO jas_si_customer_identity_owner;
+-- Usage read routines also validate tenant suspension; keep this grant column-scoped.
+GRANT SELECT (tenant_id, status) ON TABLE public.jas_si_tenants
+    TO jas_si_customer_identity_owner;
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity_owner_status
+    ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity_owner_status
+    ON public.jas_si_tenants FOR SELECT
+    TO jas_si_customer_identity_owner USING (true);
 
 GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 SET LOCAL ROLE jas_si_customer_identity_owner;
