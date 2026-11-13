@@ -546,7 +546,13 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         self.addCleanup(meter_patch.stop)
         with api._rate_limit_lock:
             api._rate_limit_buckets.clear()
-        return TestClient(api.app)
+        # These integration tests set the API environment to Preview. Simulate
+        # the trusted client-IP header injected by the Vercel edge so requests
+        # exercise authentication instead of failing the deployed-proxy guard.
+        return TestClient(
+            api.app,
+            headers={"x-vercel-forwarded-for": "203.0.113.10"},
+        )
 
     def test_real_registry_missing_key_returns_401(self):
         self._tenant()
