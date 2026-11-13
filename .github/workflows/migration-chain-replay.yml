@@ -1,0 +1,144 @@
+name: JAS-SI Clean Migration Chain Replay
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "src/jas_si_agent/migrations/**"
+      - ".github/workflows/migration-chain-replay.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-migration-chain-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clean-postgres-replay:
+    name: PostgreSQL 16 clean replay and idempotency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: jas_si_migration_replay
+          POSTGRES_USER: jas_si
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jas_si -d jas_si_migration_replay"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JAS_SI_MIGRATION_REPLAY_DATABASE_URL: postgresql://jas_si:test-only-password@localhost:5432/jas_si_migration_replay
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.10
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.10"
+          cache: ""
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.lock.txt
+      - name: Replay every migration twice on a clean database
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import psycopg
+
+          root = Path.cwd()
+          migration_dir = root / "src" / "jas_si_agent" / "migrations"
+          migrations = (
+              "001_create_audit_tables.sql",
+              "002_create_tenant_api_keys.sql",
+              "003_atomic_api_key_provisioning.sql",
+              "004_audit_event_id_identity.sql",
+              "005_provisioner_tenant_row_lock.sql",
+              "006_api_key_registry_role_grants.sql",
+              "007_customer_api_key_self_service.sql",
+              "20261110_customer_identity.sql",
+              "20261110_customer_rate_limits.sql",
+              "20261110_usage_metering.sql",
+              "20261110_usage_idempotency_fingerprint.sql",
+              "20261111_usage_append_only_role_grants.sql",
+              "20261112_customer_identity_routines.sql",
+              "20261113_customer_api_key_routines.sql",
+              "20261114_customer_usage_read_routines.sql",
+              "20261115_api_key_auth_boundary.sql",
+              "20261116_api_key_bound_usage_routines.sql",
+              "20261117_runtime_usage_routine_only.sql",
+              "20261118_shared_api_rate_limits.sql",
+          )
+
+          dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
+          with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+              # These two core service roles are platform bootstrap inputs,
+              # not customer migrations. Create them explicitly on the empty DB.
+              for role in ("jas_si_runtime", "jas_si_provisioner"):
+                  cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
+                  if cur.fetchone() is None:
+                      cur.execute(
+                          f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                          "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                      )
+
+              for replay in (1, 2):
+                  for name in migrations:
+                      path = migration_dir / name
+                      if not path.is_file():
+                          raise SystemExit(f"Missing migration in canonical replay order: {name}")
+                      cur.execute(path.read_text(encoding="utf-8"))
+                  print(f"Migration pass {replay}: {len(migrations)} files applied")
+
+              cur.execute("""
+                  SELECT
+                    pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_usage_events','SELECT')
+                    OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_usage_events','INSERT')
+                    OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_usage_events','UPDATE')
+                    OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_usage_events','DELETE')
+                    OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_usage_events','TRUNCATE')
+                    OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','SELECT')
+                    OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','INSERT')
+                    OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','UPDATE')
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("jas_si_runtime regained direct usage-event table/column access")
+
+              cur.execute("""
+                  SELECT count(*),
+                         pg_catalog.bool_and(p.prosecdef),
+                         pg_catalog.bool_and(NOT r.rolcanlogin AND NOT r.rolsuper
+                           AND NOT r.rolcreatedb AND NOT r.rolcreaterole
+                           AND NOT r.rolreplication AND NOT r.rolbypassrls),
+                         pg_catalog.bool_and('search_path=pg_catalog'=ANY(p.proconfig)),
+                         pg_catalog.bool_and(NOT pg_catalog.has_function_privilege('public',p.oid,'EXECUTE'))
+                    FROM pg_catalog.pg_proc p
+                    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                    JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+                   WHERE n.nspname='public'
+                     AND (p.proname LIKE 'customer_%'
+                       OR p.proname LIKE 'jas_si_api_key_%'
+                       OR p.proname='jas_si_api_rate_limit_check')
+              """)
+              count, secure_definer, safe_owner, fixed_path, no_public = cur.fetchone()
+              if not count or not all((secure_definer, safe_owner, fixed_path, no_public)):
+                  raise SystemExit(
+                      "Customer/API-key/usage routine security assertion failed: "
+                      f"count={count}, security_definer={secure_definer}, "
+                      f"safe_owner={safe_owner}, fixed_path={fixed_path}, "
+                      f"no_public_execute={no_public}"
+                  )
+              print(f"Verified {count} SECURITY DEFINER routines and runtime usage-table isolation")
+          PY
