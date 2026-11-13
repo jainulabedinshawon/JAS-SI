@@ -326,6 +326,39 @@ class PostgresUsageMeter:
                        WHERE rolname='jas_si_api_key_usage_owner')
                  )
           )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','SELECT'
+          )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','INSERT'
+          )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','UPDATE'
+          )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','DELETE'
+          )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','TRUNCATE'
+          )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','REFERENCES'
+          )
+          AND NOT pg_catalog.has_table_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','TRIGGER'
+          )
+          AND NOT pg_catalog.has_any_column_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','SELECT'
+          )
+          AND NOT pg_catalog.has_any_column_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','INSERT'
+          )
+          AND NOT pg_catalog.has_any_column_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','UPDATE'
+          )
+          AND NOT pg_catalog.has_any_column_privilege(
+              'jas_si_runtime','public.jas_si_usage_events','REFERENCES'
+          )
           AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.pg_class c
