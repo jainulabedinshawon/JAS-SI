@@ -168,7 +168,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         key_a = self.registry.customer_issue_key(session_a, "alpha", ["usage:read"])
         self.registry.customer_issue_key(session_b, "beta", ["usage:read"])
         session_a_digest = self.registry._customer_session_digest(session_a)
-        tenant_b = self.identity.authenticate_session(session_b).account.tenant_id
+        tenant_b = self.identity.authenticate_session(session_b).tenant_id
 
         # The hostile custom GUC and the SECURITY DEFINER call must share the
         # exact same connection/transaction. A wrapper call on a fresh
