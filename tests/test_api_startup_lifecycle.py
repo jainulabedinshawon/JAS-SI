@@ -15,8 +15,11 @@ from jas_si_agent import api
 class TestAPIStartupLifecycle(unittest.TestCase):
     def setUp(self):
         self.original_store = api.app.state.security_event_store
+        self.rate_limiter_patcher = patch.object(api, "PostgresApiRateLimiter")
+        self.rate_limiter_patcher.start()
 
     def tearDown(self):
+        self.rate_limiter_patcher.stop()
         api.app.state.security_event_store = self.original_store
 
     def configure(self, **overrides):
@@ -26,6 +29,7 @@ class TestAPIStartupLifecycle(unittest.TestCase):
             "api_key": "lifecycle-test-key",
             "api_key_pepper": b"lifecycle-test-pepper-at-least-32-bytes",
             "database_url": "postgresql://test:test@localhost/test",
+            "api_rate_limit_pepper": b"api-rate-limit-test-pepper-at-least-32-bytes",
         }
         values.update(overrides)
         return replace(api.settings, **values)
