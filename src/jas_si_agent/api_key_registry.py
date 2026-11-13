@@ -146,7 +146,10 @@ class PostgresApiKeyRegistry:
                      owner.rolinherit,
                      EXISTS (
                          SELECT 1 FROM pg_catalog.pg_auth_members membership
-                         WHERE membership.member=owner.oid OR membership.roleid=owner.oid
+                         JOIN pg_catalog.pg_roles platform_member ON platform_member.oid=membership.member
+                         WHERE membership.member=owner.oid OR (membership.roleid=owner.oid AND NOT (
+                             platform_member.rolname='neondb_owner' AND membership.admin_option
+                             AND NOT membership.inherit_option AND NOT membership.set_option))
                      ),
                      (
                          has_table_privilege('jas_si_runtime', 'public.jas_si_api_keys', 'SELECT')
