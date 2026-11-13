@@ -118,6 +118,8 @@ def initialize_security_event_store() -> None:
         raise RuntimeError("Preview/production requires JAS_SI_API_KEY_PEPPER")
     if not settings.database_url:
         raise RuntimeError("Preview/production requires JAS_SI_DATABASE_URL")
+    if not settings.api_rate_limit_pepper:
+        raise RuntimeError("Preview/production requires JAS_SI_API_RATE_LIMIT_PEPPER")
 
     store = PostgresSecurityEventStore(settings.database_url)
     try:
@@ -156,24 +158,21 @@ def initialize_security_event_store() -> None:
         raise RuntimeError(
             "API-key usage readiness check failed; startup denied"
         ) from exc
-    api_rate_limiter = None
-    if settings.api_rate_limit_pepper:
-        try:
-            api_rate_limiter = PostgresApiRateLimiter(
-                settings.database_url,
-                settings.api_rate_limit_pepper,
-            )
-            if not api_rate_limiter.verify_schema():
-                raise RuntimeError("Shared API rate-limit database boundary is not ready")
-        except Exception as exc:
-            raise RuntimeError(
-                "Shared API rate-limit readiness check failed; startup denied"
-            ) from exc
+    try:
+        api_rate_limiter = PostgresApiRateLimiter(
+            settings.database_url,
+            settings.api_rate_limit_pepper,
+        )
+        if not api_rate_limiter.verify_schema():
+            raise RuntimeError("Shared API rate-limit database boundary is not ready")
+    except Exception as exc:
+        raise RuntimeError(
+            "Shared API rate-limit readiness check failed; startup denied"
+        ) from exc
 
     app.state.security_event_store = store
     app.state.usage_meter = usage_meter
-    if api_rate_limiter is not None:
-        app.state.api_rate_limiter = api_rate_limiter
+    app.state.api_rate_limiter = api_rate_limiter
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
