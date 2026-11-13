@@ -53,6 +53,64 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.client = TestClient(api.app)
         self.valid_headers = {"X-API-Key": TEST_API_KEY}
 
+    def test_preview_api_rate_limit_uses_trusted_vercel_client_ip(self):
+        class SharedLimiter:
+            def __init__(self):
+                self.calls = []
+
+            def check(self, client_ip, *, limit, window_seconds):
+                self.calls.append((client_ip, limit, window_seconds))
+                return True, limit - 1, 0
+
+        limiter = SharedLimiter()
+        with patch.object(
+            api, "settings",
+            replace(api.settings, environment="preview", rate_limit_requests=7),
+        ), patch.object(api, "_get_api_rate_limiter", return_value=limiter):
+            response = self.client.post(
+                "/v1/verify",
+                headers={
+                    **self.valid_headers,
+                    "X-Vercel-Forwarded-For": "198.51.100.77",
+                },
+                json={},
+            )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(limiter.calls, [("198.51.100.77", 7, 60)])
+
+    def test_preview_api_rate_limit_fails_closed_without_trusted_proxy_ip(self):
+        with patch.object(
+            api, "settings",
+            replace(api.settings, environment="preview"),
+        ), patch.object(api, "_get_api_rate_limiter") as limiter:
+            response = self.client.post(
+                "/v1/verify",
+                headers=self.valid_headers,
+                json={},
+            )
+        self.assertEqual(response.status_code, 503)
+        limiter.assert_not_called()
+
+    def test_shared_api_rate_limit_database_failure_returns_503(self):
+        class BrokenLimiter:
+            def check(self, *args, **kwargs):
+                raise RuntimeError("database unavailable")
+
+        with patch.object(
+            api, "settings",
+            replace(api.settings, environment="preview"),
+        ), patch.object(api, "_get_api_rate_limiter", return_value=BrokenLimiter()):
+            response = self.client.post(
+                "/v1/verify",
+                headers={
+                    **self.valid_headers,
+                    "X-Vercel-Forwarded-For": "198.51.100.78",
+                },
+                json={},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("temporarily unavailable", response.json()["detail"])
+
     def test_health_endpoint_is_public(self):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
