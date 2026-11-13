@@ -21,6 +21,9 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 
 
 class FakeQuotaMeter:
+    def events_authenticated(self, **query):
+        return {"items": [], "next_cursor": None}
+
     def record_authenticated(self, **event):
         return {
             "event_id": "00000000-0000-0000-0000-000000000099",
@@ -117,6 +120,29 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
                 json={"action_id": "pilot-1", "claimed_success": True},
             )
         self.assertEqual(response.status_code, 403)
+
+    def test_usage_history_requires_usage_read_scope(self):
+        with patch.object(api, "PostgresApiKeyRegistry") as registry:
+            registry.return_value.authenticate.return_value = self._auth_result(
+                ["authorization:check"]
+            )
+            response = self.client.get(
+                "/v1/usage/events",
+                headers={"X-API-Key": self.token},
+            )
+        self.assertEqual(response.status_code, 403)
+
+    def test_usage_history_accepts_usage_read_scope(self):
+        with patch.object(api, "PostgresApiKeyRegistry") as registry:
+            registry.return_value.authenticate.return_value = self._auth_result(
+                ["usage:read"]
+            )
+            response = self.client.get(
+                "/v1/usage/events?limit=20",
+                headers={"X-API-Key": self.token},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"items": [], "next_cursor": None})
 
     def test_valid_scoped_key_keeps_candidate_digest_request_local(self):
         with (
