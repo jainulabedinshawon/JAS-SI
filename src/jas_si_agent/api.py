@@ -253,7 +253,13 @@ class VerifyRequest(BaseModel):
         default=None,
         max_length=2048,
     )
-    collected_independently: bool = False
+    collected_independently: bool = Field(
+        default=False,
+        description=(
+            "Non-authoritative caller claim. Ignored for trust decisions; "
+            "only an authenticated server-side collector can establish provenance."
+        ),
+    )
 
 
 def _rate_limit_decision(client_ip: str):

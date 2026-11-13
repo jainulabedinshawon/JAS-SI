@@ -48,8 +48,9 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
     def test_claimed_success_with_failure_evidence_is_false_success(
         self,
@@ -60,8 +61,9 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
     def test_reported_failure_with_success_evidence_is_contradicted(
         self,
@@ -72,8 +74,9 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.CONTRADICTED_REPORT,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
     def test_matching_failure_is_verified(self) -> None:
         result = verify_report(
@@ -82,8 +85,9 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_FAILURE,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
     def test_missing_evidence_is_inconclusive(self) -> None:
         result = verify_report(self.report(), None)
@@ -118,7 +122,7 @@ class TestIndependentVerification(unittest.TestCase):
         )
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
         )
 
     def test_missing_evidence_reference_is_inconclusive(self) -> None:
