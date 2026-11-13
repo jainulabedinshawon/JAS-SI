@@ -150,7 +150,7 @@ class PostgresApiKeyRegistry:
                          JOIN pg_catalog.pg_roles membership_grantor ON membership_grantor.oid=membership.grantor
                          WHERE membership.member=owner.oid OR (membership.roleid=owner.oid AND NOT (
                              ((platform_member.rolname='neondb_owner' AND NOT membership.admin_option
-                             AND NOT membership.inherit_option AND membership.set_option) OR (platform_member.rolname='neondb_owner' AND membership_grantor.rolname='cloud_admin'
+                             AND NOT membership.inherit_option AND membership.set_option) OR (platform_member.rolname='neondb_owner' AND membership_grantor.rolname='neondb_owner' AND membership_grantor.rolname='cloud_admin'
                              AND membership.admin_option AND NOT membership.inherit_option AND NOT membership.set_option))))
                      ),
                      (
