@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import importlib.util
@@ -43,9 +42,7 @@ class P10HeldoutVFLTests(unittest.TestCase):
     def test_all_feedback_is_verified(self):
         for seed in self.fixture["seeds"]:
             with self.subTest(seed=seed["seed"]):
-                self.assertIs(
-                    seed["verified_failure_feedback"], True
-                )
+                self.assertIs(seed["verified_failure_feedback"], True)
 
     def test_false_success_rate_uses_correct_denominator(self):
         self.assertAlmostEqual(
@@ -80,6 +77,42 @@ class P10HeldoutVFLTests(unittest.TestCase):
                 self.assertNotEqual(
                     seed["training_evidence_id"],
                     seed["heldout_evidence_id"],
+                )
+
+    def test_release_gate_requires_practical_threshold(self):
+        valid = {
+            "all_feedback_verified": True,
+            "training_heldout_evidence_overlap_count": 0,
+            "seed_count": 10,
+            "required_seed_count": 10,
+            "practical_threshold_met": True,
+        }
+        self.assertTrue(p10_runner.release_gate_passed(valid))
+
+        below_threshold = dict(valid, practical_threshold_met=False)
+        self.assertFalse(p10_runner.release_gate_passed(below_threshold))
+
+        missing_threshold = dict(valid)
+        missing_threshold.pop("practical_threshold_met")
+        self.assertFalse(p10_runner.release_gate_passed(missing_threshold))
+
+    def test_release_gate_requires_every_integrity_condition(self):
+        valid = {
+            "all_feedback_verified": True,
+            "training_heldout_evidence_overlap_count": 0,
+            "seed_count": 10,
+            "required_seed_count": 10,
+            "practical_threshold_met": True,
+        }
+        for key, value in (
+            ("all_feedback_verified", False),
+            ("training_heldout_evidence_overlap_count", 1),
+            ("seed_count", 9),
+            ("required_seed_count", 9),
+        ):
+            with self.subTest(field=key):
+                self.assertFalse(
+                    p10_runner.release_gate_passed(dict(valid, **{key: value}))
                 )
 
 
