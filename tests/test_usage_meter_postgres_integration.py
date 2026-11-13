@@ -341,6 +341,41 @@ class TestPostgresUsageMeter(unittest.TestCase):
                     )
                 conn.rollback()
 
+    def test_authenticated_usage_history_rejects_revoked_expired_and_suspended_access(self):
+        def assert_history_denied(key_id):
+            with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+                cur.execute("SET ROLE jas_si_runtime")
+                with self.assertRaises(psycopg.Error):
+                    cur.execute(
+                        """SELECT * FROM public.jas_si_api_key_usage_events(
+                             %s,%s,'usage:read',10,NULL,NULL)""",
+                        (key_id, b"x" * 32),
+                    )
+
+        # A revoked API key must stop working even when its digest and scope match.
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jas_si_api_keys SET status='revoked' WHERE key_id=%s",
+                (self.key_a,),
+            )
+        assert_history_denied(self.key_a)
+
+        # An otherwise active key must not remain usable after its expiry.
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jas_si_api_keys SET expires_at=clock_timestamp()-interval '1 second' WHERE key_id=%s",
+                (self.key_b,),
+            )
+        assert_history_denied(self.key_b)
+
+        # A valid key cannot read usage after its owning tenant is suspended.
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (self.tenant_b,),
+            )
+        assert_history_denied(self.key_b)
+
     def test_usage_history_rejects_invalid_cursor_and_limit(self):
         with self.assertRaises(ValueError):
             self.meter.events(tenant_id=str(self.tenant_a), limit=0)
