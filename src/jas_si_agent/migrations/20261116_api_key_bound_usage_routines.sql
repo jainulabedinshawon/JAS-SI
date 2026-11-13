@@ -268,6 +268,8 @@ END;
 $function$;
 
 GRANT CREATE ON SCHEMA public TO jas_si_api_key_usage_owner;
+GRANT CREATE ON SCHEMA public TO jas_si_api_key_usage_owner;
+
 ALTER FUNCTION public.jas_si_api_key_usage_reserve(uuid,bytea,text,text,text,text,text,bigint,bigint)
     OWNER TO jas_si_api_key_usage_owner;
 ALTER FUNCTION public.jas_si_api_key_usage_quota(uuid,bytea,text,bigint)
@@ -276,6 +278,7 @@ ALTER FUNCTION public.jas_si_api_key_usage_summary(uuid,bytea,text,timestamptz)
     OWNER TO jas_si_api_key_usage_owner;
 ALTER FUNCTION public.jas_si_api_key_usage_events(uuid,bytea,text,integer,timestamptz,uuid)
     OWNER TO jas_si_api_key_usage_owner;
+REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_usage_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_usage_owner;
 
 REVOKE ALL ON FUNCTION public.jas_si_api_key_usage_reserve(uuid,bytea,text,text,text,text,text,bigint,bigint) FROM PUBLIC,jas_si_runtime;
