@@ -82,6 +82,27 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(limiter.calls, [("198.51.100.77", 7, 60)])
 
+    def test_customer_routes_also_use_shared_ingress_rate_limit(self):
+        class SharedLimiter:
+            def __init__(self):
+                self.calls = []
+
+            def check(self, client_ip, *, limit, window_seconds):
+                self.calls.append((client_ip, limit, window_seconds))
+                return True, limit - 1, 0
+
+        limiter = SharedLimiter()
+        with patch.object(
+            api, "settings",
+            replace(api.settings, environment="preview", rate_limit_requests=9),
+        ), patch.object(api, "_get_api_rate_limiter", return_value=limiter):
+            response = self.client.get(
+                "/v1/customer/me",
+                headers={"X-Vercel-Forwarded-For": "198.51.100.79"},
+            )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(limiter.calls, [("198.51.100.79", 9, 60)])
+
     def test_preview_api_rate_limit_fails_closed_without_trusted_proxy_ip(self):
         with patch.object(
             api, "settings",
