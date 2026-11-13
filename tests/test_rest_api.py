@@ -160,7 +160,7 @@ class TestJASSIRestAPI(unittest.TestCase):
         )
         self.assertEqual(
             data["reason"],
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "UNTRUSTED_EVIDENCE_SOURCE",
         )
         self.assertEqual(
             data["evidence_origin"],
