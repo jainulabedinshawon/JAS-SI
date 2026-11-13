@@ -131,6 +131,14 @@ class TestPostgresApiRateLimiter(unittest.TestCase):
                               OR pg_catalog.has_table_privilege(
                                current_user,'public.jas_si_api_rate_limits','INSERT')
                               OR pg_catalog.has_table_privilege(
+                               current_user,'public.jas_si_api_rate_limits','UPDATE')
+                              OR pg_catalog.has_table_privilege(
+                               current_user,'public.jas_si_api_rate_limits','DELETE')
+                              OR pg_catalog.has_table_privilege(
+                               current_user,'public.jas_si_api_rate_limits','TRUNCATE')
+                              OR pg_catalog.has_any_column_privilege(
+                               current_user,'public.jas_si_api_rate_limits','INSERT')
+                              OR pg_catalog.has_any_column_privilege(
                                current_user,'public.jas_si_api_rate_limits','UPDATE')"""
                 )
                 self.assertFalse(cur.fetchone()[0])
