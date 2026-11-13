@@ -270,7 +270,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 """SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
                           rolreplication, rolbypassrls, rolinherit,
                           EXISTS (SELECT 1 FROM pg_auth_members m WHERE
-                                  m.member = r.oid OR m.roleid = r.oid)
+                                  m.member = r.oid OR (m.roleid = r.oid AND NOT EXISTS (
+                                      SELECT 1 FROM pg_catalog.pg_roles platform_member
+                                      WHERE platform_member.oid=m.member
+                                        AND platform_member.rolname='neondb_owner'
+                                        AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)))
                    FROM pg_roles r WHERE rolname='jas_si_customer_identity_owner'"""
             )
             self.assertEqual(cur.fetchone(), (False, False, False, False, False, False, False, False))
