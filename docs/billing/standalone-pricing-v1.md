@@ -1,7 +1,7 @@
 # JAS-SI Standalone Billing and Pricing v1.0
 
 **Status:** Free technical quota and a basic customer portal are implemented on the PR #36 Draft branch; paid billing remains preview-only and has no live checkout or entitlement ledger.  
-**Decision:** JAS-SI owns the Free technical quota policy, metering and public display of plan metadata. JAS Platform is the authoritative owner of all paid entitlements and commercial status. The public JAS-SI catalogue is descriptive metadata only; it must not independently grant, extend, suspend or revoke paid access. A later authenticated adapter will consume Platform-issued entitlement decisions.
+**Decision:** JAS-SI is independently sellable. In standalone mode, JAS-SI owns its commerce integration and paid entitlements; for a tenant explicitly linked to JAS Platform, JAS Platform is the sole commerce authority and JAS-SI consumes authenticated entitlement decisions. The authority is mutually exclusive per tenant. See [ADR-002](ADR-002-standalone-first-international-commerce.md).
 
 ## Product strategy
 
@@ -29,11 +29,12 @@ Paid plan prices must be set only after measuring compute, database, network, su
 ## Next implementation gates
 
 1. Persist tenant plan assignment and billing-period boundaries before enabling any paid tier.
-2. Extend the existing basic customer portal (account, API-key and technical-usage sections) with a read-only tenant-scoped entitlement/plan-status view sourced from the authoritative commerce owner. Invoice, receipt and payment records remain owned by JAS Platform; the current portal is not a complete billing dashboard and does not support checkout.
-3. Keep payment-provider adapter, sandbox checkout, webhook verification and payment reconciliation work in JAS Platform. JAS-SI implements only an authenticated entitlement-consumption adapter; no provider integration or payment state machine belongs in this repository.
-4. Test tenant entitlement changes, quota enforcement, expiry and revocation in JAS-SI. JAS Platform must test payment reconciliation, plan downgrade, refunds and chargebacks before paid checkout.
-5. Publish paid prices only after cost model and unit economics review.
+2. Implement the tenant-scoped commerce-authority interface: standalone JAS-SI or linked JAS Platform, never both.
+3. Define provider-neutral order, event, ledger and entitlement contracts, then deterministic fake-provider tests before any live provider integration.
+4. Select an international Merchant of Record only after business onboarding and Bangladesh payout-route verification. Paddle is the primary candidate; Lemon Squeezy is the fallback (see ADR-002).
+5. Add a sandbox provider adapter, staging-only migration and independent reconciliation tests after credentials are supplied.
+6. Publish USD prices only after cost, tax, FX, payout and unit-economics review.
 
 ## Non-goals
 
-No payment gateway, checkout, subscription charge, refund, invoice, card-data handling, production migration, or JAS Platform integration is enabled by this phase.
+No live payment gateway, checkout, subscription charge, refund, invoice, card-data handling, production migration, or merchant account is enabled by this phase. Sandbox/fake-provider work may proceed only after its contract and security tests are defined.
