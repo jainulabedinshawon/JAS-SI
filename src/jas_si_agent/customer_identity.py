@@ -185,8 +185,10 @@ class PostgresCustomerIdentityStore:
                               SELECT 1 FROM pg_catalog.pg_auth_members AS membership
                               JOIN pg_catalog.pg_roles platform_member ON platform_member.oid = membership.member
                               WHERE membership.member = owner.oid OR (membership.roleid = owner.oid AND NOT (
-                                  platform_member.rolname = 'neondb_owner' AND NOT membership.admin_option
-                                  AND NOT membership.inherit_option AND membership.set_option))
+                                  ((platform_member.rolname = 'neondb_owner' AND NOT membership.admin_option
+                                  AND NOT membership.inherit_option AND membership.set_option)
+                                  OR (platform_member.rolname = 'cloud_admin' AND membership.admin_option
+                                  AND NOT membership.inherit_option AND NOT membership.set_option))))
                           )
                           AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
                           AND has_function_privilege(current_user, procedure.oid, 'EXECUTE')
