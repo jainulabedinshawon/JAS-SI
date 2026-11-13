@@ -100,33 +100,3 @@ def verify_report(
     # trusted server-side collector supplies authenticated provenance, all
     # caller-supplied evidence remains untrusted and must fail closed.
     return inconclusive("UNTRUSTED_EVIDENCE_SOURCE")
-
-    if evidence.observed_state == "success":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED_SUCCESS,
-                reason="REPORT_MATCHES_SUCCESS_EVIDENCE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.CONTRADICTED_REPORT,
-            reason="EVIDENCE_SHOWS_SUCCESS_BUT_REPORT_DOES_NOT",
-            action_id=action_id,
-        )
-
-    if evidence.observed_state == "failure":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.FALSE_SUCCESS,
-                reason="REPORT_CLAIMS_SUCCESS_BUT_EVIDENCE_SHOWS_FAILURE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.VERIFIED_FAILURE,
-            reason="REPORT_MATCHES_FAILURE_EVIDENCE",
-            action_id=action_id,
-        )
-
-    return inconclusive("UNKNOWN_OBSERVED_STATE")
