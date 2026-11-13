@@ -1,14 +1,14 @@
 # JAS-SI Billing Core — Architecture Specification v0.1
 
-**Status:** Proposed architecture; design only.  
+**Status:** Superseded by [ADR-002 — Standalone-first, international commerce ownership](ADR-002-standalone-first-international-commerce.md). Retained as historical v0.1 context; do not implement its JAS Platform-only ownership assumptions.  
 **Target repository:** `jainulabedinshawon/JAS-SI`  
 **Scope:** International and Bangladesh customer billing.  
-**Implementation status:** No payment integration, database migration, provider account, secret, or live payment has been created by this document.
+**Implementation status:** Historical design only. ADR-002 is the current authority for ownership and rollout. No payment integration, provider account, secret, or live payment is activated.
 
 > [!IMPORTANT]
 > ## Binding project-ownership decision
 >
-> This document is a cross-project architecture reference, **not authorization to implement a payment or commerce subsystem inside JAS-SI**. The ownership boundary is:
+> Historical v0.1 decision (superseded by ADR-002): this section recorded the earlier JAS Platform-only ownership boundary. The current approved direction is tenant-scoped standalone JAS-SI commerce with optional JAS Platform-linked authority; see ADR-002.
 >
 > - **JAS Platform owns commerce:** customer billing accounts, product/price catalog, checkout, payment-provider integrations, payment verification, subscriptions, invoices, refunds, disputes, settlement, reconciliation and the authoritative financial ledger.
 > - **JAS-SI owns intelligence-service consumption:** tenant-bound AI usage events, metering dimensions, quota/credit consumption requests, authorization/evidence service entitlements, and a narrow integration contract with JAS Platform.

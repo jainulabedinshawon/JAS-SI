@@ -12,6 +12,8 @@ from typing import Optional
 
 _MIN_HMAC_SECRET_BYTES = 32
 _MIN_API_KEY_PEPPER_BYTES = 32
+_MIN_CUSTOMER_TOKEN_PEPPER_BYTES = 32
+_MIN_API_RATE_LIMIT_PEPPER_BYTES = 32
 
 
 def _read_bool(name: str, default: bool = False) -> bool:
@@ -53,6 +55,26 @@ def _read_optional_api_key_pepper() -> Optional[bytes]:
     pepper = raw.encode("utf-8")
     if len(pepper) < _MIN_API_KEY_PEPPER_BYTES:
         raise ValueError("JAS_SI_API_KEY_PEPPER must contain at least 32 UTF-8 bytes")
+    return pepper
+
+
+def _read_optional_customer_token_pepper() -> Optional[bytes]:
+    raw = os.getenv("JAS_SI_CUSTOMER_TOKEN_PEPPER")
+    if raw is None or raw == "":
+        return None
+    pepper = raw.encode("utf-8")
+    if len(pepper) < _MIN_CUSTOMER_TOKEN_PEPPER_BYTES:
+        raise ValueError("JAS_SI_CUSTOMER_TOKEN_PEPPER must contain at least 32 UTF-8 bytes")
+    return pepper
+
+
+def _read_optional_api_rate_limit_pepper() -> Optional[bytes]:
+    raw = os.getenv("JAS_SI_API_RATE_LIMIT_PEPPER")
+    if raw is None or raw == "":
+        return None
+    pepper = raw.encode("utf-8")
+    if len(pepper) < _MIN_API_RATE_LIMIT_PEPPER_BYTES:
+        raise ValueError("JAS_SI_API_RATE_LIMIT_PEPPER must contain at least 32 UTF-8 bytes")
     return pepper
 
 
@@ -113,13 +135,27 @@ class Settings:
         default=None,
         repr=False,
     )
+    customer_database_url: Optional[str] = field(default=None, repr=False)
+    customer_api_key_database_url: Optional[str] = field(default=None, repr=False)
+    customer_token_pepper: Optional[bytes] = field(default=None, repr=False)
+    api_rate_limit_pepper: Optional[bytes] = field(default=None, repr=False)
+    customer_smtp_host: Optional[str] = None
+    customer_smtp_port: int = 587
+    customer_smtp_username: Optional[str] = field(default=None, repr=False)
+    customer_smtp_password: Optional[str] = field(default=None, repr=False)
+    customer_smtp_sender: Optional[str] = None
+    customer_public_base_url: str = "https://jas-si.vercel.app"
 
     @classmethod
     def from_env(cls) -> "Settings":
-        environment = os.getenv(
-            "JAS_SI_ENVIRONMENT",
-            "development",
-        ).strip().lower()
+        # Respect an explicit application override; otherwise use the
+        # platform-provided Vercel environment. Without this fallback, a
+        # production deployment could accidentally retain development cookie
+        # and trusted-proxy behavior.
+        raw_environment = os.getenv("JAS_SI_ENVIRONMENT")
+        if raw_environment is None:
+            raw_environment = os.getenv("VERCEL_ENV", "development")
+        environment = raw_environment.strip().lower()
 
         if environment not in {
             "development",
@@ -133,6 +169,8 @@ class Settings:
         api_key = raw_api_key if raw_api_key else None
 
         api_key_pepper = _read_optional_api_key_pepper()
+        customer_token_pepper = _read_optional_customer_token_pepper()
+        api_rate_limit_pepper = _read_optional_api_rate_limit_pepper()
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
 
@@ -171,4 +209,20 @@ class Settings:
             database_url=(
                 os.getenv("JAS_SI_DATABASE_URL") or None
             ),
+            customer_database_url=(
+                os.getenv("JAS_SI_CUSTOMER_DATABASE_URL") or None
+            ),
+            customer_api_key_database_url=(
+                os.getenv("JAS_SI_CUSTOMER_API_KEY_DATABASE_URL") or None
+            ),
+            customer_token_pepper=customer_token_pepper,
+            api_rate_limit_pepper=api_rate_limit_pepper,
+            customer_smtp_host=os.getenv("JAS_SI_CUSTOMER_SMTP_HOST") or None,
+            customer_smtp_port=_read_positive_int("JAS_SI_CUSTOMER_SMTP_PORT", 587),
+            customer_smtp_username=os.getenv("JAS_SI_CUSTOMER_SMTP_USERNAME") or None,
+            customer_smtp_password=os.getenv("JAS_SI_CUSTOMER_SMTP_PASSWORD") or None,
+            customer_smtp_sender=os.getenv("JAS_SI_CUSTOMER_SMTP_SENDER") or None,
+            customer_public_base_url=os.getenv(
+                "JAS_SI_CUSTOMER_PUBLIC_URL", "https://jas-si.vercel.app"
+            ).strip(),
         )

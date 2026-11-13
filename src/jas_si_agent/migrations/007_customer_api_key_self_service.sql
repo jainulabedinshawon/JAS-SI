@@ -1,0 +1,80 @@
+-- Dedicated customer API-key self-service role.
+-- RLS filters rows using a transaction-local tenant context derived from the
+-- authenticated customer session by the trusted API. PostgreSQL custom GUCs are
+-- settable by this role, so this is defense-in-depth, not independent tenant
+-- authentication against arbitrary SQL executed with the customer role.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_key_runtime') THEN
+        CREATE ROLE jas_si_customer_key_runtime NOLOGIN;
+    END IF;
+END
+$$;
+
+GRANT USAGE ON SCHEMA public TO jas_si_customer_key_runtime;
+
+-- Clear broad tenant-table write access first, then grant only the inert lock
+-- column needed by the registry's SELECT ... FOR UPDATE operation.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+    ON TABLE public.jas_si_tenants FROM jas_si_customer_key_runtime;
+GRANT SELECT (tenant_id, status)
+    ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+GRANT UPDATE (provisioning_lock_version)
+    ON TABLE public.jas_si_tenants TO jas_si_customer_key_runtime;
+-- Column-level SELECT above is intentional; do not grant table-wide tenant visibility.
+
+-- Tenant metadata reads are scoped to the session-local tenant context too.
+ALTER TABLE public.jas_si_tenants ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS jas_si_tenants_customer_key_scope ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_key_scope ON public.jas_si_tenants
+    FOR ALL TO jas_si_customer_key_runtime
+    USING (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid);
+DROP POLICY IF EXISTS jas_si_tenants_runtime_auth ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_runtime_auth ON public.jas_si_tenants
+    FOR SELECT TO jas_si_runtime USING (true);
+DROP POLICY IF EXISTS jas_si_tenants_provisioner ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_provisioner ON public.jas_si_tenants
+    FOR ALL TO jas_si_provisioner USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity ON public.jas_si_tenants;
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity_insert ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity_insert ON public.jas_si_tenants
+    FOR INSERT TO jas_si_customer_runtime WITH CHECK (true);
+
+GRANT SELECT (key_id, tenant_id, key_name, key_prefix, scopes, status, created_at, expires_at, last_used_at, revoked_at)
+    ON TABLE public.jas_si_api_keys TO jas_si_customer_key_runtime;
+GRANT INSERT (key_id, tenant_id, key_name, key_prefix, secret_digest, pepper_version, scopes, created_by, expires_at)
+    ON TABLE public.jas_si_api_keys TO jas_si_customer_key_runtime;
+GRANT UPDATE (status, revoked_at) ON TABLE public.jas_si_api_keys TO jas_si_customer_key_runtime;
+
+GRANT INSERT (singleton, last_hash), SELECT (singleton, last_hash), UPDATE (last_hash)
+    ON TABLE public.jas_si_audit_chain_state TO jas_si_customer_key_runtime;
+GRANT SELECT (event_id, event_payload, previous_hash, event_hash),
+      INSERT (event_payload, previous_hash, event_hash)
+    ON TABLE public.jas_si_audit_events TO jas_si_customer_key_runtime;
+GRANT INSERT (run_id, key_id, tenant_id)
+    ON TABLE public.jas_si_api_key_provisioning_runs TO jas_si_customer_key_runtime;
+
+-- RLS is enabled for the key table. Existing API authentication needs to look up
+-- key IDs across tenants; its runtime role receives read + last-used update only.
+ALTER TABLE public.jas_si_api_keys ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS jas_si_api_keys_runtime_auth ON public.jas_si_api_keys;
+CREATE POLICY jas_si_api_keys_runtime_auth ON public.jas_si_api_keys
+    FOR SELECT TO jas_si_runtime USING (true);
+DROP POLICY IF EXISTS jas_si_api_keys_runtime_last_used ON public.jas_si_api_keys;
+CREATE POLICY jas_si_api_keys_runtime_last_used ON public.jas_si_api_keys
+    FOR UPDATE TO jas_si_runtime USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS jas_si_api_keys_customer_tenant ON public.jas_si_api_keys;
+CREATE POLICY jas_si_api_keys_customer_tenant ON public.jas_si_api_keys
+    FOR ALL TO jas_si_customer_key_runtime
+    USING (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('jas_si.tenant_id', true), '')::uuid);
+
+-- Preserve the existing trusted operator provisioner path. The role is
+-- separately controlled and is not used by customer-facing endpoints.
+DROP POLICY IF EXISTS jas_si_api_keys_provisioner ON public.jas_si_api_keys;
+CREATE POLICY jas_si_api_keys_provisioner ON public.jas_si_api_keys
+    FOR ALL TO jas_si_provisioner USING (true) WITH CHECK (true);
+
+-- No tenant business fields are writable by the customer role.

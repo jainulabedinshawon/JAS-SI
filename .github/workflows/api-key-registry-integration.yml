@@ -8,6 +8,12 @@ on:
       - main
     paths:
       - "src/jas_si_agent/postgres_security_event_store.py"
+      - "tests/test_customer_identity_postgres_integration.py"
+      - "tests/test_customer_api_key_security_integration.py"
+      - "tests/test_usage_meter_postgres_integration.py"
+      - "tests/test_customer_api_key_security_integration.py"
+      - "src/jas_si_agent/customer_rate_limit.py"
+      - "src/jas_si_agent/customer_identity.py"
       - "src/jas_si_agent/api_key_registry.py"
       - "src/jas_si_agent/api.py"
       - "src/jas_si_agent/config.py"
@@ -35,6 +41,11 @@ on:
       - main
     paths:
       - "src/jas_si_agent/postgres_security_event_store.py"
+      - "tests/test_customer_identity_postgres_integration.py"
+      - "tests/test_customer_api_key_security_integration.py"
+      - "tests/test_usage_meter_postgres_integration.py"
+      - "src/jas_si_agent/customer_rate_limit.py"
+      - "src/jas_si_agent/customer_identity.py"
       - "src/jas_si_agent/api_key_registry.py"
       - "src/jas_si_agent/migrations/**"
       - "tests/test_atomic_api_key_provisioning.py"
@@ -112,6 +123,9 @@ jobs:
       - name: Run PostgreSQL adapter tests
         run: |
           python -m unittest \
+            tests.test_customer_identity_postgres_integration \
+            tests.test_customer_api_key_security_integration \
+            tests.test_usage_meter_postgres_integration \
             tests.test_postgres_security_event_store \
             tests.test_postgres_security_event_store_integration \
             tests.test_postgres_api_key_registry_integration \
