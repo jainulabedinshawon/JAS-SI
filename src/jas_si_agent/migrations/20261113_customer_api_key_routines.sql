@@ -297,6 +297,8 @@ ALTER FUNCTION public.customer_api_key_revoke(bytea,uuid,text) OWNER TO jas_si_c
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_key_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_key_owner;
 
+SET LOCAL ROLE jas_si_customer_key_owner;
+
 REVOKE ALL ON FUNCTION public.jas_si_customer_key_canonical_jsonb(jsonb) FROM PUBLIC,jas_si_customer_key_runtime;
 REVOKE ALL ON FUNCTION public.jas_si_customer_key_sha256(bytea) FROM PUBLIC,jas_si_customer_key_runtime;
 REVOKE ALL ON FUNCTION public.jas_si_customer_key_append_audit(jsonb) FROM PUBLIC,jas_si_customer_key_runtime;
@@ -306,3 +308,4 @@ REVOKE ALL ON FUNCTION public.customer_api_key_revoke(bytea,uuid,text) FROM PUBL
 GRANT EXECUTE ON FUNCTION public.customer_api_key_list(bytea) TO jas_si_customer_key_runtime;
 GRANT EXECUTE ON FUNCTION public.customer_api_key_issue(bytea,uuid,text,text,bytea,smallint,text[],text,text) TO jas_si_customer_key_runtime;
 GRANT EXECUTE ON FUNCTION public.customer_api_key_revoke(bytea,uuid,text) TO jas_si_customer_key_runtime;
+RESET ROLE;
