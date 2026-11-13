@@ -42,6 +42,19 @@ class FakeUsageMeter:
             "note": "Technical usage only.",
         }
 
+    def events_authenticated(self, *, api_key_id, candidate_digest, limit=50, before=None, before_event_id=None):
+        self.history_calls = getattr(self, "history_calls", [])
+        self.history_calls.append({
+            "api_key_id": api_key_id, "candidate_digest": candidate_digest,
+            "limit": limit, "before": before, "before_event_id": before_event_id,
+        })
+        return {
+            "items": [{"event_id": "00000000-0000-0000-0000-000000000044",
+                       "request_id": "request-44", "operation": "authorization.evaluate",
+                       "units": 1, "occurred_at": "2026-11-13T00:00:00+00:00"}],
+            "next_cursor": None,
+        }
+
     def quota_status_authenticated(self, *, api_key_id, candidate_digest, monthly_limit):
         return {
             "period": "utc_calendar_month",
@@ -114,6 +127,21 @@ class TestUsageAPI(TestCase):
         self.assertEqual(response.json()["quota"]["monthly_limit"], 100)
         self.assertEqual(response.json()["quota"]["used_units"], 3)
         self.assertEqual(response.json()["quota"]["remaining_units"], 97)
+
+    def test_usage_history_is_api_key_bound_and_paginated(self):
+        response = self.client.get("/v1/usage/events?limit=25")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"][0]["request_id"], "request-44")
+        self.assertIsNone(response.json()["next_cursor"])
+        call = api.app.state.usage_meter.history_calls[-1]
+        self.assertEqual(call["api_key_id"], self.key_id)
+        self.assertEqual(call["candidate_digest"], b"c" * 32)
+        self.assertEqual(call["limit"], 25)
+
+    def test_usage_history_rejects_invalid_pagination(self):
+        self.assertEqual(self.client.get("/v1/usage/events?limit=101").status_code, 422)
+        self.assertEqual(self.client.get("/v1/usage/events?before=2026-11-01T00:00:00%2B00:00").status_code, 422)
+        self.assertEqual(self.client.get("/v1/usage/events?before=2026-11-01T00:00:00").status_code, 422)
 
     def test_naive_since_timestamp_is_rejected(self):
         response = self.client.get("/v1/usage?since=2026-11-01T00:00:00")
