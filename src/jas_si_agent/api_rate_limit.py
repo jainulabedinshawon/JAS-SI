@@ -41,29 +41,50 @@ class PostgresApiRateLimiter:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """SELECT current_user,
-                                  pg_catalog.to_regclass('public.jas_si_api_rate_limits') IS NOT NULL,
-                                  pg_catalog.to_regprocedure('public.jas_si_api_rate_limit_check(bytea,integer,integer)') IS NOT NULL,
-                                  pg_catalog.has_function_privilege(current_user,
-                                    'public.jas_si_api_rate_limit_check(bytea,integer,integer)','EXECUTE'),
-                                  NOT pg_catalog.has_table_privilege(current_user,
-                                    'public.jas_si_api_rate_limits','SELECT'),
-                                  NOT pg_catalog.has_table_privilege(current_user,
-                                    'public.jas_si_api_rate_limits','INSERT'),
-                                  NOT pg_catalog.has_table_privilege(current_user,
-                                    'public.jas_si_api_rate_limits','UPDATE'),
-                                  NOT pg_catalog.has_table_privilege(current_user,
-                                    'public.jas_si_api_rate_limits','DELETE'),
-                                  NOT pg_catalog.has_table_privilege(current_user,
-                                    'public.jas_si_api_rate_limits','TRUNCATE'),
-                                  pg_catalog.pg_get_userbyid(
-                                    (SELECT relowner FROM pg_catalog.pg_class
-                                     WHERE oid=pg_catalog.to_regclass('public.jas_si_api_rate_limits'))
-                                  ) = 'jas_si_api_rate_limit_owner'"""
+                        """SELECT
+                              current_user = 'jas_si_runtime'
+                              AND rate_table.oid IS NOT NULL
+                              AND routine.oid IS NOT NULL
+                              AND pg_catalog.pg_get_userbyid(rate_table.relowner)
+                                  = 'jas_si_api_rate_limit_owner'
+                              AND pg_catalog.pg_get_userbyid(routine.proowner)
+                                  = 'jas_si_api_rate_limit_owner'
+                              AND routine.prosecdef
+                              AND routine.proconfig @> ARRAY['search_path=pg_catalog']
+                              AND pg_catalog.has_function_privilege(
+                                  current_user,routine.oid,'EXECUTE')
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM pg_catalog.aclexplode(
+                                      COALESCE(routine.proacl,
+                                        pg_catalog.acldefault('f',routine.proowner))
+                                  ) acl
+                                  WHERE acl.grantee=0
+                                    AND acl.privilege_type='EXECUTE'
+                              )
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'SELECT')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'INSERT')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'UPDATE')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'DELETE')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'TRUNCATE')
+                              AND NOT pg_catalog.has_any_column_privilege(
+                                  current_user,rate_table.oid,'SELECT')
+                              AND NOT pg_catalog.has_any_column_privilege(
+                                  current_user,rate_table.oid,'INSERT')
+                              AND NOT pg_catalog.has_any_column_privilege(
+                                  current_user,rate_table.oid,'UPDATE')
+                           FROM (SELECT pg_catalog.to_regclass(
+                                     'public.jas_si_api_rate_limits') AS oid) rate_table
+                           CROSS JOIN (SELECT pg_catalog.to_regprocedure(
+                                     'public.jas_si_api_rate_limit_check(bytea,integer,integer)'
+                                  ) AS oid) routine"""
                     )
                     row = cursor.fetchone()
-            return bool(row and row[1] and row[2] and row[3]
-                        and all(row[4:10]))
+            return bool(row and row[0])
         except Exception as exc:
             raise ApiRateLimitError("API rate-limit schema verification failed") from exc
 
