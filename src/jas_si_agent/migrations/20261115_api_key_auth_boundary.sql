@@ -108,8 +108,11 @@ END;
 $function$;
 
 GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
+GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
+
 ALTER FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
     OWNER TO jas_si_api_key_auth_owner;
+REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 
 REVOKE ALL ON FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
