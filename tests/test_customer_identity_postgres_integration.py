@@ -203,6 +203,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
     def test_rate_limiter_readiness_rejects_unneeded_table_and_column_grants(self):
         # Mutate ACLs as the schema owner and verify through the separate
         # customer-runtime connection. Always restore the migration grants.
+        limiter = PostgresCustomerRateLimiter(
+            self.dsn, b"customer-rate-limit-test-pepper-32-bytes-minimum"
+        )
         with psycopg.connect(self.admin_dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
                 try:
@@ -210,7 +213,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         "GRANT DELETE ON public.jas_si_customer_rate_limits "
                         "TO jas_si_customer_runtime"
                     )
-                    self.assertFalse(self.limiter.verify_schema())
+                    self.assertFalse(limiter.verify_schema())
 
                     cur.execute(
                         "REVOKE DELETE ON public.jas_si_customer_rate_limits "
@@ -230,7 +233,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         "REVOKE UPDATE (bucket_key) ON public.jas_si_customer_rate_limits "
                         "FROM jas_si_customer_runtime"
                     )
-        self.assertTrue(self.limiter.verify_schema())
+        self.assertTrue(limiter.verify_schema())
 
     def test_rate_limit_persists_only_keyed_ip_digest(self):
         limiter = PostgresCustomerRateLimiter(
