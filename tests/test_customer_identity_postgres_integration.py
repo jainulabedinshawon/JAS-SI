@@ -273,8 +273,10 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                                   m.member = r.oid OR (m.roleid = r.oid AND NOT EXISTS (
                                       SELECT 1 FROM pg_catalog.pg_roles platform_member
                                       WHERE platform_member.oid=m.member
-                                        AND platform_member.rolname='neondb_owner'
-                                        AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)))
+                                        AND ((platform_member.rolname='neondb_owner'
+                                        AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option) OR
+                                        (platform_member.rolname='cloud_admin' AND m.admin_option
+                                        AND NOT m.inherit_option AND NOT m.set_option)))))
                    FROM pg_roles r WHERE rolname='jas_si_customer_identity_owner'"""
             )
             self.assertEqual(cur.fetchone(), (False, False, False, False, False, False, False, False))
