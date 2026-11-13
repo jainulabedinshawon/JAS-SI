@@ -143,6 +143,27 @@ class TestUsageAPI(TestCase):
         self.assertEqual(self.client.get("/v1/usage/events?before=2026-11-01T00:00:00%2B00:00").status_code, 422)
         self.assertEqual(self.client.get("/v1/usage/events?before=2026-11-01T00:00:00").status_code, 422)
 
+    def test_usage_history_forwards_complete_keyset_cursor(self):
+        response = self.client.get(
+            "/v1/usage/events?limit=10&before=2026-11-13T00:00:00%2B00:00"
+            "&before_event_id=00000000-0000-0000-0000-000000000044"
+        )
+        self.assertEqual(response.status_code, 200)
+        call = api.app.state.usage_meter.history_calls[-1]
+        self.assertEqual(call["limit"], 10)
+        self.assertEqual(
+            call["before_event_id"],
+            "00000000-0000-0000-0000-000000000044",
+        )
+        self.assertEqual(call["before"].utcoffset().total_seconds(), 0)
+
+    def test_usage_history_rejects_malformed_cursor_uuid(self):
+        response = self.client.get(
+            "/v1/usage/events?before=2026-11-13T00:00:00%2B00:00"
+            "&before_event_id=not-a-uuid"
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_naive_since_timestamp_is_rejected(self):
         response = self.client.get("/v1/usage?since=2026-11-01T00:00:00")
         self.assertEqual(response.status_code, 422)
