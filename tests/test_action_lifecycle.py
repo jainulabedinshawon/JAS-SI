@@ -95,7 +95,11 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
 
         self.assertEqual(
             first_result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            first_result.reason,
+            "TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE",
         )
         self.assertEqual(
             second_result.status,
@@ -154,7 +158,7 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(result.reason, "ACTION_NOT_AUTHORIZED")
 
-    def test_authorized_matching_success_is_verified(self) -> None:
+    def test_authorized_matching_success_remains_inconclusive_without_trusted_evidence(self) -> None:
         decision = self.coordinator.authorize(self.request())
         result = self.coordinator.verify_outcome(
             decision,
@@ -163,10 +167,14 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE",
         )
 
-    def test_false_success_is_detected(self) -> None:
+    def test_false_success_is_not_classified_from_untrusted_evidence(self) -> None:
         decision = self.coordinator.authorize(self.request())
         result = self.coordinator.verify_outcome(
             decision,
@@ -175,7 +183,11 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE",
         )
 
     def test_action_id_mismatch_is_inconclusive(self) -> None:
