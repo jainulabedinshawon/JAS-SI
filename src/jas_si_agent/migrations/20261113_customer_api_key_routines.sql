@@ -98,6 +98,9 @@ BEGIN
 END
 $$;
 
+GRANT CREATE ON SCHEMA public TO jas_si_customer_key_owner;
+SET LOCAL ROLE jas_si_customer_key_owner;
+
 CREATE OR REPLACE FUNCTION public.jas_si_customer_key_canonical_jsonb(p_value jsonb)
 RETURNS text LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $function$
 DECLARE v_kind text; v_result text;
@@ -286,15 +289,10 @@ END;
 $function$;
 
 GRANT CREATE ON SCHEMA public TO jas_si_customer_key_owner;
-GRANT CREATE ON SCHEMA public TO jas_si_customer_key_owner;
 
-ALTER FUNCTION public.jas_si_customer_key_canonical_jsonb(jsonb) OWNER TO jas_si_customer_key_owner;
-ALTER FUNCTION public.jas_si_customer_key_sha256(bytea) OWNER TO jas_si_customer_key_owner;
-ALTER FUNCTION public.jas_si_customer_key_append_audit(jsonb) OWNER TO jas_si_customer_key_owner;
-ALTER FUNCTION public.customer_api_key_list(bytea) OWNER TO jas_si_customer_key_owner;
-ALTER FUNCTION public.customer_api_key_issue(bytea,uuid,text,text,bytea,smallint,text[],text,text) OWNER TO jas_si_customer_key_owner;
-ALTER FUNCTION public.customer_api_key_revoke(bytea,uuid,text) OWNER TO jas_si_customer_key_owner;
-REVOKE CREATE ON SCHEMA public FROM jas_si_customer_key_owner;
+
+
+RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_key_owner;
 
 SET LOCAL ROLE jas_si_customer_key_owner;
