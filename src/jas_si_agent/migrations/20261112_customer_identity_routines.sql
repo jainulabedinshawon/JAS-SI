@@ -196,6 +196,8 @@ ALTER FUNCTION public.customer_authenticate_session(bytea) OWNER TO jas_si_custo
 ALTER FUNCTION public.customer_revoke_session(bytea) OWNER TO jas_si_customer_identity_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 
+SET LOCAL ROLE jas_si_customer_identity_owner;
+
 REVOKE ALL ON FUNCTION public.customer_register(text,text,text,uuid,uuid,uuid,bytea,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.customer_issue_link(text,text,uuid,bytea,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.customer_consume_link(bytea,text,uuid,bytea,timestamptz) FROM PUBLIC;
@@ -206,3 +208,4 @@ GRANT EXECUTE ON FUNCTION public.customer_issue_link(text,text,uuid,bytea,timest
 GRANT EXECUTE ON FUNCTION public.customer_consume_link(bytea,text,uuid,bytea,timestamptz) TO jas_si_customer_runtime;
 GRANT EXECUTE ON FUNCTION public.customer_authenticate_session(bytea) TO jas_si_customer_runtime;
 GRANT EXECUTE ON FUNCTION public.customer_revoke_session(bytea) TO jas_si_customer_runtime;
+RESET ROLE;
