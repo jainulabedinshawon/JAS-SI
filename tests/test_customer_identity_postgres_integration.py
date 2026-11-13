@@ -223,7 +223,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         "GRANT UPDATE (bucket_key) ON public.jas_si_customer_rate_limits "
                         "TO jas_si_customer_runtime"
                     )
-                    self.assertFalse(self.limiter.verify_schema())
+                    self.assertFalse(limiter.verify_schema())
                 finally:
                     cur.execute(
                         "REVOKE DELETE ON public.jas_si_customer_rate_limits "
