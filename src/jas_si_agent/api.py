@@ -1230,6 +1230,11 @@ def usage_events(
         raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
     if (before is None) != (before_event_id is None):
         raise HTTPException(status_code=422, detail="before and before_event_id must be provided together")
+    if before_event_id is not None:
+        try:
+            uuid.UUID(before_event_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="before_event_id must be a UUID") from None
     if before is not None and before.tzinfo is None:
         raise HTTPException(status_code=422, detail="before must include a timezone")
     api_key_id = getattr(request.state, "api_key_id", None)
