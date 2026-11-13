@@ -55,7 +55,25 @@ class TestPostgresUsageMeter(unittest.TestCase):
             hashlib.sha256(b"usage-meter-integration-test").hexdigest(),
         )
         kwargs.setdefault("monthly_limit", 100)
-        return self.meter.record(**kwargs)
+        tenant_id = str(kwargs.pop("tenant_id"))
+        api_key_id = str(kwargs.pop("api_key_id"))
+        fixture_tenants = {
+            str(self.key_a): str(self.tenant_a),
+            str(self.key_b): str(self.tenant_b),
+            str(self.key_c): str(self.tenant_a),
+        }
+        self.assertEqual(fixture_tenants[api_key_id], tenant_id)
+        operation_scopes = {
+            "authorization.evaluate": "authorization:check",
+            "outcome.submit": "outcomes:submit",
+            "github.evidence.verify": "github:evidence:verify",
+        }
+        return self.meter.record_authenticated(
+            api_key_id=api_key_id,
+            candidate_digest=b"x" * 32,
+            required_scope=operation_scopes[kwargs["operation"]],
+            **kwargs,
+        )
 
     def setUp(self):
         self.tenant_a = uuid.uuid4()
@@ -86,7 +104,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                             secret_digest, scopes, created_by)
                            VALUES (%s,%s,'integration',%s,%s,%s,'ci')""",
                         (key_id, tenant_id, prefix, b"x" * 32,
-                         ["authorization:check", "usage:read"] if key_id != self.key_c else ["authorization:check"]),
+                         ["authorization:check", "outcomes:submit", "github:evidence:verify", "usage:read"] if key_id != self.key_c else ["authorization:check"]),
                     )
 
     def test_api_key_usage_routine_readiness_verifies_owner_and_grants(self):
@@ -269,20 +287,28 @@ class TestPostgresUsageMeter(unittest.TestCase):
             tenant_id=str(self.tenant_b), api_key_id=str(self.key_b),
             request_id="b", idempotency_key="b", operation="outcome.submit",
         )
-        summary = self.meter.summary(
-            tenant_id=str(self.tenant_a),
+        summary = self.meter.summary_authenticated(
+            api_key_id=str(self.key_a),
+            candidate_digest=b"x" * 32,
             since=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            tenant_id_for_response=str(self.tenant_a),
         )
         self.assertEqual(summary["events"], 1)
         self.assertEqual(summary["units"], 1)
         self.assertEqual(summary["by_operation"][0]["operation"], "authorization.evaluate")
 
-    def test_database_rejects_tenant_key_mismatch(self):
-        with self.assertRaises(Exception):
-            self._record(
-                tenant_id=str(self.tenant_a), api_key_id=str(self.key_b),
-                request_id="mismatch", idempotency_key="mismatch",
+    def test_authenticated_usage_api_does_not_accept_caller_tenant_id(self):
+        with self.assertRaises(TypeError):
+            self.meter.record_authenticated(
+                tenant_id=str(self.tenant_a),
+                api_key_id=str(self.key_b),
+                candidate_digest=b"x" * 32,
+                required_scope="authorization:check",
+                request_id="mismatch",
+                idempotency_key="mismatch",
                 operation="authorization.evaluate",
+                request_fingerprint=hashlib.sha256(b"mismatch").hexdigest(),
+                monthly_limit=100,
             )
 
     def test_usage_history_is_tenant_scoped_and_keyset_paginated(self):
@@ -302,12 +328,14 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         (uuid.uuid4(), tenant_id, key_id, request_id, request_id,
                          event_time, hashlib.sha256(request_id.encode()).hexdigest()),
                     )
-        page_one = self.meter.events(tenant_id=str(self.tenant_a), limit=1)
+        page_one = self.meter.events_authenticated(
+            api_key_id=str(self.key_a), candidate_digest=b"x" * 32, limit=1,
+        )
         self.assertEqual(len(page_one["items"]), 1)
         self.assertIsNotNone(page_one["next_cursor"])
         cursor = page_one["next_cursor"]
-        page_two = self.meter.events(
-            tenant_id=str(self.tenant_a), limit=1,
+        page_two = self.meter.events_authenticated(
+            api_key_id=str(self.key_a), candidate_digest=b"x" * 32, limit=1,
             before=datetime.fromisoformat(cursor["before"]),
             before_event_id=cursor["before_event_id"],
         )
@@ -419,13 +447,21 @@ class TestPostgresUsageMeter(unittest.TestCase):
         assert_history_denied(self.key_b)
 
     def test_usage_history_rejects_invalid_cursor_and_limit(self):
+        common = {
+            "api_key_id": str(self.key_a),
+            "candidate_digest": b"x" * 32,
+        }
         with self.assertRaises(ValueError):
-            self.meter.events(tenant_id=str(self.tenant_a), limit=0)
+            self.meter.events_authenticated(**common, limit=0)
         with self.assertRaises(ValueError):
-            self.meter.events(tenant_id=str(self.tenant_a), before=datetime.now(timezone.utc))
+            self.meter.events_authenticated(
+                **common, before=datetime.now(timezone.utc),
+            )
         with self.assertRaises(ValueError):
-            self.meter.events(tenant_id=str(self.tenant_a), before=datetime.now(timezone.utc),
-                              before_event_id="not-a-uuid")
+            self.meter.events_authenticated(
+                **common, before=datetime.now(timezone.utc),
+                before_event_id="not-a-uuid",
+            )
 
     def test_usage_rows_are_immutable(self):
         event = self._record(
@@ -490,8 +526,10 @@ class TestPostgresUsageMeter(unittest.TestCase):
             request_id="quota-status", idempotency_key="quota-status",
             operation="authorization.evaluate", monthly_limit=100,
         )
-        status = self.meter.quota_status(
-            tenant_id=str(self.tenant_a), monthly_limit=100,
+        status = self.meter.quota_status_authenticated(
+            api_key_id=str(self.key_a),
+            candidate_digest=b"x" * 32,
+            monthly_limit=100,
         )
         self.assertEqual(status["monthly_limit"], 100)
         self.assertEqual(status["used_units"], 1)

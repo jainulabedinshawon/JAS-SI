@@ -1,38 +1,43 @@
-"""Tests for usage metering validation and tenant-safe query contracts."""
+"""Tests for authenticated usage metering validation contracts."""
 from datetime import datetime, timezone
 from unittest import TestCase
-from unittest.mock import patch
 
 from jas_si_agent.usage_meter import PostgresUsageMeter
 
 
 class UsageMeterValidationTests(TestCase):
+    def setUp(self):
+        self.meter = PostgresUsageMeter("postgresql://unused")
+        self.common = {
+            "api_key_id": "00000000-0000-0000-0000-000000000002",
+            "candidate_digest": b"x" * 32,
+            "required_scope": "authorization:check",
+            "request_id": "req",
+            "idempotency_key": "idem",
+            "request_fingerprint": "0" * 64,
+            "monthly_limit": 100,
+        }
+
     def test_rejects_unknown_operation_before_database_access(self):
-        meter = PostgresUsageMeter("postgresql://unused")
         with self.assertRaises(ValueError):
-            meter.record(
-                tenant_id="00000000-0000-0000-0000-000000000001",
-                api_key_id="00000000-0000-0000-0000-000000000002",
-                request_id="req", idempotency_key="idem",
-                operation="customer.supplied.operation", request_fingerprint="0" * 64,
-                monthly_limit=100,
+            self.meter.record_authenticated(
+                **self.common, operation="customer.supplied.operation",
             )
 
     def test_rejects_non_unit_client_controlled_quantity(self):
-        meter = PostgresUsageMeter("postgresql://unused")
         with self.assertRaises(ValueError):
-            meter.record(
-                tenant_id="00000000-0000-0000-0000-000000000001",
-                api_key_id="00000000-0000-0000-0000-000000000002",
-                request_id="req", idempotency_key="idem",
-                operation="authorization.evaluate", units=999,
-                request_fingerprint="0" * 64, monthly_limit=100,
+            self.meter.record_authenticated(
+                **self.common, operation="authorization.evaluate", units=999,
             )
 
-    def test_rejects_invalid_tenant_context(self):
-        meter = PostgresUsageMeter("postgresql://unused")
+    def test_rejects_invalid_api_key_context(self):
         with self.assertRaises(ValueError):
-            meter.summary(tenant_id="not-a-uuid", since=datetime.now(timezone.utc))
+            self.meter.summary_authenticated(
+                api_key_id="not-a-uuid",
+                candidate_digest=b"x" * 32,
+                since=datetime.now(timezone.utc),
+                tenant_id_for_response="00000000-0000-0000-0000-000000000001",
+            )
 
     def test_utc_month_window_handles_year_boundary(self):
         from jas_si_agent.usage_meter import _utc_month_window
