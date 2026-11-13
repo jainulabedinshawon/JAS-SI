@@ -1215,6 +1215,43 @@ def usage_summary(request: Request, since: Optional[datetime] = None) -> dict:
     except Exception:
         raise HTTPException(status_code=503, detail="Tenant usage summary is temporarily unavailable") from None
 
+@app.get("/v1/usage/events", dependencies=[Depends(_require_api_key)])
+def usage_events(
+    request: Request,
+    limit: int = 50,
+    before: Optional[datetime] = None,
+    before_event_id: Optional[str] = None,
+) -> dict:
+    """Return a bounded, keyset-paginated history for the authenticated API key."""
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="Usage storage is not configured")
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    if (before is None) != (before_event_id is None):
+        raise HTTPException(status_code=422, detail="before and before_event_id must be provided together")
+    if before is not None and before.tzinfo is None:
+        raise HTTPException(status_code=422, detail="before must include a timezone")
+    api_key_id = getattr(request.state, "api_key_id", None)
+    candidate_digest = getattr(request.state, "api_key_candidate_digest", None)
+    if not api_key_id or not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+        raise HTTPException(status_code=403, detail="Authenticated API-key proof is unavailable")
+    try:
+        meter = getattr(request.app.state, "usage_meter", None)
+        if meter is None:
+            meter = PostgresUsageMeter(settings.database_url)
+        return meter.events_authenticated(
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            limit=limit,
+            before=before,
+            before_event_id=before_event_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="Tenant usage history is temporarily unavailable") from None
+
+
 @app.post(
     "/v1/authorize",
     dependencies=[Depends(_require_api_key)],
