@@ -62,6 +62,9 @@ CREATE POLICY jas_si_tenants_usage_owner_select
     ON public.jas_si_tenants FOR SELECT TO jas_si_api_key_usage_owner
     USING (true);
 
+GRANT CREATE ON SCHEMA public TO jas_si_api_key_usage_owner;
+SET LOCAL ROLE jas_si_api_key_usage_owner;
+
 CREATE OR REPLACE FUNCTION public.jas_si_api_key_usage_reserve(
     p_key_id uuid, p_candidate_digest bytea, p_required_scope text,
     p_request_id text, p_idempotency_key text, p_operation text,
@@ -268,8 +271,6 @@ END;
 $function$;
 
 GRANT CREATE ON SCHEMA public TO jas_si_api_key_usage_owner;
-GRANT CREATE ON SCHEMA public TO jas_si_api_key_usage_owner;
-
 ALTER FUNCTION public.jas_si_api_key_usage_reserve(uuid,bytea,text,text,text,text,text,bigint,bigint)
     OWNER TO jas_si_api_key_usage_owner;
 ALTER FUNCTION public.jas_si_api_key_usage_quota(uuid,bytea,text,bigint)
@@ -278,7 +279,10 @@ ALTER FUNCTION public.jas_si_api_key_usage_summary(uuid,bytea,text,timestamptz)
     OWNER TO jas_si_api_key_usage_owner;
 ALTER FUNCTION public.jas_si_api_key_usage_events(uuid,bytea,text,integer,timestamptz,uuid)
     OWNER TO jas_si_api_key_usage_owner;
-REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_usage_owner;
+
+
+
+RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_usage_owner;
 
 SET LOCAL ROLE jas_si_api_key_usage_owner;
