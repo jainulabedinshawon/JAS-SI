@@ -15,7 +15,11 @@ This checklist is an operator handoff. It is not authorization to change Vercel,
 
 Passing CI is evidence for the tested code paths, not evidence that external runtime services or a live customer journey are configured.
 
-The registration/login email-abuse limiter is PostgreSQL-backed and shared across instances. The general API middleware also has a separate process-local request limiter; do not treat the email limiter tests as proof that this broader middleware limit is globally shared. Before public launch, review whether general API rate limits need a distributed backend and validate behavior under the actual hosting/proxy topology.
+Both layers are now PostgreSQL-backed and shared across application instances, with separate HMAC namespaces and dedicated least-privilege database boundaries:
+- Customer registration/login email-abuse limiter: dedicated customer rate-limit table and runtime boundary.
+- General versioned API ingress limiter: `jas_si_api_rate_limits`, migration `20261118_shared_api_rate_limits.sql`, and a separate `JAS_SI_API_RATE_LIMIT_PEPPER`.
+
+The general API limiter applies to all `/v1/*` routes, including customer portal API routes; customer registration/login additionally retain the stricter email-abuse limiter. Preview/Production startup must fail unless the shared API limiter pepper, database connection, schema, and privilege boundary verify successfully. Tests cover cross-request behavior, trusted proxy handling, expiry/retry semantics, and denial of direct runtime table access. Live behavior behind the actual Vercel proxy remains unverified until an isolated Preview is configured and exercised.
 
 ## Configuration audit result
 
@@ -30,6 +34,7 @@ A read-only Vercel project environment metadata check found 15 environment-varia
 - `JAS_SI_CUSTOMER_SMTP_PASSWORD`
 - `JAS_SI_CUSTOMER_SMTP_SENDER`
 - `JAS_SI_CUSTOMER_PUBLIC_URL`
+- `JAS_SI_API_RATE_LIMIT_PEPPER`
 
 The existing general `JAS_SI_DATABASE_URL` and `JAS_SI_API_KEY_PEPPER` do not replace the dedicated customer identity and customer API-key database connections or the customer session pepper. Do not point the customer DSNs at a database owner, provisioner, superuser, or general API runtime connection.
 
@@ -47,7 +52,7 @@ Complete these in an isolated, disposable Neon staging branch — never against 
 6. Configure the dedicated customer DSNs and customer session pepper only for the exact PR preview branch after the isolated database roles and routines have been verified.
 7. Configure SMTP credentials and sender identity using a verified sender domain. Use STARTTLS on the provider's supported submission port or implicit TLS on port 465. Never log tokens, recipients, passwords, or full DSNs.
 8. Set the customer public URL to the exact HTTPS preview origin. Do not point preview links at the production customer portal.
-9. Keep customer registration disabled until all identity, email, rate-limiter, session, API-key, usage, and tenant-isolation checks pass.
+9. Configure the dedicated API ingress pepper for the Preview branch and verify the shared limiter startup boundary; keep customer registration disabled until all identity, email, rate-limiter, session, API-key, usage, and tenant-isolation checks pass.
 10. Run the customer journey in this order: register → receive email → verify → request login → receive email → sign in → view account → create API key → make authorized API request → view usage and history → revoke key → confirm revoked key is rejected → log out → confirm session is rejected.
 11. Confirm SMTP delivery, generic responses for unknown emails, rate-limit behavior across instances, CSRF protection, cookie flags, tenant isolation, and audit evidence.
 12. Capture sanitized evidence (test IDs, HTTP status codes, role names, migration versions, and timestamps); never capture credentials, one-time tokens, session cookies, or raw API keys.
