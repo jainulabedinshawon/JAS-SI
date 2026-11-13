@@ -90,9 +90,9 @@ jobs:
 
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
           with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-              # These two core service roles are platform bootstrap inputs,
+              # These three core service roles are platform bootstrap inputs,
               # not customer migrations. Create them explicitly on the empty DB.
-              for role in ("jas_si_runtime", "jas_si_provisioner"):
+              for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
                       cur.execute(
