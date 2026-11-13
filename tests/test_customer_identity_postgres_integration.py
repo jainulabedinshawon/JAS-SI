@@ -461,6 +461,32 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
 
 
+    def test_suspended_tenant_cannot_authenticate_or_read_usage_but_can_revoke_session(self):
+        from datetime import datetime, timezone
+
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        session = self.store.consume_login_link(login.token)
+        self.assertIsNotNone(self.store.authenticate_session(session.token))
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (session.account.tenant_id,),
+            )
+
+        self.assertIsNone(self.store.authenticate_session(session.token))
+        with self.assertRaises(CustomerIdentityError):
+            self.store.usage_summary(session.token, datetime.now(timezone.utc))
+        with self.assertRaises(CustomerIdentityError):
+            self.store.usage_events(session.token, limit=10)
+
+        # Revocation remains available to clean up a session after suspension.
+        self.assertTrue(self.store.revoke_session(session.token))
+        self.assertIsNone(self.store.authenticate_session(session.token))
+
+
 
 if __name__ == "__main__":
     unittest.main()
