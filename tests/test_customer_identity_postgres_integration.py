@@ -272,10 +272,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                           EXISTS (SELECT 1 FROM pg_auth_members m WHERE
                                   m.member = r.oid OR (m.roleid = r.oid AND NOT EXISTS (
                                       SELECT 1 FROM pg_catalog.pg_roles platform_member
+                                      JOIN pg_catalog.pg_roles membership_grantor ON membership_grantor.oid=m.grantor
                                       WHERE platform_member.oid=m.member
                                         AND ((platform_member.rolname='neondb_owner'
                                         AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option) OR
-                                        (platform_member.rolname='cloud_admin' AND m.admin_option
+                                        (platform_member.rolname='neondb_owner' AND membership_grantor.rolname='cloud_admin' AND m.admin_option
                                         AND NOT m.inherit_option AND NOT m.set_option)))))
                    FROM pg_roles r WHERE rolname='jas_si_customer_identity_owner'"""
             )
