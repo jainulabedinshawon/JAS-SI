@@ -69,6 +69,9 @@ CREATE POLICY jas_si_tenants_auth_owner_select
     ON public.jas_si_tenants FOR SELECT TO jas_si_api_key_auth_owner
     USING (true);
 
+GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
+SET LOCAL ROLE jas_si_api_key_auth_owner;
+
 CREATE OR REPLACE FUNCTION public.jas_si_api_key_authenticate(
     p_key_id uuid,
     p_candidate_digest bytea
@@ -108,11 +111,12 @@ END;
 $function$;
 
 GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
-GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
-
 ALTER FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
     OWNER TO jas_si_api_key_auth_owner;
-REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
+
+
+
+RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 
 SET LOCAL ROLE jas_si_api_key_auth_owner;
