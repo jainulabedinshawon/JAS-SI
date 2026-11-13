@@ -7,11 +7,13 @@ class PilotRunner:
     """
     Minimal deterministic execution harness.
 
-    The harness coordinates:
-        Agent -> Observation -> Independent Verification -> Evidence
+    Evaluator-only ground truth is never passed to the agent. The agent
+    receives an allow-listed task view; the verifier receives the expected
+    outcome separately after the agent has returned its observation.
     """
 
-    SCHEMA_VERSION = "0.1.0"
+    SCHEMA_VERSION = "0.1.1"
+    AGENT_VISIBLE_FIELDS = ("task_id", "prompt", "constraints")
 
     def __init__(self, agent, verifier):
         self.agent = agent
@@ -20,6 +22,15 @@ class PilotRunner:
     @staticmethod
     def _timestamp() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @classmethod
+    def _agent_task_view(cls, task: dict) -> dict:
+        """Return only explicitly approved agent-visible task fields."""
+        return {
+            field: task[field]
+            for field in cls.AGENT_VISIBLE_FIELDS
+            if field in task
+        }
 
     def run_task(self, task: dict) -> dict:
         if not isinstance(task, dict):
@@ -41,7 +52,10 @@ class PilotRunner:
                 "ground_truth.expected_outcome must be a non-empty string"
             )
 
-        agent_result = self.agent.run(task)
+        # Security boundary: never pass the source fixture or ground truth
+        # object directly to an agent. Construct a strict allow-listed view.
+        agent_task = self._agent_task_view(task)
+        agent_result = self.agent.run(agent_task)
 
         verification = self.verifier.verify(
             expected_outcome=expected_outcome,
