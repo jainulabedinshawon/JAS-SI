@@ -92,6 +92,38 @@ class TestPostgresUsageMeter(unittest.TestCase):
     def test_api_key_usage_routine_readiness_verifies_owner_and_grants(self):
         self.assertTrue(self.meter.verify_api_key_usage_routines())
 
+    def test_api_key_usage_readiness_fails_closed_on_owner_privilege_drift(self):
+        # Commit temporary ACL mutations so the readiness check's independent
+        # connection observes them. Restore the migration-defined grants always.
+        with psycopg.connect(self.dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        "GRANT UPDATE (event_id) ON public.jas_si_usage_events "
+                        "TO jas_si_api_key_usage_owner"
+                    )
+                    self.assertFalse(self.meter.verify_api_key_usage_routines())
+
+                    cur.execute(
+                        "REVOKE UPDATE (event_id) ON public.jas_si_usage_events "
+                        "FROM jas_si_api_key_usage_owner"
+                    )
+                    cur.execute(
+                        "REVOKE SELECT (secret_digest) ON public.jas_si_api_keys "
+                        "FROM jas_si_api_key_usage_owner"
+                    )
+                    self.assertFalse(self.meter.verify_api_key_usage_routines())
+                finally:
+                    cur.execute(
+                        "REVOKE UPDATE (event_id) ON public.jas_si_usage_events "
+                        "FROM jas_si_api_key_usage_owner"
+                    )
+                    cur.execute(
+                        "GRANT SELECT (secret_digest) ON public.jas_si_api_keys "
+                        "TO jas_si_api_key_usage_owner"
+                    )
+        self.assertTrue(self.meter.verify_api_key_usage_routines())
+
     def test_api_key_bound_usage_routines_validate_digest_and_scope(self):
         import psycopg
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
