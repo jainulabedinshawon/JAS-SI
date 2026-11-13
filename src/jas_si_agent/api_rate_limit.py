@@ -77,11 +77,18 @@ class PostgresApiRateLimiter:
                                   current_user,rate_table.oid,'INSERT')
                               AND NOT pg_catalog.has_any_column_privilege(
                                   current_user,rate_table.oid,'UPDATE')
-                           FROM (SELECT pg_catalog.to_regclass(
-                                     'public.jas_si_api_rate_limits') AS oid) rate_table
-                           CROSS JOIN (SELECT pg_catalog.to_regprocedure(
-                                     'public.jas_si_api_rate_limit_check(bytea,integer,integer)'
-                                  ) AS oid) routine"""
+                           FROM (
+                               SELECT c.oid,c.relowner
+                                 FROM pg_catalog.pg_class c
+                                WHERE c.oid=pg_catalog.to_regclass(
+                                  'public.jas_si_api_rate_limits')
+                           ) rate_table
+                           CROSS JOIN (
+                               SELECT p.oid,p.proowner,p.prosecdef,p.proconfig,p.proacl
+                                 FROM pg_catalog.pg_proc p
+                                WHERE p.oid=pg_catalog.to_regprocedure(
+                                  'public.jas_si_api_rate_limit_check(bytea,integer,integer)')
+                           ) routine"""
                     )
                     row = cursor.fetchone()
             return bool(row and row[0])
