@@ -69,7 +69,7 @@ class TestJASSIRestAPI(unittest.TestCase):
         limiter = SharedLimiter()
         with patch.object(
             api, "settings",
-            replace(api.settings, environment="preview", rate_limit_requests=7),
+            replace(api.settings, environment="test", rate_limit_requests=7),
         ), patch.object(api, "_get_api_rate_limiter", return_value=limiter):
             response = self.client.post(
                 "/v1/verify",
