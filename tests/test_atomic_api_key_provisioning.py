@@ -544,6 +544,28 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         )
         meter_patch.start()
         self.addCleanup(meter_patch.stop)
+        # This suite validates PostgreSQL API-key authentication. Keep the
+        # independent shared-ingress limiter boundary deterministic here;
+        # its PostgreSQL behavior is covered by tests/test_api_rate_limit.py.
+        test_rate_limiter = type(
+            "AllowIntegrationTestRateLimiter",
+            (),
+            {
+                "check": lambda self, client_ip, *, limit, window_seconds: (
+                    True,
+                    limit - 1,
+                    0,
+                )
+            },
+        )()
+        limiter_patch = patch.object(
+            api.app.state,
+            "api_rate_limiter",
+            test_rate_limiter,
+            create=True,
+        )
+        limiter_patch.start()
+        self.addCleanup(limiter_patch.stop)
         with api._rate_limit_lock:
             api._rate_limit_buckets.clear()
         # These integration tests set the API environment to Preview. Simulate
