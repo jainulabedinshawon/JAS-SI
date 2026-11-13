@@ -519,10 +519,77 @@ class PostgresUsageMeter:
               AND runtime_execute AND NOT public_execute
           ),false)
           AND pg_catalog.has_schema_privilege('jas_si_api_key_usage_owner','public','USAGE')
+          AND NOT pg_catalog.has_schema_privilege('jas_si_api_key_usage_owner','public','CREATE')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','key_id','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','tenant_id','SELECT')
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','secret_digest','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','pepper_version','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','scopes','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','status','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_api_keys','expires_at','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_tenants','tenant_id','SELECT')
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_tenants','status','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','event_id','SELECT')
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','tenant_id','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','api_key_id','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','request_id','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','idempotency_key','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','operation','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','units','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','occurred_at','SELECT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','request_fingerprint','SELECT')
           AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','event_id','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','tenant_id','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','api_key_id','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','request_id','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','idempotency_key','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','operation','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','units','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','occurred_at','INSERT')
+          AND pg_catalog.has_column_privilege('jas_si_api_key_usage_owner','public.jas_si_usage_events','request_fingerprint','INSERT')
+          AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_class c
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))
+                ) acl
+               WHERE c.oid IN (
+                   'public.jas_si_api_keys'::regclass,
+                   'public.jas_si_tenants'::regclass,
+                   'public.jas_si_usage_events'::regclass
+               )
+                 AND acl.grantee IN (
+                     0,
+                     (SELECT oid FROM pg_catalog.pg_roles
+                       WHERE rolname='jas_si_api_key_usage_owner')
+                 )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
+                CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+               WHERE n.nspname='public'
+                 AND c.relname IN ('jas_si_api_keys','jas_si_tenants','jas_si_usage_events')
+                 AND a.attnum>0 AND NOT a.attisdropped
+                 AND acl.grantee IN (
+                     0,
+                     (SELECT oid FROM pg_catalog.pg_roles
+                       WHERE rolname='jas_si_api_key_usage_owner')
+                 )
+                 AND NOT (
+                     (c.relname='jas_si_api_keys'
+                      AND a.attname IN ('key_id','tenant_id','secret_digest','pepper_version','scopes','status','expires_at')
+                      AND acl.privilege_type='SELECT' AND NOT acl.is_grantable)
+                  OR (c.relname='jas_si_tenants'
+                      AND a.attname IN ('tenant_id','status')
+                      AND acl.privilege_type='SELECT' AND NOT acl.is_grantable)
+                  OR (c.relname='jas_si_usage_events'
+                      AND a.attname IN ('event_id','tenant_id','api_key_id','request_id','idempotency_key','operation','units','occurred_at','request_fingerprint')
+                      AND acl.privilege_type IN ('SELECT','INSERT') AND NOT acl.is_grantable)
+                 )
+          )
         FROM inspected
         """
         try:
