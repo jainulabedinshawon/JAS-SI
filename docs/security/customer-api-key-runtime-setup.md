@@ -22,6 +22,10 @@ The application checks both `current_user` and `session_user`: the effective rol
    - Apply `20261112_customer_identity_routines.sql` after both the base identity migration and migration 007. This revokes direct identity-table grants and installs database-owned identity routines.
    - Apply `20261113_customer_api_key_routines.sql` after migrations 007 and 20261112. This revokes direct customer-key, tenant, provisioning, and audit table privileges and installs session-bound key routines.
    - Apply `20261110_customer_rate_limits.sql` and the usage-metering/idempotency migrations after their prerequisites; apply `20261111_usage_append_only_role_grants.sql` after the usage-events table exists.
+   - Apply `20261115_api_key_auth_boundary.sql` after migration 007.
+   - Apply `20261116_api_key_bound_usage_routines.sql` after the usage-events table, API-key registry, tenant table, and migration 007 exist.
+   - Apply `20261117_runtime_usage_routine_only.sql` only after `20261116_api_key_bound_usage_routines.sql`, after confirming all API usage write/summary/quota/history paths use the authenticated routines. It removes direct table/column privileges from `jas_si_runtime` and intentionally fails if inherited access remains. Verify the runtime cannot directly SELECT or INSERT usage events while authenticated routine calls still work.
+   - The new runtime-only usage migration is additive to the deployment plan but is not a production authorization; stage it first on a disposable/staging database and retain a reviewed recovery plan.
    - Review the SQL and actual schema before every target environment; migration filenames alone are not evidence that a migration was applied.
 2. Create a dedicated LOGIN role for the customer API-key connection using the organization's secret-management process.
 3. Grant that login role membership in `jas_si_customer_key_runtime` only; do not grant membership in `jas_si_provisioner`, `jas_si_runtime`, or any owner role.
