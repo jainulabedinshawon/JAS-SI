@@ -464,6 +464,7 @@ async def security_and_rate_limit_middleware(
     request.state.request_id = uuid.uuid4().hex
 
     if request.url.path.startswith("/v1/"):
+        response = None
         try:
             client_ip = _api_client_ip(request)
             shared_limiter = _get_api_rate_limiter(request)
