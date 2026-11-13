@@ -115,10 +115,13 @@ ALTER FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 
+SET LOCAL ROLE jas_si_api_key_auth_owner;
+
 REVOKE ALL ON FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
     FROM PUBLIC,jas_si_runtime;
 GRANT EXECUTE ON FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
     TO jas_si_runtime;
+RESET ROLE;
 
 -- Remove the former direct authentication path, including any column-level
 -- grants. The separate customer-key runtime and provisioner roles are intact.
