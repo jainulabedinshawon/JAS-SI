@@ -39,9 +39,9 @@ GRANT USAGE ON SCHEMA public TO jas_si_api_rate_limit_owner, jas_si_runtime;
 GRANT CREATE ON SCHEMA public TO jas_si_api_rate_limit_owner;
 SET LOCAL ROLE jas_si_api_rate_limit_owner;
 CREATE TABLE IF NOT EXISTS public.jas_si_api_rate_limits (
-    bucket_key bytea PRIMARY KEY CHECK (octet_length(bucket_key)=32),
+    bucket_key bytea PRIMARY KEY CHECK (pg_catalog.octet_length(bucket_key)=32),
     request_times timestamptz[] NOT NULL DEFAULT ARRAY[]::timestamptz[],
-    updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    updated_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS jas_si_api_rate_limits_updated_at_idx
     ON public.jas_si_api_rate_limits(updated_at);
