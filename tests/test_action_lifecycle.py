@@ -95,7 +95,11 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
 
         self.assertEqual(
             first_result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            first_result.reason,
+            "UNTRUSTED_EVIDENCE_SOURCE",
         )
         self.assertEqual(
             second_result.status,
@@ -163,8 +167,9 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
     def test_false_success_is_detected(self) -> None:
         decision = self.coordinator.authorize(self.request())
@@ -175,8 +180,9 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "UNTRUSTED_EVIDENCE_SOURCE")
 
     def test_action_id_mismatch_is_inconclusive(self) -> None:
         decision = self.coordinator.authorize(self.request())
