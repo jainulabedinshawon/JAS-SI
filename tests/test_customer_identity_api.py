@@ -127,6 +127,20 @@ class FakeCustomerEmailSender:
 
 class TestCustomerIdentityApi(unittest.TestCase):
     def setUp(self):
+        # Customer-route tests exercise endpoint behavior with the explicit
+        # in-process test limiter, never Preview/Production fail-closed mode.
+        self.settings_patch = patch.object(
+            api,
+            "settings",
+            replace(
+                api.settings,
+                environment="test",
+                rate_limit_requests=1000,
+                rate_limit_window_seconds=60,
+            ),
+        )
+        self.settings_patch.start()
+        self.addCleanup(self.settings_patch.stop)
         self.store = FakeCustomerIdentityStore()
         self.sender = FakeCustomerEmailSender()
         self.limiter = FakeCustomerRateLimiter()

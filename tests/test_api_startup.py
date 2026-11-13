@@ -14,12 +14,21 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 class TestAPIStartup(unittest.TestCase):
     def setUp(self):
         self.original_store = api.app.state.security_event_store
+        self.original_api_limiter = getattr(api.app.state, "api_rate_limiter", None)
+        self.rate_limiter_patcher = patch.object(api, "PostgresApiRateLimiter")
+        self.rate_limiter_patcher.start()
         self.jsonl_store = JsonlSecurityEventStore(
             "/tmp/jas-si-startup-test.jsonl"
         )
         api.app.state.security_event_store = self.jsonl_store
 
     def tearDown(self):
+        self.rate_limiter_patcher.stop()
+        if self.original_api_limiter is None:
+            if hasattr(api.app.state, "api_rate_limiter"):
+                delattr(api.app.state, "api_rate_limiter")
+        else:
+            api.app.state.api_rate_limiter = self.original_api_limiter
         api.app.state.security_event_store = self.original_store
 
     def configure(self, **overrides):
@@ -29,6 +38,7 @@ class TestAPIStartup(unittest.TestCase):
             "api_key": "test-only-api-key",
             "api_key_pepper": b"test-only-pepper-that-is-at-least-32-bytes",
             "database_url": "postgresql://test:test@localhost/test",
+            "api_rate_limit_pepper": b"api-rate-limit-test-pepper-at-least-32-bytes",
         }
         values.update(overrides)
         return replace(api.settings, **values)

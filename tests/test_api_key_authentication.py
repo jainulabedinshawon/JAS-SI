@@ -38,14 +38,22 @@ class FakeQuotaMeter:
 
 
 
+class FakeSharedApiRateLimiter:
+    def check(self, client_ip, *, limit, window_seconds):
+        return True, max(0, limit - 1), 0
+
+
 class TestTenantApiKeyAuthentication(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.original_store = api.app.state.security_event_store
         self.original_meter = getattr(api.app.state, "usage_meter", None)
+        self.original_api_limiter = getattr(api.app.state, "api_rate_limiter", None)
         api.app.state.usage_meter = FakeQuotaMeter()
+        api.app.state.api_rate_limiter = FakeSharedApiRateLimiter()
         self.addCleanup(self._restore_meter)
+        self.addCleanup(self._restore_api_limiter)
         api.app.state.security_event_store = JsonlSecurityEventStore(
             Path(self.temp.name) / "audit.jsonl"
         )
@@ -68,10 +76,20 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
         self.addCleanup(self.startup_patch.stop)
         with api._rate_limit_lock:
             api._rate_limit_buckets.clear()
-        self.client = TestClient(api.app)
+        self.client = TestClient(
+            api.app,
+            headers={"X-Vercel-Forwarded-For": "203.0.113.90"},
+        )
         self.tenant_id = uuid4()
         self.key_id = uuid4()
         self.token = "jassi_live_test-token-value"
+
+    def _restore_api_limiter(self):
+        if self.original_api_limiter is None:
+            if hasattr(api.app.state, "api_rate_limiter"):
+                delattr(api.app.state, "api_rate_limiter")
+        else:
+            api.app.state.api_rate_limiter = self.original_api_limiter
 
     def _restore_meter(self):
         if self.original_meter is None:

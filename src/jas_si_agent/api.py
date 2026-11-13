@@ -7,7 +7,7 @@ The security event store is injected through FastAPI application state.
 Critical operation results are withheld when their audit event cannot
 be persisted. Authentication denials remain denials even if logging fails.
 
-The general API rate limiter is process-local; customer email abuse limits use a shared PostgreSQL store.
+General API and customer email abuse limits use separate PostgreSQL-backed shared stores in deployed environments.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
+from jas_si_agent.api_rate_limit import PostgresApiRateLimiter
 from jas_si_agent.customer_rate_limit import PostgresCustomerRateLimiter
 from jas_si_agent.customer_identity import (
     CustomerIdentityConflict,
@@ -84,7 +85,7 @@ app = FastAPI(
         "Authorization evaluation and outcome verification only. "
         "This API does not execute actions. "
         "Protected endpoints require the X-API-Key header. "
-        "Versioned API routes have a per-process rate limit."
+        "Versioned API routes have a shared sliding-window rate limit."
     ),
 )
 
@@ -117,6 +118,8 @@ def initialize_security_event_store() -> None:
         raise RuntimeError("Preview/production requires JAS_SI_API_KEY_PEPPER")
     if not settings.database_url:
         raise RuntimeError("Preview/production requires JAS_SI_DATABASE_URL")
+    if not settings.api_rate_limit_pepper:
+        raise RuntimeError("Preview/production requires JAS_SI_API_RATE_LIMIT_PEPPER")
 
     store = PostgresSecurityEventStore(settings.database_url)
     try:
@@ -155,8 +158,21 @@ def initialize_security_event_store() -> None:
         raise RuntimeError(
             "API-key usage readiness check failed; startup denied"
         ) from exc
+    try:
+        api_rate_limiter = PostgresApiRateLimiter(
+            settings.database_url,
+            settings.api_rate_limit_pepper,
+        )
+        if not api_rate_limiter.verify_schema():
+            raise RuntimeError("Shared API rate-limit database boundary is not ready")
+    except Exception as exc:
+        raise RuntimeError(
+            "Shared API rate-limit readiness check failed; startup denied"
+        ) from exc
+
     app.state.security_event_store = store
     app.state.usage_meter = usage_meter
+    app.state.api_rate_limiter = api_rate_limiter
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
@@ -203,6 +219,60 @@ def _get_customer_rate_limiter(request: Request) -> PostgresCustomerRateLimiter:
         raise HTTPException(
             status_code=503,
             detail="Customer abuse protection is temporarily unavailable",
+        ) from None
+
+
+def _get_api_rate_limiter(request: Request):
+    limiter = getattr(request.app.state, "api_rate_limiter", None)
+    if limiter is not None:
+        return limiter
+    if settings.database_url and settings.api_rate_limit_pepper:
+        try:
+            limiter = PostgresApiRateLimiter(
+                settings.database_url, settings.api_rate_limit_pepper
+            )
+            if not limiter.verify_schema():
+                raise RuntimeError("Shared API rate-limit schema is not ready")
+            request.app.state.api_rate_limiter = limiter
+            return limiter
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="Shared API rate limiting is temporarily unavailable",
+            ) from None
+    if settings.environment in {"preview", "production"}:
+        raise HTTPException(
+            status_code=503,
+            detail="Shared API rate limiting is not configured",
+        )
+    return None
+
+
+def _api_client_ip(request: Request) -> str:
+    # Vercel overwrites these edge-provided headers. Never trust a client-
+    # supplied X-Forwarded-For chain in deployed environments.
+    forwarded = request.headers.get("x-vercel-forwarded-for")
+    if not forwarded:
+        forwarded = request.headers.get("x-forwarded-for")
+    candidate = forwarded.split(",", 1)[0].strip() if forwarded else ""
+    if not candidate:
+        if settings.environment in {"preview", "production"}:
+            raise HTTPException(
+                status_code=503,
+                detail="Trusted API client address is unavailable",
+            )
+        if request.client is not None:
+            candidate = request.client.host
+    try:
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        # Starlette's TestClient uses the non-IP peer name "testclient".
+        # Normalize that test-only transport identity to loopback.
+        if settings.environment == "test" and candidate == "testclient":
+            return "127.0.0.1"
+        raise HTTPException(
+            status_code=503,
+            detail="API client address could not be verified",
         ) from None
 
 
@@ -399,11 +469,37 @@ async def security_and_rate_limit_middleware(
     """Add a server-generated request ID, security headers, and rate limits."""
     request.state.request_id = uuid.uuid4().hex
 
+    # Apply a shared ingress limit to every versioned API route. Customer
+    # email endpoints additionally retain their stricter, separate abuse limiter.
     if request.url.path.startswith("/v1/"):
-        client_ip = (
-            request.client.host if request.client is not None else "unknown"
-        )
-        allowed, remaining, retry_after = _rate_limit_decision(client_ip)
+        response = None
+        try:
+            client_ip = _api_client_ip(request)
+            shared_limiter = _get_api_rate_limiter(request)
+            if shared_limiter is None:
+                allowed, remaining, retry_after = _rate_limit_decision(client_ip)
+            else:
+                allowed, remaining, retry_after = shared_limiter.check(
+                    client_ip,
+                    limit=settings.rate_limit_requests,
+                    window_seconds=settings.rate_limit_window_seconds,
+                )
+        except HTTPException as exc:
+            response = JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=exc.headers,
+            )
+            shared_limiter = None
+            allowed, remaining, retry_after = False, 0, 0
+        except Exception:
+            # Never silently downgrade a configured/deployed shared limiter.
+            response = JSONResponse(
+                status_code=503,
+                content={"detail": "Shared API rate limiting is temporarily unavailable"},
+            )
+            shared_limiter = None
+            allowed, remaining, retry_after = False, 0, 0
         idempotency_key = request.headers.get("Idempotency-Key")
         metered_paths = {
             "/v1/authorize": "authorization.evaluate",
@@ -413,7 +509,9 @@ async def security_and_rate_limit_middleware(
         operation = metered_paths.get(request.url.path)
         meter = getattr(request.app.state, "usage_meter", None)
 
-        if not allowed:
+        if response is not None and response.status_code == 503:
+            pass
+        elif not allowed:
             _log_security_event(
                 "rate_limit_exceeded",
                 request,
