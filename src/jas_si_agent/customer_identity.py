@@ -184,10 +184,11 @@ class PostgresCustomerIdentityStore:
                           AND NOT EXISTS (
                               SELECT 1 FROM pg_catalog.pg_auth_members AS membership
                               JOIN pg_catalog.pg_roles platform_member ON platform_member.oid = membership.member
+                              JOIN pg_catalog.pg_roles membership_grantor ON membership_grantor.oid = membership.grantor
                               WHERE membership.member = owner.oid OR (membership.roleid = owner.oid AND NOT (
                                   ((platform_member.rolname = 'neondb_owner' AND NOT membership.admin_option
                                   AND NOT membership.inherit_option AND membership.set_option)
-                                  OR (platform_member.rolname = 'cloud_admin' AND membership.admin_option
+                                  OR (platform_member.rolname = 'neondb_owner' AND membership_grantor.rolname = 'cloud_admin' AND membership.admin_option
                                   AND NOT membership.inherit_option AND NOT membership.set_option))))
                           )
                           AND procedure.proconfig @> ARRAY['search_path=pg_catalog']
