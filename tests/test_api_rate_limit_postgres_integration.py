@@ -44,7 +44,11 @@ class TestPostgresApiRateLimiter(unittest.TestCase):
                 cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_runtime'")
                 if cur.fetchone() is None:
                     cur.execute("CREATE ROLE jas_si_runtime NOLOGIN NOINHERIT")
-                cur.execute(migration.read_text(encoding="utf-8"))
+                migration_sql = migration.read_text(encoding="utf-8")
+                cur.execute(migration_sql)
+                # Replaying the migration against an already-provisioned schema
+                # must be safe and preserve the owner/runtime privilege boundary.
+                cur.execute(migration_sql)
                 cur.execute(
                     f'CREATE ROLE "{cls.login_role}" LOGIN NOINHERIT '
                     f"PASSWORD '{cls.login_password}' NOSUPERUSER NOCREATEDB "
