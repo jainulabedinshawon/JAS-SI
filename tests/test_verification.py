@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import sys
@@ -20,7 +21,10 @@ from jas_si_agent.verification import (  # noqa: E402
 
 class TestIndependentVerification(unittest.TestCase):
     def report(self, claimed_success: bool = True) -> ActionReport:
-        return ActionReport(action_id="action-001", claimed_success=claimed_success)
+        return ActionReport(
+            action_id="action-001",
+            claimed_success=claimed_success,
+        )
 
     def evidence(
         self,
@@ -37,41 +41,60 @@ class TestIndependentVerification(unittest.TestCase):
             collected_independently=independent,
         )
 
-    def assert_untrusted_evidence_fails_closed(self, result) -> None:
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+    def test_matching_success_is_verified(self) -> None:
+        result = verify_report(
+            self.report(True),
+            self.evidence("success"),
+        )
         self.assertEqual(
-            result.reason,
-            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
-    def test_caller_boolean_true_cannot_establish_independence(self) -> None:
-        self.assert_untrusted_evidence_fails_closed(
-            verify_report(self.report(True), self.evidence("success", independent=True))
+    def test_claimed_success_with_failure_evidence_is_false_success(
+        self,
+    ) -> None:
+        result = verify_report(
+            self.report(True),
+            self.evidence("failure"),
         )
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
-    def test_caller_boolean_false_is_also_untrusted(self) -> None:
-        self.assert_untrusted_evidence_fails_closed(
-            verify_report(self.report(True), self.evidence("success", independent=False))
+    def test_reported_failure_with_success_evidence_is_contradicted(
+        self,
+    ) -> None:
+        result = verify_report(
+            self.report(False),
+            self.evidence("success"),
         )
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
-    def test_false_success_is_not_claimed_without_trusted_evidence(self) -> None:
-        self.assert_untrusted_evidence_fails_closed(
-            verify_report(self.report(True), self.evidence("failure", independent=True))
+    def test_matching_failure_is_verified(self) -> None:
+        result = verify_report(
+            self.report(False),
+            self.evidence("failure"),
         )
-
-    def test_failure_report_is_not_verified_without_trusted_evidence(self) -> None:
-        self.assert_untrusted_evidence_fails_closed(
-            verify_report(self.report(False), self.evidence("failure", independent=True))
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
         )
-
-    def test_contradiction_is_not_claimed_without_trusted_evidence(self) -> None:
-        self.assert_untrusted_evidence_fails_closed(
-            verify_report(self.report(False), self.evidence("success", independent=True))
-        )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
     def test_missing_evidence_is_inconclusive(self) -> None:
         result = verify_report(self.report(), None)
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
         self.assertEqual(result.reason, "EVIDENCE_MISSING")
 
     def test_mismatched_action_id_is_inconclusive(self) -> None:
@@ -79,28 +102,77 @@ class TestIndependentVerification(unittest.TestCase):
             self.report(),
             self.evidence(action_id="different-action"),
         )
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
-        self.assertEqual(result.reason, "EVIDENCE_ACTION_ID_MISMATCH")
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "EVIDENCE_ACTION_ID_MISMATCH",
+        )
+
+    def test_non_independent_evidence_is_inconclusive(self) -> None:
+        result = verify_report(
+            self.report(),
+            self.evidence(independent=False),
+        )
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
+        )
 
     def test_missing_evidence_reference_is_inconclusive(self) -> None:
-        result = verify_report(self.report(), self.evidence(evidence_ref=" "))
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
-        self.assertEqual(result.reason, "EVIDENCE_REFERENCE_MISSING")
+        result = verify_report(
+            self.report(),
+            self.evidence(evidence_ref=" "),
+        )
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "EVIDENCE_REFERENCE_MISSING",
+        )
 
     def test_unknown_observed_state_is_inconclusive(self) -> None:
-        result = verify_report(self.report(), self.evidence("unknown"))
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
-        self.assertEqual(result.reason, "UNKNOWN_OBSERVED_STATE")
+        result = verify_report(
+            self.report(),
+            self.evidence("unknown"),
+        )
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "UNKNOWN_OBSERVED_STATE",
+        )
 
     def test_none_report_is_inconclusive(self) -> None:
         result = verify_report(None, None)  # type: ignore[arg-type]
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
         self.assertEqual(result.reason, "INVALID_ACTION_REPORT")
         self.assertEqual(result.action_id, "")
 
     def test_wrong_report_type_is_inconclusive(self) -> None:
-        result = verify_report({"action_id": "action-001"}, None)  # type: ignore[arg-type]
-        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        result = verify_report(
+            {"action_id": "action-001"},  # type: ignore[arg-type]
+            None,
+        )
+
+        self.assertEqual(
+            result.status,
+            VerificationStatus.INCONCLUSIVE,
+        )
         self.assertEqual(result.reason, "INVALID_ACTION_REPORT")
 
 
