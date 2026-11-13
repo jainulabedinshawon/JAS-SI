@@ -36,6 +36,7 @@ END
 $block$;
 
 GRANT USAGE ON SCHEMA public TO jas_si_api_rate_limit_owner, jas_si_runtime;
+GRANT CREATE ON SCHEMA public TO jas_si_api_rate_limit_owner;
 SET LOCAL ROLE jas_si_api_rate_limit_owner;
 CREATE TABLE IF NOT EXISTS public.jas_si_api_rate_limits (
     bucket_key bytea PRIMARY KEY CHECK (octet_length(bucket_key)=32),
@@ -109,6 +110,9 @@ BEGIN
     RETURN NEXT;
 END;
 $function$;
+RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_api_rate_limit_owner;
+SET LOCAL ROLE jas_si_api_rate_limit_owner;
 REVOKE ALL ON TABLE public.jas_si_api_rate_limits FROM PUBLIC, jas_si_runtime;
 REVOKE ALL ON FUNCTION public.jas_si_api_rate_limit_check(bytea,integer,integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jas_si_api_rate_limit_check(bytea,integer,integer) TO jas_si_runtime;
