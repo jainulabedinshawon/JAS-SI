@@ -66,6 +66,9 @@ BEGIN
 END
 $$;
 
+GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
+SET LOCAL ROLE jas_si_customer_identity_owner;
+
 CREATE OR REPLACE FUNCTION public.customer_register(
     p_email text, p_email_normalized text, p_organization_name text,
     p_account_id uuid, p_tenant_id uuid, p_token_id uuid,
@@ -187,13 +190,9 @@ BEGIN
 END;
 $function$;
 
-GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 
-ALTER FUNCTION public.customer_register(text,text,text,uuid,uuid,uuid,bytea,timestamptz) OWNER TO jas_si_customer_identity_owner;
-ALTER FUNCTION public.customer_issue_link(text,text,uuid,bytea,timestamptz) OWNER TO jas_si_customer_identity_owner;
-ALTER FUNCTION public.customer_consume_link(bytea,text,uuid,bytea,timestamptz) OWNER TO jas_si_customer_identity_owner;
-ALTER FUNCTION public.customer_authenticate_session(bytea) OWNER TO jas_si_customer_identity_owner;
-ALTER FUNCTION public.customer_revoke_session(bytea) OWNER TO jas_si_customer_identity_owner;
+
+RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 
 SET LOCAL ROLE jas_si_customer_identity_owner;
