@@ -281,6 +281,8 @@ ALTER FUNCTION public.jas_si_api_key_usage_events(uuid,bytea,text,integer,timest
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_usage_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_usage_owner;
 
+SET LOCAL ROLE jas_si_api_key_usage_owner;
+
 REVOKE ALL ON FUNCTION public.jas_si_api_key_usage_reserve(uuid,bytea,text,text,text,text,text,bigint,bigint) FROM PUBLIC,jas_si_runtime;
 REVOKE ALL ON FUNCTION public.jas_si_api_key_usage_quota(uuid,bytea,text,bigint) FROM PUBLIC,jas_si_runtime;
 REVOKE ALL ON FUNCTION public.jas_si_api_key_usage_summary(uuid,bytea,text,timestamptz) FROM PUBLIC,jas_si_runtime;
@@ -289,3 +291,4 @@ GRANT EXECUTE ON FUNCTION public.jas_si_api_key_usage_reserve(uuid,bytea,text,te
 GRANT EXECUTE ON FUNCTION public.jas_si_api_key_usage_quota(uuid,bytea,text,bigint) TO jas_si_runtime;
 GRANT EXECUTE ON FUNCTION public.jas_si_api_key_usage_summary(uuid,bytea,text,timestamptz) TO jas_si_runtime;
 GRANT EXECUTE ON FUNCTION public.jas_si_api_key_usage_events(uuid,bytea,text,integer,timestamptz,uuid) TO jas_si_runtime;
+RESET ROLE;
