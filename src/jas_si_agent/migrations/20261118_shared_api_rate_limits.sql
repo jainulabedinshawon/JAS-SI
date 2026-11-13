@@ -51,7 +51,7 @@ CREATE OR REPLACE FUNCTION public.jas_si_api_rate_limit_check(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE
     v_times timestamptz[];
-    v_now timestamptz := pg_catalog.clock_timestamp();
+    v_now timestamptz;
     v_cutoff timestamptz;
     v_count integer;
     v_retry integer := 0;
@@ -62,20 +62,22 @@ BEGIN
        OR p_window_seconds > 604800 THEN
         RAISE EXCEPTION 'Invalid API rate-limit input' USING ERRCODE='22023';
     END IF;
-    v_cutoff := v_now - (p_window_seconds * interval '1 second');
-
     INSERT INTO public.jas_si_api_rate_limits(bucket_key,request_times,updated_at)
-    VALUES(p_bucket_key,ARRAY[]::timestamptz[],v_now)
+    VALUES(p_bucket_key,ARRAY[]::timestamptz[],pg_catalog.clock_timestamp())
     ON CONFLICT(bucket_key) DO NOTHING;
 
     SELECT request_times INTO v_times
       FROM public.jas_si_api_rate_limits
      WHERE bucket_key=p_bucket_key FOR UPDATE;
 
-    SELECT COALESCE(array_agg(item ORDER BY item),ARRAY[]::timestamptz[])
+    -- Take the decision timestamp only after obtaining the per-IP row lock.
+    v_now := pg_catalog.clock_timestamp();
+    v_cutoff := v_now - (p_window_seconds * interval '1 second');
+
+    SELECT COALESCE(array_agg(event_at ORDER BY event_at),ARRAY[]::timestamptz[])
       INTO v_times
-      FROM pg_catalog.unnest(v_times) AS item
-     WHERE item > v_cutoff;
+      FROM pg_catalog.unnest(v_times) AS events(event_at)
+     WHERE event_at > v_cutoff;
     v_count := pg_catalog.cardinality(v_times);
 
     IF v_count >= p_limit THEN
@@ -99,7 +101,7 @@ BEGIN
     DELETE FROM public.jas_si_api_rate_limits
      WHERE bucket_key IN (
        SELECT bucket_key FROM public.jas_si_api_rate_limits
-        WHERE updated_at < v_now - GREATEST(p_window_seconds * 2,3600) * interval '1 second'
+        WHERE updated_at < v_now - interval '14 days'
           AND bucket_key <> p_bucket_key
         ORDER BY updated_at
         LIMIT 32
