@@ -2,12 +2,6 @@ name: JAS-SI Clean Migration Chain Replay
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "**"
-    paths:
-      - "src/jas_si_agent/migrations/**"
-      - ".github/workflows/migration-chain-replay.yml"
   pull_request:
     branches:
       - main
@@ -78,8 +72,8 @@ jobs:
               "20261112_customer_identity_routines.sql",
               "20261113_customer_api_key_routines.sql",
               "20261110_customer_rate_limits.sql",
-              "20261110_usage_idempotency_fingerprint.sql",
               "20261110_usage_metering.sql",
+              "20261110_usage_idempotency_fingerprint.sql",
               "20261111_usage_append_only_role_grants.sql",
               "20261114_customer_usage_read_routines.sql",
               "20261115_api_key_auth_boundary.sql",
