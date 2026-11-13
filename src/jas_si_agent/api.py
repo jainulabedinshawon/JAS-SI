@@ -267,6 +267,10 @@ def _api_client_ip(request: Request) -> str:
     try:
         return ipaddress.ip_address(candidate).compressed
     except ValueError:
+        # Starlette's TestClient uses the non-IP peer name "testclient".
+        # Normalize that test-only transport identity to loopback.
+        if settings.environment == "test" and candidate == "testclient":
+            return "127.0.0.1"
         raise HTTPException(
             status_code=503,
             detail="API client address could not be verified",
