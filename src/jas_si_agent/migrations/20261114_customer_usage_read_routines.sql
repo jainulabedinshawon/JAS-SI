@@ -119,10 +119,13 @@ BEGIN
 END;
 $function$;
 
+GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
+
 ALTER FUNCTION public.customer_usage_summary(bytea,timestamptz)
     OWNER TO jas_si_customer_identity_owner;
 ALTER FUNCTION public.customer_usage_events(bytea,integer,timestamptz,uuid)
     OWNER TO jas_si_customer_identity_owner;
+REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 
 REVOKE ALL ON FUNCTION public.customer_usage_summary(bytea,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.customer_usage_events(bytea,integer,timestamptz,uuid) FROM PUBLIC;
