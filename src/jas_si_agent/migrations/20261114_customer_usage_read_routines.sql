@@ -21,6 +21,9 @@ $body$;
 GRANT SELECT (tenant_id,event_id,request_id,operation,units,occurred_at)
     ON public.jas_si_usage_events TO jas_si_customer_identity_owner;
 
+GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
+SET LOCAL ROLE jas_si_customer_identity_owner;
+
 CREATE OR REPLACE FUNCTION public.customer_usage_summary(
     p_session_digest bytea, p_since timestamptz
 ) RETURNS TABLE(
@@ -119,12 +122,13 @@ BEGIN
 END;
 $function$;
 
-GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
-
 ALTER FUNCTION public.customer_usage_summary(bytea,timestamptz)
     OWNER TO jas_si_customer_identity_owner;
 ALTER FUNCTION public.customer_usage_events(bytea,integer,timestamptz,uuid)
     OWNER TO jas_si_customer_identity_owner;
+
+
+RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 
 SET LOCAL ROLE jas_si_customer_identity_owner;
