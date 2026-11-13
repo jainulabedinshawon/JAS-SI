@@ -13,6 +13,7 @@ from typing import Optional
 _MIN_HMAC_SECRET_BYTES = 32
 _MIN_API_KEY_PEPPER_BYTES = 32
 _MIN_CUSTOMER_TOKEN_PEPPER_BYTES = 32
+_MIN_API_RATE_LIMIT_PEPPER_BYTES = 32
 
 
 def _read_bool(name: str, default: bool = False) -> bool:
@@ -64,6 +65,16 @@ def _read_optional_customer_token_pepper() -> Optional[bytes]:
     pepper = raw.encode("utf-8")
     if len(pepper) < _MIN_CUSTOMER_TOKEN_PEPPER_BYTES:
         raise ValueError("JAS_SI_CUSTOMER_TOKEN_PEPPER must contain at least 32 UTF-8 bytes")
+    return pepper
+
+
+def _read_optional_api_rate_limit_pepper() -> Optional[bytes]:
+    raw = os.getenv("JAS_SI_API_RATE_LIMIT_PEPPER")
+    if raw is None or raw == "":
+        return None
+    pepper = raw.encode("utf-8")
+    if len(pepper) < _MIN_API_RATE_LIMIT_PEPPER_BYTES:
+        raise ValueError("JAS_SI_API_RATE_LIMIT_PEPPER must contain at least 32 UTF-8 bytes")
     return pepper
 
 
@@ -127,6 +138,7 @@ class Settings:
     customer_database_url: Optional[str] = field(default=None, repr=False)
     customer_api_key_database_url: Optional[str] = field(default=None, repr=False)
     customer_token_pepper: Optional[bytes] = field(default=None, repr=False)
+    api_rate_limit_pepper: Optional[bytes] = field(default=None, repr=False)
     customer_smtp_host: Optional[str] = None
     customer_smtp_port: int = 587
     customer_smtp_username: Optional[str] = field(default=None, repr=False)
@@ -158,6 +170,7 @@ class Settings:
 
         api_key_pepper = _read_optional_api_key_pepper()
         customer_token_pepper = _read_optional_customer_token_pepper()
+        api_rate_limit_pepper = _read_optional_api_rate_limit_pepper()
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
 
@@ -203,6 +216,7 @@ class Settings:
                 os.getenv("JAS_SI_CUSTOMER_API_KEY_DATABASE_URL") or None
             ),
             customer_token_pepper=customer_token_pepper,
+            api_rate_limit_pepper=api_rate_limit_pepper,
             customer_smtp_host=os.getenv("JAS_SI_CUSTOMER_SMTP_HOST") or None,
             customer_smtp_port=_read_positive_int("JAS_SI_CUSTOMER_SMTP_PORT", 587),
             customer_smtp_username=os.getenv("JAS_SI_CUSTOMER_SMTP_USERNAME") or None,
