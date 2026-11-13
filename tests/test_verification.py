@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -41,134 +40,70 @@ class TestIndependentVerification(unittest.TestCase):
             collected_independently=independent,
         )
 
-    def test_matching_success_is_verified(self) -> None:
+    def test_caller_true_flag_cannot_establish_trusted_provenance(self):
+        result = verify_report(self.report(), self.evidence(independent=True))
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE",
+        )
+
+    def test_caller_false_flag_is_also_inconclusive(self):
+        result = verify_report(self.report(), self.evidence(independent=False))
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE",
+        )
+
+    def test_failure_claim_cannot_be_classified_from_untrusted_evidence(self):
         result = verify_report(
             self.report(True),
-            self.evidence("success"),
+            self.evidence("failure", independent=True),
         )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(
-            result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            result.reason,
+            "TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE",
         )
 
-    def test_claimed_success_with_failure_evidence_is_false_success(
-        self,
-    ) -> None:
-        result = verify_report(
-            self.report(True),
-            self.evidence("failure"),
-        )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.FALSE_SUCCESS,
-        )
-
-    def test_reported_failure_with_success_evidence_is_contradicted(
-        self,
-    ) -> None:
+    def test_reported_failure_cannot_be_verified_from_untrusted_evidence(self):
         result = verify_report(
             self.report(False),
-            self.evidence("success"),
+            self.evidence("failure", independent=True),
         )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.CONTRADICTED_REPORT,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
 
-    def test_matching_failure_is_verified(self) -> None:
-        result = verify_report(
-            self.report(False),
-            self.evidence("failure"),
-        )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.VERIFIED_FAILURE,
-        )
-
-    def test_missing_evidence_is_inconclusive(self) -> None:
+    def test_missing_evidence_is_inconclusive(self):
         result = verify_report(self.report(), None)
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(result.reason, "EVIDENCE_MISSING")
 
-    def test_mismatched_action_id_is_inconclusive(self) -> None:
+    def test_mismatched_action_id_is_inconclusive(self):
         result = verify_report(
             self.report(),
             self.evidence(action_id="different-action"),
         )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
-        self.assertEqual(
-            result.reason,
-            "EVIDENCE_ACTION_ID_MISMATCH",
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(result.reason, "EVIDENCE_ACTION_ID_MISMATCH")
 
-    def test_non_independent_evidence_is_inconclusive(self) -> None:
-        result = verify_report(
-            self.report(),
-            self.evidence(independent=False),
-        )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
-        self.assertEqual(
-            result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
-        )
+    def test_missing_evidence_reference_is_inconclusive(self):
+        result = verify_report(self.report(), self.evidence(evidence_ref=" "))
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(result.reason, "EVIDENCE_REFERENCE_MISSING")
 
-    def test_missing_evidence_reference_is_inconclusive(self) -> None:
-        result = verify_report(
-            self.report(),
-            self.evidence(evidence_ref=" "),
-        )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
-        self.assertEqual(
-            result.reason,
-            "EVIDENCE_REFERENCE_MISSING",
-        )
-
-    def test_unknown_observed_state_is_inconclusive(self) -> None:
-        result = verify_report(
-            self.report(),
-            self.evidence("unknown"),
-        )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
-        self.assertEqual(
-            result.reason,
-            "UNKNOWN_OBSERVED_STATE",
-        )
-
-    def test_none_report_is_inconclusive(self) -> None:
+    def test_none_report_is_inconclusive(self):
         result = verify_report(None, None)  # type: ignore[arg-type]
-
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(result.reason, "INVALID_ACTION_REPORT")
         self.assertEqual(result.action_id, "")
 
-    def test_wrong_report_type_is_inconclusive(self) -> None:
+    def test_wrong_report_type_is_inconclusive(self):
         result = verify_report(
             {"action_id": "action-001"},  # type: ignore[arg-type]
             None,
         )
-
-        self.assertEqual(
-            result.status,
-            VerificationStatus.INCONCLUSIVE,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(result.reason, "INVALID_ACTION_REPORT")
 
 

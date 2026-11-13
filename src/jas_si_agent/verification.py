@@ -1,11 +1,9 @@
+"""JAS-SI verification primitives.
 
-"""JAS-SI MVP independent verification primitives.
-
-This module evaluates reported outcomes against separately supplied
-evidence. It does not collect evidence or execute actions.
-
-A VERIFIED result means the supplied evidence meets this module's
-checks; it does not prove that the evidence source is trustworthy.
+Caller-submitted evidence is not independently trusted. This module does
+not collect evidence, authenticate its origin, or execute actions. Until a
+trusted server-side collector establishes provenance, supplied evidence
+must never produce a verified outcome.
 """
 
 from __future__ import annotations
@@ -33,6 +31,8 @@ class VerificationEvidence:
     action_id: str
     observed_state: str
     evidence_ref: str
+    # Deprecated compatibility field. It is caller-controlled and is never
+    # accepted as proof of independent collection.
     collected_independently: bool
 
 
@@ -47,9 +47,8 @@ def verify_report(
     report: ActionReport,
     evidence: VerificationEvidence | None,
 ) -> VerificationResult:
-    """Compare an action report with separately supplied evidence."""
+    """Validate input shape, but fail closed without authenticated provenance."""
 
-    # Validate the report before accessing any of its attributes.
     if not isinstance(report, ActionReport):
         return VerificationResult(
             status=VerificationStatus.INCONCLUSIVE,
@@ -57,11 +56,7 @@ def verify_report(
             action_id="",
         )
 
-    action_id = (
-        report.action_id
-        if isinstance(report.action_id, str)
-        else ""
-    )
+    action_id = report.action_id if isinstance(report.action_id, str) else ""
 
     def inconclusive(reason: str) -> VerificationResult:
         return VerificationResult(
@@ -94,35 +89,6 @@ def verify_report(
     if not evidence.evidence_ref.strip():
         return inconclusive("EVIDENCE_REFERENCE_MISSING")
 
-    if evidence.collected_independently is not True:
-        return inconclusive("INDEPENDENCE_NOT_ESTABLISHED")
-
-    if evidence.observed_state == "success":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED_SUCCESS,
-                reason="REPORT_MATCHES_SUCCESS_EVIDENCE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.CONTRADICTED_REPORT,
-            reason="EVIDENCE_SHOWS_SUCCESS_BUT_REPORT_DOES_NOT",
-            action_id=action_id,
-        )
-
-    if evidence.observed_state == "failure":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.FALSE_SUCCESS,
-                reason="REPORT_CLAIMS_SUCCESS_BUT_EVIDENCE_SHOWS_FAILURE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.VERIFIED_FAILURE,
-            reason="REPORT_MATCHES_FAILURE_EVIDENCE",
-            action_id=action_id,
-        )
-
-    return inconclusive("UNKNOWN_OBSERVED_STATE")
+    # Neither a caller-provided Boolean nor an evidence reference authenticates
+    # provenance. No trusted collector is currently wired into this function.
+    return inconclusive("TRUSTED_EVIDENCE_PROVENANCE_UNAVAILABLE")
