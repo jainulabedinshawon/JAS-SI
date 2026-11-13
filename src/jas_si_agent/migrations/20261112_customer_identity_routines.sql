@@ -174,9 +174,11 @@ LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $function$
     SELECT a.account_id,a.tenant_id,a.email::text,a.organization_name::text,a.status::text
     FROM public.jas_si_customer_sessions s
     JOIN public.jas_si_customer_accounts a ON a.account_id=s.account_id
+    JOIN public.jas_si_tenants t ON t.tenant_id=a.tenant_id
     WHERE p_session_digest IS NOT NULL AND pg_catalog.octet_length(p_session_digest)=32
       AND s.token_digest=p_session_digest AND s.revoked_at IS NULL
-      AND s.expires_at > pg_catalog.clock_timestamp() AND a.status='active'
+      AND s.expires_at > pg_catalog.clock_timestamp()
+      AND a.status='active' AND t.status='active'
 $function$;
 
 CREATE OR REPLACE FUNCTION public.customer_revoke_session(p_session_digest bytea)
