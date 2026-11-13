@@ -15,6 +15,8 @@ This checklist is an operator handoff. It is not authorization to change Vercel,
 
 Passing CI is evidence for the tested code paths, not evidence that external runtime services or a live customer journey are configured.
 
+The registration/login email-abuse limiter is PostgreSQL-backed and shared across instances. The general API middleware also has a separate process-local request limiter; do not treat the email limiter tests as proof that this broader middleware limit is globally shared. Before public launch, review whether general API rate limits need a distributed backend and validate behavior under the actual hosting/proxy topology.
+
 ## Configuration audit result
 
 A read-only Vercel project environment metadata check found 15 environment-variable entries. It did not find any customer-specific runtime configuration entries. In particular, the following were absent from the inspected project environment metadata:
@@ -39,7 +41,7 @@ Complete these in an isolated, disposable Neon staging branch — never against 
 
 1. Create separate least-privilege LOGIN principals for customer identity and customer API-key connections.
 2. Grant each login only its corresponding NOLOGIN runtime group role. Do not grant provisioner, owner, general API runtime, or superuser memberships.
-3. Apply the migrations in the exact dependency order documented in `customer-api-key-runtime-setup.md`. Inspect existing objects and ACLs; `IF NOT EXISTS` is not proof of schema correctness.
+3. Apply the migrations in the exact dependency order documented in `customer-api-key-runtime-setup.md`, including the API-key authentication and usage-routine migrations. Apply `20261117_runtime_usage_routine_only.sql` only after `20261116_api_key_bound_usage_routines.sql`; verify the API still records usage and reads summary/quota/history through authenticated routines while direct runtime SELECT/INSERT is denied. Inspect existing objects and ACLs; `IF NOT EXISTS` is not proof of schema correctness.
 4. Verify the effective `current_user`, `session_user`, role flags, memberships, schema privileges, table/column ACLs, SECURITY DEFINER owners, fixed search paths, RLS policies, and cross-tenant denial.
 5. Generate a fresh random customer session pepper (at least 32 UTF-8 bytes) in the approved secret manager. Do not reuse the API-key pepper.
 6. Configure the dedicated customer DSNs and customer session pepper only for the exact PR preview branch after the isolated database roles and routines have been verified.
