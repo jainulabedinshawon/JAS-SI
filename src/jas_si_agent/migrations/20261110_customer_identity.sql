@@ -52,10 +52,13 @@ REVOKE UPDATE, DELETE, TRUNCATE ON jas_si_customer_auth_tokens FROM PUBLIC;
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_runtime') THEN
-        CREATE ROLE jas_si_customer_runtime NOLOGIN;
+        CREATE ROLE jas_si_customer_runtime NOLOGIN NOINHERIT;
     END IF;
+    -- The runtime group has no role memberships and must never inherit
+    -- privileges if a membership is accidentally introduced later.
+    ALTER ROLE jas_si_customer_runtime NOLOGIN NOINHERIT;
 END
-$$;
+$;
 
 -- Customer identity creates tenant rows during signup but does not need to
 -- enumerate or read other tenants. The tenant INSERT policy is installed by
