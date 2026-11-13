@@ -75,12 +75,12 @@ jobs:
               "006_api_key_registry_role_grants.sql",
               "007_customer_api_key_self_service.sql",
               "20261110_customer_identity.sql",
-              "20261110_customer_rate_limits.sql",
-              "20261110_usage_metering.sql",
-              "20261110_usage_idempotency_fingerprint.sql",
-              "20261111_usage_append_only_role_grants.sql",
               "20261112_customer_identity_routines.sql",
               "20261113_customer_api_key_routines.sql",
+              "20261110_customer_rate_limits.sql",
+              "20261110_usage_idempotency_fingerprint.sql",
+              "20261110_usage_metering.sql",
+              "20261111_usage_append_only_role_grants.sql",
               "20261114_customer_usage_read_routines.sql",
               "20261115_api_key_auth_boundary.sql",
               "20261116_api_key_bound_usage_routines.sql",
@@ -127,7 +127,8 @@ jobs:
                          pg_catalog.bool_and(p.prosecdef),
                          pg_catalog.bool_and(NOT r.rolcanlogin AND NOT r.rolsuper
                            AND NOT r.rolcreatedb AND NOT r.rolcreaterole
-                           AND NOT r.rolreplication AND NOT r.rolbypassrls),
+                           AND NOT r.rolreplication AND NOT r.rolbypassrls
+                           AND NOT r.rolinherit),
                          pg_catalog.bool_and('search_path=pg_catalog'=ANY(p.proconfig)),
                          pg_catalog.bool_and(NOT EXISTS (
                            SELECT 1
