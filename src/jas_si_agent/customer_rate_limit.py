@@ -43,7 +43,9 @@ class PostgresCustomerRateLimiter:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT effective.rolname, effective.rolsuper, effective.rolbypassrls,
-                          effective.rolcanlogin,
+                          effective.rolcanlogin, effective.rolcreatedb,
+                          effective.rolcreaterole, effective.rolreplication,
+                          effective.rolinherit,
                           EXISTS (SELECT 1 FROM pg_auth_members AS membership
                                   WHERE membership.member = effective.oid) AS effective_has_memberships,
                           login.rolname, login.rolsuper, login.rolbypassrls,
@@ -57,20 +59,58 @@ class PostgresCustomerRateLimiter:
                                     AND NOT membership.admin_option
                                     AND NOT membership.inherit_option
                                     AND membership.set_option) AS login_has_only_settable_runtime_membership,
-                              to_regclass('public.jas_si_customer_rate_limits')
-                       FROM pg_roles AS effective
-                       JOIN pg_roles AS login ON login.rolname = session_user
+                          rate_table.oid IS NOT NULL,
+                          pg_catalog.pg_get_userbyid(rate_table.relowner) <> effective.rolname,
+                          pg_catalog.has_schema_privilege(effective.rolname,'public','USAGE'),
+                          NOT pg_catalog.has_schema_privilege(effective.rolname,'public','CREATE'),
+                          pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'SELECT'),
+                          pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'INSERT'),
+                          pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'UPDATE'),
+                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'DELETE'),
+                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'TRUNCATE'),
+                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'REFERENCES'),
+                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'TRIGGER'),
+                          NOT EXISTS (
+                              SELECT 1
+                                FROM pg_catalog.aclexplode(
+                                    COALESCE(rate_table.relacl,
+                                      pg_catalog.acldefault('r',rate_table.relowner))
+                                ) acl
+                               WHERE acl.grantee IN (0,effective.oid)
+                                 AND (
+                                     acl.grantee=0
+                                     OR acl.privilege_type NOT IN ('SELECT','INSERT','UPDATE')
+                                     OR acl.is_grantable
+                                 )
+                          ),
+                          NOT EXISTS (
+                              SELECT 1
+                                FROM pg_catalog.pg_attribute column_info
+                                CROSS JOIN LATERAL pg_catalog.aclexplode(column_info.attacl) acl
+                               WHERE column_info.attrelid=rate_table.oid
+                                 AND column_info.attnum>0 AND NOT column_info.attisdropped
+                                 AND acl.grantee IN (0,effective.oid)
+                          )
+                       FROM pg_catalog.pg_roles AS effective
+                       JOIN pg_catalog.pg_roles AS login ON login.rolname = session_user
+                       LEFT JOIN pg_catalog.pg_class AS rate_table
+                         ON rate_table.oid=pg_catalog.to_regclass('public.jas_si_customer_rate_limits')
                        WHERE effective.rolname = current_user"""
                 )
                 row = cursor.fetchone()
         return bool(
             row
             and row[0] == "jas_si_customer_runtime"
-            and not row[1] and not row[2] and not row[3] and not row[4]
-            and row[5] != row[0]
-            and not row[6] and not row[7] and row[8]
-            and not row[9] and not row[10] and not row[11] and not row[12]
-            and row[13] == 1 and row[14] and row[15]
+            and not any(row[1:9])
+            and row[9] != row[0]
+            and not row[10] and not row[11] and row[12]
+            and not row[13] and not row[14] and not row[15] and not row[16]
+            and row[17] == 1 and row[18]
+            and row[19] and row[20]
+            and row[21] and row[22]
+            and row[23] and row[24] and row[25]
+            and row[26] and row[27] and row[28] and row[29]
+            and row[30] and row[31]
         )
 
     def check(
