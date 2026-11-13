@@ -4,8 +4,9 @@
 This module evaluates reported outcomes against separately supplied
 evidence. It does not collect evidence or execute actions.
 
-A VERIFIED result means the supplied evidence meets this module's
-checks; it does not prove that the evidence source is trustworthy.
+This module accepts caller-supplied evidence only as untrusted input.
+A caller-controlled independence flag is not provenance. No evidence
+can produce a VERIFIED status until a trusted collector is integrated.
 """
 
 from __future__ import annotations
@@ -94,8 +95,11 @@ def verify_report(
     if not evidence.evidence_ref.strip():
         return inconclusive("EVIDENCE_REFERENCE_MISSING")
 
-    if evidence.collected_independently is not True:
-        return inconclusive("INDEPENDENCE_NOT_ESTABLISHED")
+    # This SDK runs in the caller's process. A caller-controlled Boolean
+    # cannot establish evidence provenance, even when set to True. Until a
+    # trusted server-side collector supplies authenticated provenance, all
+    # caller-supplied evidence remains untrusted and must fail closed.
+    return inconclusive("UNTRUSTED_EVIDENCE_SOURCE")
 
     if evidence.observed_state == "success":
         if report.claimed_success:
