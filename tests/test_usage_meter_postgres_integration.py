@@ -44,6 +44,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                     "20261111_usage_append_only_role_grants.sql",
                     "20261115_api_key_auth_boundary.sql",
                     "20261116_api_key_bound_usage_routines.sql",
+                    "20261117_runtime_usage_routine_only.sql",
                 ):
                     path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                     cur.execute(path.read_text(encoding="utf-8"))
@@ -214,7 +215,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                 )
             conn.rollback()
 
-    def test_runtime_role_can_append_and_read_but_not_mutate_usage(self):
+    def test_runtime_role_uses_routines_without_direct_usage_table_access(self):
         with psycopg.connect(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -224,6 +225,10 @@ class TestPostgresUsageMeter(unittest.TestCase):
                          has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'UPDATE'),
                          has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'DELETE'),
                          has_table_privilege('jas_si_runtime', 'jas_si_usage_events', 'TRUNCATE'),
+                         has_any_column_privilege('jas_si_runtime', 'jas_si_usage_events', 'SELECT'),
+                         has_any_column_privilege('jas_si_runtime', 'jas_si_usage_events', 'INSERT'),
+                         has_any_column_privilege('jas_si_runtime', 'jas_si_usage_events', 'UPDATE'),
+                         has_any_column_privilege('jas_si_runtime', 'jas_si_usage_events', 'REFERENCES'),
                          has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'SELECT'),
                          has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'INSERT'),
                          has_table_privilege('jas_si_provisioner', 'jas_si_usage_events', 'UPDATE'),
@@ -233,8 +238,30 @@ class TestPostgresUsageMeter(unittest.TestCase):
                 privileges = cur.fetchone()
         self.assertEqual(
             privileges,
-            (True, True, False, False, False, False, False, False, False, False),
+            (False, False, False, False, False, False, False, False, False,
+             False, False, False, False, False),
         )
+
+        # The runtime must be unable to bypass key-bound tenant/scope checks
+        # with direct SQL, while the SECURITY DEFINER routines remain usable.
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_runtime")
+            with self.assertRaises(psycopg.Error):
+                cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
+            conn.rollback()
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_runtime")
+            with self.assertRaises(psycopg.Error):
+                cur.execute(
+                    """INSERT INTO public.jas_si_usage_events
+                       (event_id,tenant_id,api_key_id,request_id,idempotency_key,
+                        operation,units,occurred_at,request_fingerprint)
+                       VALUES (%s,%s,%s,'direct-denied','direct-denied',
+                               'authorization.evaluate',1,clock_timestamp(),%s)""",
+                    (uuid.uuid4(), self.tenant_a, self.key_a,
+                     hashlib.sha256(b"direct-denied").hexdigest()),
+                )
+            conn.rollback()
 
     def test_idempotent_replay_returns_original_event(self):
         args = dict(
