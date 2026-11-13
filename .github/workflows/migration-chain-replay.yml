@@ -8,6 +8,12 @@ on:
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/jas_si_agent/migrations/**"
+      - ".github/workflows/migration-chain-replay.yml"
 
 permissions:
   contents: read
@@ -123,7 +129,13 @@ jobs:
                            AND NOT r.rolcreatedb AND NOT r.rolcreaterole
                            AND NOT r.rolreplication AND NOT r.rolbypassrls),
                          pg_catalog.bool_and('search_path=pg_catalog'=ANY(p.proconfig)),
-                         pg_catalog.bool_and(NOT pg_catalog.has_function_privilege('public',p.oid,'EXECUTE'))
+                         pg_catalog.bool_and(NOT EXISTS (
+                           SELECT 1
+                             FROM pg_catalog.aclexplode(
+                               COALESCE(p.proacl, pg_catalog.acldefault('f',p.proowner))
+                             ) acl
+                            WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                         ))
                     FROM pg_catalog.pg_proc p
                     JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
                     JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
