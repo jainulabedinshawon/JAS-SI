@@ -49,7 +49,7 @@ REVOKE UPDATE, DELETE, TRUNCATE ON jas_si_customer_auth_tokens FROM PUBLIC;
 
 -- Bootstrap a non-login group role. Deployment credentials must be a separate
 -- LOGIN role granted membership in this role; the app DSN must SET ROLE to it.
-DO $$
+DO $body$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_runtime') THEN
         CREATE ROLE jas_si_customer_runtime NOLOGIN NOINHERIT;
@@ -58,7 +58,7 @@ BEGIN
     -- privileges if a membership is accidentally introduced later.
     ALTER ROLE jas_si_customer_runtime NOLOGIN NOINHERIT;
 END
-$;
+$body$;
 
 -- Customer identity creates tenant rows during signup but does not need to
 -- enumerate or read other tenants. The tenant INSERT policy is installed by
