@@ -267,11 +267,12 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
             cur.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m "
                 "JOIN pg_catalog.pg_roles r ON r.oid=m.member "
+                "JOIN pg_catalog.pg_roles membership_grantor ON membership_grantor.oid=m.grantor "
                 "WHERE r.rolname='jas_si_api_key_auth_owner' OR "
                 "(EXISTS (SELECT 1 FROM pg_catalog.pg_roles rr "
                 "WHERE rr.oid=m.roleid AND rr.rolname='jas_si_api_key_auth_owner') "
                 "AND NOT ((r.rolname='neondb_owner' AND NOT m.admin_option "
-                "AND NOT m.inherit_option AND m.set_option) OR (r.rolname='cloud_admin' "
+                "AND NOT m.inherit_option AND m.set_option) OR (r.rolname='neondb_owner' AND membership_grantor.rolname='cloud_admin' "
                 "AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)))"
             )
             self.assertFalse(cur.fetchone()[0])
