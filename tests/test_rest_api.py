@@ -132,12 +132,11 @@ class TestJASSIRestAPI(unittest.TestCase):
                 "action_id": "test-action-1",
                 "claimed_success": True,
                 "observed_state": "completed",
-                "collected_independently": True,
             },
         )
         self.assertEqual(response.status_code, 422)
 
-    def test_caller_cannot_claim_independent_evidence(self):
+    def test_caller_supplied_independence_flag_is_rejected(self):
         response = self.client.post(
             "/v1/verify",
             headers=self.valid_headers,
@@ -150,22 +149,16 @@ class TestJASSIRestAPI(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn(
+            "collected_independently",
+            response.text,
+        )
 
-        data = response.json()
-
-        self.assertEqual(
-            data["status"],
-            "INCONCLUSIVE",
-        )
-        self.assertEqual(
-            data["reason"],
-            "INDEPENDENCE_NOT_ESTABLISHED",
-        )
-        self.assertEqual(
-            data["evidence_origin"],
-            "caller_submitted",
-        )
+    def test_verify_openapi_does_not_expose_provenance_claim(self):
+        schema = self.client.get("/openapi.json").json()
+        properties = schema["components"]["schemas"]["VerifyRequest"]["properties"]
+        self.assertNotIn("collected_independently", properties)
 
     def test_missing_evidence_reports_no_evidence_origin(self):
         response = self.client.post(
@@ -190,7 +183,7 @@ class TestJASSIRestAPI(unittest.TestCase):
             "not_provided",
         )
 
-    def test_independence_flag_without_evidence_is_not_evidence(self):
+    def test_independence_flag_without_evidence_is_rejected(self):
         response = self.client.post(
             "/v1/verify",
             headers=self.valid_headers,
@@ -201,13 +194,8 @@ class TestJASSIRestAPI(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
-
-        data = response.json()
-
-        self.assertEqual(data["status"], "INCONCLUSIVE")
-        self.assertEqual(data["reason"], "EVIDENCE_MISSING")
-        self.assertEqual(data["evidence_origin"], "not_provided")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("collected_independently", response.text)
 
     def test_missing_api_key_returns_401(self):
         response = self.client.post(
@@ -278,7 +266,6 @@ class TestJASSIRestAPI(unittest.TestCase):
                 "action_id": "test-action-6",
                 "claimed_success": True,
                 "observed_state": "completed",
-                "collected_independently": True,
             },
         )
         self.assertEqual(response.status_code, 422)

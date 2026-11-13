@@ -243,6 +243,11 @@ class AuthorizeRequest(BaseModel):
 
 
 class VerifyRequest(BaseModel):
+    """Caller-submitted claims; evidence provenance is server-controlled."""
+
+    class Config:
+        extra = "forbid"
+
     action_id: str = Field(min_length=1, max_length=128)
     claimed_success: bool
     observed_state: Optional[str] = Field(
@@ -253,7 +258,6 @@ class VerifyRequest(BaseModel):
         default=None,
         max_length=2048,
     )
-    collected_independently: bool = False
 
 
 def _rate_limit_decision(client_ip: str):
