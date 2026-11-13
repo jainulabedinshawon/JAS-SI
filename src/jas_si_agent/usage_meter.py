@@ -264,7 +264,7 @@ class PostgresUsageMeter:
                        SELECT 1 FROM pg_catalog.pg_auth_members m
                         JOIN pg_catalog.pg_roles platform_member ON platform_member.oid=m.member
                         WHERE m.member=owner.oid OR (m.roleid=owner.oid AND NOT (
-                            platform_member.rolname='neondb_owner' AND m.admin_option
+                            platform_member.rolname='neondb_owner' AND NOT m.admin_option
                             AND NOT m.inherit_option AND m.set_option))
                    ) AS owner_has_membership
               FROM resolved r
