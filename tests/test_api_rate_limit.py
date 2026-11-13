@@ -7,10 +7,27 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from dataclasses import replace
+from jas_si_agent import api
 from jas_si_agent.api_rate_limit import ApiRateLimitError, PostgresApiRateLimiter
 
 
 class TestPostgresApiRateLimiter(unittest.TestCase):
+    def test_preview_startup_requires_dedicated_shared_limiter_pepper(self):
+        deployed_settings = replace(
+            api.settings,
+            environment="preview",
+            api_enabled=True,
+            api_key_pepper=b"api-key-pepper-test-value-32-bytes",
+            database_url="postgresql://staging-runtime",
+            api_rate_limit_pepper=None,
+        )
+        with patch.object(api, "settings", deployed_settings):
+            with self.assertRaisesRegex(
+                RuntimeError, "requires JAS_SI_API_RATE_LIMIT_PEPPER"
+            ):
+                api.initialize_security_event_store()
+
     def setUp(self):
         self.pepper = b"test-api-rate-limit-pepper-32-bytes-minimum"
         self.limiter = PostgresApiRateLimiter(
