@@ -167,6 +167,34 @@ class TestJASSIRestAPI(unittest.TestCase):
             "caller_submitted",
         )
 
+    def test_inconclusive_verification_uses_non_success_audit_event(self):
+        action_id = "inconclusive-audit-event"
+        response = self.client.post(
+            "/v1/verify",
+            headers=self.valid_headers,
+            json={
+                "action_id": action_id,
+                "claimed_success": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "INCONCLUSIVE")
+
+        matching = [
+            event for event in self.test_store.load_events()
+            if event.get("action_id") == action_id
+        ]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(
+            matching[0].get("event_type"),
+            "outcome_verification_evaluated",
+        )
+        self.assertEqual(
+            matching[0].get("verification_status"),
+            "INCONCLUSIVE",
+        )
+
     def test_missing_evidence_reports_no_evidence_origin(self):
         response = self.client.post(
             "/v1/verify",
