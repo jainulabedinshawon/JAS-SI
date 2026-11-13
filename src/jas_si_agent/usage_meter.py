@@ -225,8 +225,11 @@ class PostgresUsageMeter:
             items = [{"event_id":str(r[0]),"request_id":r[1],"operation":r[2],
                       "units":int(r[3]),"occurred_at":r[4].isoformat()} for r in page]
             next_cursor = None
-            if has_more and page:
-                next_cursor={"before":page[-1]["occurred_at"],"before_event_id":page[-1]["event_id"]}
+            if has_more and items:
+                next_cursor = {
+                    "before": items[-1]["occurred_at"],
+                    "before_event_id": items[-1]["event_id"],
+                }
             return {"items":items,"next_cursor":next_cursor}
         except Exception as exc:
             if getattr(exc, "sqlstate", None) in {"28000", "42501", "22023"}:
