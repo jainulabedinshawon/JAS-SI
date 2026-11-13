@@ -15,6 +15,9 @@ BEGIN
         SELECT oid INTO v_owner_oid FROM pg_catalog.pg_roles
         WHERE rolname = 'jas_si_customer_identity_owner';
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='neondb_owner') THEN
+        EXECUTE 'GRANT jas_si_customer_identity_owner TO neondb_owner WITH ADMIN TRUE, INHERIT FALSE, SET TRUE';
+    END IF;
     SELECT * INTO v_role FROM pg_catalog.pg_roles WHERE oid = v_owner_oid;
     IF v_role.rolcanlogin OR v_role.rolsuper OR v_role.rolcreatedb
        OR v_role.rolcreaterole OR v_role.rolreplication
@@ -23,7 +26,7 @@ BEGIN
                   JOIN pg_catalog.pg_roles platform_member ON platform_member.oid = m.member
                   WHERE m.member = v_owner_oid OR (m.roleid = v_owner_oid AND NOT (
                       platform_member.rolname = 'neondb_owner' AND m.admin_option
-                      AND NOT m.inherit_option AND NOT m.set_option))) THEN
+                      AND NOT m.inherit_option AND m.set_option))) THEN
         RAISE EXCEPTION 'Unsafe customer identity owner role configuration';
     END IF;
 END
