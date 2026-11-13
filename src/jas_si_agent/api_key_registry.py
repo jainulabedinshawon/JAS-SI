@@ -332,7 +332,13 @@ class PostgresApiKeyRegistry:
                               owner.rolbypassrls, owner.rolinherit,
                               EXISTS (
                                 SELECT 1 FROM pg_catalog.pg_auth_members membership
-                                WHERE membership.member=owner.oid OR membership.roleid=owner.oid
+                                 JOIN pg_catalog.pg_roles platform_member ON platform_member.oid=membership.member
+                                 JOIN pg_catalog.pg_roles membership_grantor ON membership_grantor.oid=membership.grantor
+                                 WHERE membership.member=owner.oid OR (membership.roleid=owner.oid AND NOT (
+                                     (platform_member.rolname='neondb_owner' AND NOT membership.admin_option
+                                      AND NOT membership.inherit_option AND membership.set_option)
+                                     OR (platform_member.rolname='neondb_owner' AND membership_grantor.rolname='cloud_admin'
+                                      AND membership.admin_option AND NOT membership.inherit_option AND NOT membership.set_option)))
                               )
                        FROM pg_catalog.pg_proc p
                        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
