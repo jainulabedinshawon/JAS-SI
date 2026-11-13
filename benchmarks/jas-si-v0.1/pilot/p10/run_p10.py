@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -82,9 +81,26 @@ def calculate_seed(seed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def release_gate_passed(result: dict[str, Any]) -> bool:
+    """A P10 pass requires every integrity condition and the effect threshold."""
+    return (
+        result.get("all_feedback_verified") is True
+        and result.get("training_heldout_evidence_overlap_count") == 0
+        and result.get("seed_count") == REQUIRED_SEEDS
+        and result.get("required_seed_count") == REQUIRED_SEEDS
+        and result.get("practical_threshold_met") is True
+    )
+
+
 def main() -> int:
     with FIXTURE.open("r", encoding="utf-8") as handle:
         fixture = json.load(handle)
+
+    if fixture.get("practical_threshold_delta") != DELTA:
+        raise ValueError(
+            "Fixture practical_threshold_delta does not match the "
+            f"runner's declared DELTA ({DELTA})."
+        )
 
     seeds = fixture["seeds"]
     seed_ids = [item["seed"] for item in seeds]
@@ -152,7 +168,8 @@ def main() -> int:
             "The fixture encodes outcomes; it does not train a real agent.",
             "No independent external evaluator is used in this apparatus.",
             "Threshold attainment is not statistical significance.",
-            "No claim of real-world verified-failure learning is established."
+            "No claim of real-world verified-failure learning is established.",
+            "Repeated synthetic values across seeds are not independent empirical replications.",
         ],
     }
 
@@ -169,11 +186,7 @@ def main() -> int:
 
     print(json.dumps(result, indent=2, sort_keys=True))
 
-    return 0 if (
-        result["all_feedback_verified"]
-        and result["training_heldout_evidence_overlap_count"] == 0
-        and result["seed_count"] == REQUIRED_SEEDS
-    ) else 1
+    return 0 if release_gate_passed(result) else 1
 
 
 if __name__ == "__main__":
