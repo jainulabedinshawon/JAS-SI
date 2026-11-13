@@ -12,13 +12,15 @@ class OracleResult:
 
 class OracleAgent:
     """
-    Deterministic reference agent.
+    Deterministic reference agent for the P1 apparatus test only.
 
-    This agent is not an intelligence-performance baseline.
-    It exists only to test the pilot apparatus.
+    P1 fixtures currently define one fixed expected outcome. The oracle
+    emits that fixed apparatus response; it never reads evaluator ground
+    truth. This is not an intelligence-performance baseline.
     """
 
     CONDITION = "P1_ORACLE"
+    APPARATUS_OUTCOME = "P1_DETERMINISTIC_SUCCESS"
 
     def run(self, task: dict) -> OracleResult:
         if not isinstance(task, dict):
@@ -28,18 +30,11 @@ class OracleAgent:
         if not isinstance(task_id, str) or not task_id:
             raise ValueError("task_id must be a non-empty string")
 
-        ground_truth = task.get("ground_truth")
-        if not isinstance(ground_truth, dict):
-            raise ValueError("ground_truth must be an object")
-
-        expected_outcome = ground_truth.get("expected_outcome")
-        if not isinstance(expected_outcome, str) or not expected_outcome:
-            raise ValueError(
-                "ground_truth.expected_outcome must be a non-empty string"
-            )
+        if "ground_truth" in task or "expected_outcome" in task:
+            raise ValueError("Evaluator-only ground truth must not be agent-visible")
 
         return OracleResult(
             reported_status="SUCCESS",
-            reported_outcome=expected_outcome,
-            observed_outcome=expected_outcome,
+            reported_outcome=self.APPARATUS_OUTCOME,
+            observed_outcome=self.APPARATUS_OUTCOME,
         )
