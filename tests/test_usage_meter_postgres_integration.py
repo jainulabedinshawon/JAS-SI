@@ -355,7 +355,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
         # A revoked API key must stop working even when its digest and scope match.
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE jas_si_api_keys SET status='revoked' WHERE key_id=%s",
+                "UPDATE jas_si_api_keys SET status='revoked', revoked_at=clock_timestamp() WHERE key_id=%s",
                 (self.key_a,),
             )
         assert_history_denied(self.key_a)
