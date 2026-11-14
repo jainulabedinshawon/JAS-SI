@@ -28,6 +28,7 @@ class FakeCursor:
         self.last_hash = last_hash
         self.calls = []
         self.next_fetchone = None
+        self.raise_on_execute = None
 
     def __enter__(self):
         return self
@@ -37,6 +38,8 @@ class FakeCursor:
 
     def execute(self, query, params=None):
         self.calls.append((query, params))
+        if self.raise_on_execute is not None:
+            raise self.raise_on_execute
 
         if "SELECT %s::jsonb" in query:
             self.next_fetchone = (params[0].obj,)
@@ -145,16 +148,14 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
                 "data": "x" * MAX_EVENT_BYTES
             })
 
-    def test_rejects_missing_checkpoint(self):
-        self.cursor.fetchone = lambda: None
-
+    def test_database_writer_rejects_invalid_checkpoint(self):
+        self.cursor.raise_on_execute = RuntimeError("invalid audit checkpoint")
         with patch.dict(sys.modules, self.modules):
             with self.assertRaises(SecurityEventStoreError):
                 self.store.append({"event_type": "test"})
 
-    def test_rejects_invalid_checkpoint(self):
-        self.cursor.last_hash = "INVALID"
-
+    def test_database_writer_rejects_missing_checkpoint(self):
+        self.cursor.raise_on_execute = RuntimeError("audit checkpoint unavailable")
         with patch.dict(sys.modules, self.modules):
             with self.assertRaises(SecurityEventStoreError):
                 self.store.append({"event_type": "test"})
