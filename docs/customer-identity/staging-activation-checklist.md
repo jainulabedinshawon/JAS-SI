@@ -1,9 +1,25 @@
 # JAS-SI Customer Onboarding — Staging Activation Checklist
 
-**Status (2026-11-13): blocked on isolated runtime configuration.**  
+**Status (2026-11-14): onboarding code is merged and deployed; live customer activation is blocked by missing dedicated runtime credentials and SMTP configuration.**  
 This checklist is an operator handoff. It is not authorization to change Vercel, Neon, Production, payment settings, or customer data.
 
-## What is already in the PR #36 branch
+## Current Production evidence (2026-11-14)
+
+Customer onboarding code from PR #36 is merged into `main` (merge commit `d5f68af0cb31f834472202ec1dea77994b9be81c`). The current Production deployment is READY at commit `e55bc006658647a97ce9e69c7f8fa62b70e9a660` (deployment `dpl_EY8AsWXwyvEFeRABTnPUoWdkqBZQ`).
+
+Read-only live checks returned:
+- `GET /health`: HTTP 200, API enabled.
+- `GET /customer`: HTTP 200; the standalone portal HTML is served.
+- `GET /openapi.json`: HTTP 200; customer identity, session, usage and API-key routes are registered.
+- `GET /plans`: HTTP 200; Free exposes 100 technical units by default, while paid tiers are non-purchasable and payment status is `not_connected`.
+
+These checks prove deployment and route availability only. They do not prove registration, email delivery, session creation, API-key issuance, or customer usage end-to-end.
+
+A read-only Production Vercel environment metadata check found no `JAS_SI_CUSTOMER_*` variables. In Production Neon, `jas_si_customer_runtime` and `jas_si_customer_key_runtime` are NOLOGIN group roles, but no dedicated customer LOGIN principals were present in the inspected `jas_si_*` role set. SMTP host/sender/credentials are also absent. Therefore the portal is visible but its customer backend is not activated; do not invite customers or claim self-service onboarding is live.
+
+No secrets were decrypted. No customer registration request, email, or test account was created during these checks.
+
+## What is merged into main
 
 - Customer registration, email verification, magic-link login, and secure session cookies.
 - PostgreSQL-backed shared registration/login abuse limiting.
@@ -13,7 +29,7 @@ This checklist is an operator handoff. It is not authorization to change Vercel,
 - Public plan catalogue; paid tiers remain preview-only.
 - Customer email adapter using SMTP STARTTLS (or SMTP-over-TLS on port 465).
 
-Passing CI is evidence for the tested code paths, not evidence that external runtime services or a live customer journey are configured.
+Passing CI is evidence for tested code paths, not evidence that external runtime services or a live customer journey are configured.
 
 Both layers are now PostgreSQL-backed and shared across application instances, with separate HMAC namespaces and dedicated least-privilege database boundaries:
 - Customer registration/login email-abuse limiter: dedicated customer rate-limit table and runtime boundary.
@@ -23,7 +39,7 @@ The general API limiter applies to all `/v1/*` routes, including customer portal
 
 ## Configuration audit result
 
-A read-only Vercel project environment metadata check found 15 environment-variable entries. It did not find any customer-specific runtime configuration entries. In particular, the following were absent from the inspected project environment metadata:
+The latest read-only Production environment metadata check found no customer-specific variables. The following must be provisioned before activation; values must be stored as encrypted/sensitive Vercel variables and never committed:
 
 - `JAS_SI_CUSTOMER_DATABASE_URL`
 - `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`
@@ -34,9 +50,8 @@ A read-only Vercel project environment metadata check found 15 environment-varia
 - `JAS_SI_CUSTOMER_SMTP_PASSWORD`
 - `JAS_SI_CUSTOMER_SMTP_SENDER`
 - `JAS_SI_CUSTOMER_PUBLIC_URL`
-- `JAS_SI_API_RATE_LIMIT_PEPPER`
 
-The existing general `JAS_SI_DATABASE_URL` and `JAS_SI_API_KEY_PEPPER` do not replace the dedicated customer identity and customer API-key database connections or the customer session pepper. Do not point the customer DSNs at a database owner, provisioner, superuser, or general API runtime connection.
+The inspected Production environment does contain `JAS_SI_API_RATE_LIMIT_PEPPER`, `JAS_SI_DATABASE_URL`, and `JAS_SI_API_KEY_PEPPER`. Those general API variables do not replace the dedicated customer identity and customer API-key database connections or the customer session pepper. Do not point the customer DSNs at a database owner, provisioner, superuser, or general API runtime connection.
 
 No secret values were decrypted or read during this audit.
 
