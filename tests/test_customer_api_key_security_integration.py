@@ -135,6 +135,39 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
 
         self.assertTrue(PostgresSecurityEventStore(self.admin_dsn).verify_integrity()["valid"])
 
+    def test_audit_writer_boundary_restricts_direct_mutation(self):
+        from psycopg.types.json import Jsonb
+
+        registry = PostgresApiKeyRegistry(self.admin_dsn, self.api_pepper)
+        self.assertTrue(registry.verify_audit_writer_boundary())
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                cur.execute("SELECT set_config('role', %s, true)", (role,))
+                cur.execute(
+                    """SELECT has_table_privilege(current_user,
+                              'public.jas_si_audit_chain_state','INSERT'),
+                              has_table_privilege(current_user,
+                              'public.jas_si_audit_chain_state','UPDATE'),
+                              has_table_privilege(current_user,
+                              'public.jas_si_audit_events','INSERT')"""
+                )
+                self.assertEqual(cur.fetchone(), (False, False, False))
+                cur.execute(
+                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                    (Jsonb({"event_type": "audit_writer_boundary_test", "role": role}),),
+                )
+                cur.execute("RESET ROLE")
+
+            cur.execute(
+                "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                (Jsonb({"event_type": "audit_writer_owner_isolation_test"}),),
+            )
+
+        self.assertTrue(
+            PostgresSecurityEventStore(self.admin_dsn).verify_integrity()["valid"]
+        )
+
     def test_database_derives_tenant_from_session_and_audits_atomically(self):
         session_a = self._session("alpha-" + uuid.uuid4().hex + "@example.test")
         session_b = self._session("beta-" + uuid.uuid4().hex + "@example.test")
