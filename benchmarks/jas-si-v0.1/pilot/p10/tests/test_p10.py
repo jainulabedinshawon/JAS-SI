@@ -109,7 +109,7 @@ class P10HeldoutVFLTests(unittest.TestCase):
             "training_heldout_evidence_overlap_count": 0,
             "seed_count": 10,
             "required_seed_count": 10,
-            "practical_threshold_met": True,
+            "fixture_practical_threshold_met": True,
         }
         self.assertTrue(p10_runner.apparatus_gate_passed(valid))
 
@@ -120,7 +120,7 @@ class P10HeldoutVFLTests(unittest.TestCase):
         missing_threshold.pop("fixture_practical_threshold_met")
         self.assertFalse(p10_runner.apparatus_gate_passed(missing_threshold))
 
-    def test_release_gate_requires_every_integrity_condition(self):
+    def test_apparatus_gate_requires_every_integrity_condition(self):
         valid = {
             "all_feedback_verified": True,
             "training_heldout_evidence_overlap_count": 0,
