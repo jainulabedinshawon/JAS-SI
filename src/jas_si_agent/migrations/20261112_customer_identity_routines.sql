@@ -36,6 +36,24 @@ $$;
 
 GRANT USAGE ON SCHEMA public TO jas_si_customer_identity_owner, jas_si_customer_runtime;
 GRANT INSERT (tenant_id, tenant_name) ON TABLE public.jas_si_tenants TO jas_si_customer_identity_owner;
+-- Session authentication must check tenant suspension inside the SECURITY DEFINER
+-- boundary. Grant only the two columns needed and scope RLS to the isolated owner.
+GRANT SELECT (tenant_id, status) ON TABLE public.jas_si_tenants
+    TO jas_si_customer_identity_owner;
+GRANT UPDATE (provisioning_lock_version) ON TABLE public.jas_si_tenants
+    TO jas_si_customer_identity_owner;
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity_owner_status
+    ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity_owner_status
+    ON public.jas_si_tenants FOR SELECT
+    TO jas_si_customer_identity_owner USING (true);
+-- PostgreSQL applies UPDATE RLS policy checks to SELECT row-locking clauses.
+-- The owner has UPDATE privilege only on provisioning_lock_version, never status.
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity_owner_lock
+    ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity_owner_lock
+    ON public.jas_si_tenants FOR UPDATE
+    TO jas_si_customer_identity_owner USING (true) WITH CHECK (true);
 GRANT SELECT, INSERT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_identity_owner;
 GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_identity_owner;
 GRANT SELECT, INSERT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_identity_owner;
@@ -112,10 +130,14 @@ BEGIN
        OR p_expires_at <= pg_catalog.clock_timestamp() THEN
         RAISE EXCEPTION 'Invalid customer link input' USING ERRCODE = '22023';
     END IF;
-    SELECT a.* INTO v_account FROM public.jas_si_customer_accounts a
+    SELECT a.* INTO v_account
+    FROM public.jas_si_customer_accounts a
+    JOIN public.jas_si_tenants tenant
+      ON tenant.tenant_id = a.tenant_id AND tenant.status = 'active'
     WHERE a.email_normalized = p_email_normalized AND
         ((p_purpose='verify_email' AND a.status='pending') OR
-         (p_purpose='login' AND a.status='active')) FOR UPDATE;
+         (p_purpose='login' AND a.status='active'))
+    FOR UPDATE OF a FOR SHARE OF tenant;
     IF NOT FOUND THEN RETURN; END IF;
     INSERT INTO public.jas_si_customer_auth_tokens
         (token_id,account_id,token_digest,purpose,expires_at)
@@ -142,8 +164,12 @@ BEGIN
     WHERE t.token_digest=p_token_digest AND t.purpose=p_purpose
       AND t.consumed_at IS NULL AND t.expires_at > v_consumed_at FOR UPDATE;
     IF NOT FOUND THEN RETURN; END IF;
-    SELECT a.* INTO v_account FROM public.jas_si_customer_accounts a
-    WHERE a.account_id=v_token.account_id FOR UPDATE;
+    SELECT a.* INTO v_account
+    FROM public.jas_si_customer_accounts a
+    JOIN public.jas_si_tenants tenant
+      ON tenant.tenant_id = a.tenant_id AND tenant.status = 'active'
+    WHERE a.account_id = v_token.account_id
+    FOR UPDATE OF a FOR SHARE OF tenant;
     IF NOT FOUND OR v_account.status='suspended' THEN RETURN; END IF;
     IF p_purpose='verify_email' THEN
         IF v_account.status <> 'pending' OR v_account.email_verified_at IS NOT NULL THEN RETURN; END IF;
@@ -174,9 +200,12 @@ LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $function$
     SELECT a.account_id,a.tenant_id,a.email::text,a.organization_name::text,a.status::text
     FROM public.jas_si_customer_sessions s
     JOIN public.jas_si_customer_accounts a ON a.account_id=s.account_id
+    JOIN public.jas_si_tenants t ON t.tenant_id=a.tenant_id
     WHERE p_session_digest IS NOT NULL AND pg_catalog.octet_length(p_session_digest)=32
       AND s.token_digest=p_session_digest AND s.revoked_at IS NULL
-      AND s.expires_at > pg_catalog.clock_timestamp() AND a.status='active'
+      AND s.expires_at > pg_catalog.clock_timestamp()
+      AND a.status='active' AND t.status='active'
+    FOR SHARE OF s,a,t
 $function$;
 
 CREATE OR REPLACE FUNCTION public.customer_revoke_session(p_session_digest bytea)
