@@ -596,15 +596,15 @@ class PostgresApiKeyRegistry:
                     audit_cursor.execute(
                         "SELECT public.jas_si_audit_append_event(%s::jsonb)",
                         (Jsonb({
-                            "event_type": "api_key_issued",
-                        "tenant_id": str(tenant_id),
-                        "key_id": str(key_id),
-                        "key_name": name,
-                        "scopes": sorted(scope_set),
-                        "expires_at": (
-                            expires_at.isoformat() if expires_at else None
-                        ),
-                        "operator_id": creator,
+                                "event_type": "api_key_issued",
+                            "tenant_id": str(tenant_id),
+                            "key_id": str(key_id),
+                            "key_name": name,
+                            "scopes": sorted(scope_set),
+                            "expires_at": (
+                                expires_at.isoformat() if expires_at else None
+                            ),
+                            "operator_id": creator,
                             "provisioning_run_id": run_id,
                         }),),
                     )
@@ -852,10 +852,10 @@ class PostgresApiKeyRegistry:
                     audit_cursor.execute(
                         "SELECT public.jas_si_audit_append_event(%s::jsonb)",
                         (Jsonb({
-                            "event_type": "api_key_revoked",
-                        "tenant_id": str(tenant_id),
-                        "key_id": str(key_id),
-                        "operator_id": operator,
+                                "event_type": "api_key_revoked",
+                            "tenant_id": str(tenant_id),
+                            "key_id": str(key_id),
+                            "operator_id": operator,
                             "revocation_run_id": run_id,
                         }),),
                     )
