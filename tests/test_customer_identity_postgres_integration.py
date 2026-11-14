@@ -5,6 +5,8 @@ import os
 import sys
 import unittest
 import uuid
+import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -483,6 +485,76 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             "API-key authentication must fail closed when its tenant is suspended",
         )
 
+
+    def test_api_key_authentication_serializes_with_tenant_suspension(self):
+        api_pepper = b"tenant-suspension-api-key-race-test-pepper-32"
+        registry = PostgresApiKeyRegistry(self.admin_dsn, api_pepper)
+        tenant_id = registry.create_tenant("suspension-race-" + uuid.uuid4().hex)
+        issued = registry.issue_key(
+            tenant_id, "suspension-race", ["authorization:check"], "integration-test"
+        )
+        result = {}
+        started = threading.Event()
+
+        def authenticate():
+            started.set()
+            try:
+                result["value"] = registry.authenticate(issued.token)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=authenticate, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "authentication worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%jas_si_api_key_authenticate%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "API-key authentication did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "authentication did not finish after suspension committed")
+        if "error" in result:
+            raise result["error"]
+        self.assertIsNone(
+            result.get("value"),
+            "authentication waiting behind suspension must re-check status and fail closed",
+        )
 
     def test_suspended_tenant_blocks_login_link_issue_and_consumption(self):
         verification = self.store.register(self.email, self.organization)
