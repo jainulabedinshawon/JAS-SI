@@ -133,8 +133,7 @@ class PostgresSecurityEventStore:
                     raise SecurityEventStoreError(
                         f"Hash-chain link mismatch at position {event_number}"
                     )
-                try:
-                    if not isinstance(canonical_payload, str):
+                if not isinstance(canonical_payload, str):
                     raise SecurityEventStoreError(
                         f"Invalid canonical event data at position {event_number}"
                     )
@@ -146,10 +145,6 @@ class PostgresSecurityEventStore:
                     + b'}'
                 )
                 expected_hash = hashlib.sha256(material).hexdigest()
-                except (TypeError, ValueError, RecursionError) as exc:
-                    raise SecurityEventStoreError(
-                        f"Invalid event data at position {event_number}"
-                    ) from exc
                 if not hmac.compare_digest(recorded_hash, expected_hash):
                     raise SecurityEventStoreError(
                         f"Event hash mismatch at position {event_number}"
