@@ -167,13 +167,38 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         session_b = self._session("guc-b-" + uuid.uuid4().hex + "@example.test")
         key_a = self.registry.customer_issue_key(session_a, "alpha", ["usage:read"])
         self.registry.customer_issue_key(session_b, "beta", ["usage:read"])
+        session_a_digest = self.registry._customer_session_digest(session_a)
+        tenant_b = self.identity.authenticate_session(session_b).tenant_id
+
+        # The hostile custom GUC and the SECURITY DEFINER call must share the
+        # exact same connection/transaction. A wrapper call on a fresh
+        # connection would not test whether a caller-controlled GUC can alter
+        # the database routine's tenant selection.
         with psycopg.connect(self.key_dsn) as conn, conn.cursor() as cur:
-            cur.execute("SELECT pg_catalog.set_config('jas_si.tenant_id', '00000000-0000-0000-0000-000000000000', true)")
+            cur.execute(
+                "SELECT pg_catalog.set_config('jas_si.tenant_id', %s, true)",
+                (str(tenant_b),),
+            )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 cur.execute("SELECT * FROM public.jas_si_api_keys")
             conn.rollback()
-        keys = self.registry.customer_list_keys(session_a)
-        self.assertEqual([row["key_id"] for row in keys], [str(key_a.key_id)])
+
+        with psycopg.connect(self.key_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_catalog.set_config('jas_si.tenant_id', %s, true)",
+                (str(tenant_b),),
+            )
+            cur.execute(
+                "SELECT key_id FROM public.customer_api_key_list(%s) ORDER BY key_id",
+                (session_a_digest,),
+            )
+            returned_ids = [str(row[0]) for row in cur.fetchall()]
+
+        self.assertEqual(
+            returned_ids,
+            [str(key_a.key_id)],
+            "A caller-controlled tenant GUC must not override the tenant derived from the authenticated session digest",
+        )
 
     def test_customer_key_routine_readiness_rejects_unsafe_owner_role(self):
         # A SECURITY DEFINER owner must remain a non-login, non-privileged,
