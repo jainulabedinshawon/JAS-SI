@@ -8,8 +8,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
-from datetime import datetime, timedelta, timezone
-from math import ceil
 
 
 class CustomerRateLimitError(RuntimeError):
@@ -119,7 +117,6 @@ class PostgresCustomerRateLimiter:
         import psycopg
 
         bucket_key = self._bucket_key(client_ip)
-        now = datetime.now(timezone.utc)
         try:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
@@ -131,19 +128,8 @@ class PostgresCustomerRateLimiter:
                     row = cursor.fetchone()
                     if row is None:
                         raise CustomerRateLimitError("Rate-limit decision was not returned")
-                    count, window_started_at = row
-            allowed = count <= limit
-            retry_after = max(
-                1,
-                ceil(
-                    (
-                        window_started_at
-                        + timedelta(seconds=window_seconds)
-                        - now
-                    ).total_seconds()
-                ),
-            )
-            return allowed, retry_after
+                    allowed, retry_after = row
+            return bool(allowed), int(retry_after)
         except CustomerRateLimitError:
             raise
         except Exception as exc:
