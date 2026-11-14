@@ -5,6 +5,8 @@ import os
 import sys
 import unittest
 import uuid
+import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +22,7 @@ except ImportError:
     psycopg = None
     make_conninfo = None
 
+from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.customer_rate_limit import PostgresCustomerRateLimiter
 from jas_si_agent.customer_identity import (
     CustomerIdentityConflict,
@@ -63,6 +66,8 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261110_usage_idempotency_fingerprint.sql",
                 "20261111_usage_append_only_role_grants.sql",
                 "20261114_customer_usage_read_routines.sql",
+                "20261115_api_key_auth_boundary.sql",
+                "20261119_general_runtime_customer_identity_acl.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
@@ -459,6 +464,515 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
                 cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
+
+
+    def test_suspended_tenant_cannot_authenticate_api_key(self):
+        api_pepper = b"tenant-suspension-api-key-test-pepper-32-bytes"
+        registry = PostgresApiKeyRegistry(self.admin_dsn, api_pepper)
+        tenant_id = registry.create_tenant("suspension-" + uuid.uuid4().hex)
+        issued = registry.issue_key(
+            tenant_id, "suspension-check", ["authorization:check"], "integration-test"
+        )
+        self.assertIsNotNone(registry.authenticate(issued.token))
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        self.assertIsNone(
+            registry.authenticate(issued.token),
+            "API-key authentication must fail closed when its tenant is suspended",
+        )
+
+
+    def test_api_key_authentication_serializes_with_tenant_suspension(self):
+        api_pepper = b"tenant-suspension-api-key-race-test-pepper-32"
+        registry = PostgresApiKeyRegistry(self.admin_dsn, api_pepper)
+        tenant_id = registry.create_tenant("suspension-race-" + uuid.uuid4().hex)
+        issued = registry.issue_key(
+            tenant_id, "suspension-race", ["authorization:check"], "integration-test"
+        )
+        result = {}
+        started = threading.Event()
+
+        def authenticate():
+            started.set()
+            try:
+                result["value"] = registry.authenticate(issued.token)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=authenticate, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "authentication worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%jas_si_api_key_authenticate%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "API-key authentication did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "authentication did not finish after suspension committed")
+        if "error" in result:
+            raise result["error"]
+        self.assertIsNone(
+            result.get("value"),
+            "authentication waiting behind suspension must re-check status and fail closed",
+        )
+
+    def test_customer_session_authentication_serializes_with_tenant_suspension(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        session = self.store.consume_login_link(login.token)
+        tenant_id = session.account.tenant_id
+        result = {}
+        started = threading.Event()
+
+        def authenticate():
+            started.set()
+            try:
+                result["value"] = self.store.authenticate_session(session.token)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=authenticate, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "session authentication worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_authenticate_session%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "session authentication did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "session authentication did not finish after suspension committed")
+        if "error" in result:
+            raise result["error"]
+        self.assertIsNone(
+            result.get("value"),
+            "session authentication waiting behind suspension must re-check status and fail closed",
+        )
+
+    def test_customer_usage_reads_serialize_with_tenant_suspension(self):
+        from datetime import datetime, timezone
+
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        session = self.store.consume_login_link(login.token)
+        tenant_id = session.account.tenant_id
+        result = {}
+        started = threading.Event()
+
+        def read_usage():
+            started.set()
+            try:
+                result["value"] = self.store.usage_summary(
+                    session.token, datetime.now(timezone.utc)
+                )
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=read_usage, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "usage-read worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_usage_summary%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "customer usage read did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "usage read did not finish after suspension committed")
+        self.assertIsInstance(
+            result.get("error"),
+            CustomerIdentityError,
+            "usage read waiting behind suspension must re-check status and fail closed",
+        )
+
+    def test_customer_login_link_issue_serializes_with_tenant_suspension(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (self.email,),
+            )
+            tenant_id = cur.fetchone()[0]
+
+        result = {}
+        started = threading.Event()
+
+        def issue_link():
+            started.set()
+            try:
+                result["value"] = self.store.issue_login_link(self.email)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=issue_link, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "login-link issue worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_issue_link%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "login-link issue did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "login-link issue did not finish after suspension committed")
+        if "error" in result:
+            raise result["error"]
+        self.assertIsNone(
+            result.get("value"),
+            "login-link issue waiting behind suspension must re-check status and fail closed",
+        )
+
+    def test_customer_login_link_consumption_serializes_with_tenant_suspension(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (self.email,),
+            )
+            tenant_id = cur.fetchone()[0]
+
+        result = {}
+        started = threading.Event()
+
+        def consume_link():
+            started.set()
+            try:
+                result["value"] = self.store.consume_login_link(login.token)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=consume_link, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "login-link consume worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_consume_link%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "login-link consume did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "login-link consume did not finish after suspension committed")
+        self.assertIsInstance(
+            result.get("error"),
+            CustomerIdentityError,
+            "login-link consume waiting behind suspension must re-check status and fail closed",
+        )
+
+    def test_suspended_tenant_blocks_login_link_issue_and_consumption(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        self.assertIsNotNone(login)
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (self.email,),
+            )
+            tenant_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        self.assertIsNone(
+            self.store.issue_login_link(self.email),
+            "A suspended tenant must not receive a new login link",
+        )
+        with self.assertRaises(CustomerIdentityError):
+            self.store.consume_login_link(login.token)
+
+        pending_email = f"pending-{uuid.uuid4().hex}@example.test"
+        pending = self.store.register(pending_email, self.organization)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (pending_email,),
+            )
+            pending_tenant_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (pending_tenant_id,),
+            )
+
+        with self.assertRaises(CustomerIdentityError):
+            self.store.verify_email(pending.token)
+
+
+    def test_suspended_tenant_cannot_authenticate_or_read_usage_but_can_revoke_session(self):
+        from datetime import datetime, timezone
+
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        session = self.store.consume_login_link(login.token)
+        self.assertIsNotNone(self.store.authenticate_session(session.token))
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (session.account.tenant_id,),
+            )
+
+        self.assertIsNone(self.store.authenticate_session(session.token))
+        with self.assertRaises(CustomerIdentityError):
+            self.store.usage_summary(session.token, datetime.now(timezone.utc))
+        with self.assertRaises(CustomerIdentityError):
+            self.store.usage_events(session.token, limit=10)
+
+        # Revocation remains available to clean up a session after suspension.
+        self.assertTrue(self.store.revoke_session(session.token))
+        self.assertIsNone(self.store.authenticate_session(session.token))
+
+
+
+    def test_general_runtime_and_provisioner_have_no_effective_identity_table_privileges(self):
+        protected = (
+            "jas_si_customer_accounts",
+            "jas_si_customer_auth_tokens",
+            "jas_si_customer_sessions",
+        )
+        table_privileges = (
+            "SELECT", "INSERT", "UPDATE", "DELETE",
+            "TRUNCATE", "REFERENCES", "TRIGGER",
+        )
+        column_privileges = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                for table in protected:
+                    for privilege in table_privileges:
+                        cur.execute(
+                            "SELECT pg_catalog.has_table_privilege(%s,%s,%s)",
+                            (role, f"public.{table}", privilege),
+                        )
+                        self.assertFalse(
+                            cur.fetchone()[0],
+                            f"{role} must not have {privilege} on {table}",
+                        )
+                    for privilege in column_privileges:
+                        cur.execute(
+                            """
+                            SELECT pg_catalog.has_any_column_privilege(%s,%s,%s)
+                            """,
+                            (role, f"public.{table}", privilege),
+                        )
+                        self.assertFalse(
+                            cur.fetchone()[0],
+                            f"{role} must not have column {privilege} on {table}",
+                        )
+                    cur.execute(f"SET LOCAL ROLE {role}")
+                    cur.execute("SAVEPOINT direct_identity_read_probe")
+                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                        cur.execute(f"SELECT * FROM public.{table} LIMIT 1")
+                    cur.execute("ROLLBACK TO SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RESET ROLE")
+
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                cur.execute(
+                    """
+                    SELECT p.proname
+                      FROM pg_catalog.pg_proc p
+                      JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                     WHERE n.nspname='public'
+                       AND p.proname LIKE 'customer_%%'
+                       AND pg_catalog.has_function_privilege(%s,p.oid,'EXECUTE')
+                     ORDER BY p.proname
+                    """,
+                    (role,),
+                )
+                executable = [row[0] for row in cur.fetchall()]
+                self.assertEqual(
+                    executable,
+                    [],
+                    f"{role} must not execute customer identity routines",
+                )
 
 
 
