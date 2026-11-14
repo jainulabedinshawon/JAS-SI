@@ -484,6 +484,47 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         )
 
 
+    def test_suspended_tenant_blocks_login_link_issue_and_consumption(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        self.assertIsNotNone(login)
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (self.email,),
+            )
+            tenant_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        self.assertIsNone(
+            self.store.issue_login_link(self.email),
+            "A suspended tenant must not receive a new login link",
+        )
+        with self.assertRaises(CustomerIdentityError):
+            self.store.consume_login_link(login.token)
+
+        pending_email = f"pending-{uuid.uuid4().hex}@example.test"
+        pending = self.store.register(pending_email, self.organization)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (pending_email,),
+            )
+            pending_tenant_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (pending_tenant_id,),
+            )
+
+        with self.assertRaises(CustomerIdentityError):
+            self.store.verify_email(pending.token)
+
+
     def test_suspended_tenant_cannot_authenticate_or_read_usage_but_can_revoke_session(self):
         from datetime import datetime, timezone
 
