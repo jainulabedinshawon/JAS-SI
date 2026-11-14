@@ -1,6 +1,6 @@
 # JAS-SI API Backend MVP Architecture v0.1
 
-Status: implementation plan grounded in the current `main` branch. This document is not a claim that the proposed tenant/key registry is already deployed.
+Status (2026-11-15): v0.1 architecture baseline; implementation has advanced beyond the original proposal. This document is retained as an architectural reference, with current code and activation status recorded below. It must not be read as proof that the full customer journey or agent-execution system is production-ready.
 
 ## 1. What already exists
 
@@ -11,9 +11,9 @@ The current repository already contains a FastAPI backend and a working core int
 - `src/jas_si_agent/authorization.py` and `sdk.py`: the authorization decision engine.
 - `src/jas_si_agent/verification.py`: outcome-verification semantics.
 - `src/jas_si_agent/postgres_security_event_store.py` plus migration `001`: durable hash-chained audit events.
-- Current API authentication compares every request against one environment variable, `JAS_SI_API_KEY`.
+- Development/test may use the legacy static API key. Preview/production use the tenant-scoped PostgreSQL API-key registry and database-owned `jas_si_api_key_authenticate` routine; they must fail closed rather than fall back to the global key.
 
-The current backend is therefore more than a blank architecture. The principal MVP gap is customer/tenant-aware API-key lifecycle and a contract that exactly matches the implemented routes and responses.
+The tenant-aware API-key lifecycle, customer identity/session routes, customer API-key self-service routes, and durable technical-usage metering now exist in `main`. The principal remaining product gaps are live customer activation (dedicated runtime credentials, SMTP, and a verified end-to-end journey), a real agent orchestrator and execution boundary, and a trusted independent evidence collector.
 
 ## 2. MVP deployment shape
 
@@ -53,13 +53,14 @@ Initial pilot scopes:
 
 A key belongs to exactly one tenant. Every authenticated request receives a server-derived tenant ID and scope set. Scope checks happen before the endpoint handler. Tenant identity must never be accepted from a request body or caller-controlled header.
 
-The initial pilot can use one tenant per pilot customer and multiple named keys per tenant (for example staging and production). No self-service customer signup or public key-management endpoint is included.
+The initial pilot uses one tenant per customer and multiple named keys per tenant. Customer signup, session, and tenant-scoped API-key issue/list/revoke endpoints now exist in `main`; they remain unavailable until the dedicated identity/key database connections, login principals, session pepper, and SMTP delivery are correctly configured.
 
 ## 5. Issuance, rotation, and revocation
 
-For the pilot, API-key administration is deliberately out-of-band:
+Operator provisioning remains available for controlled pilots, while customer self-service key operations are implemented behind a separate session-bound database role:
 
-- A trusted operator creates a tenant and issues a scoped key using a CLI on the API host or a controlled admin runner.
+- A trusted operator creates a tenant and can issue a scoped key using the CLI on a trusted admin runner.
+- A signed-in customer can issue/list/revoke only keys belonging to the server-derived tenant, when the dedicated customer identity and key-management configuration is active.
 - The key is shown once and delivered through an approved secret-sharing channel.
 - Rotation means issue a replacement key, validate it with the customer, then revoke the old key.
 - Revocation is immediate on the next authentication lookup.
@@ -82,6 +83,16 @@ The existing `001_create_audit_tables.sql` remains the audit-event persistence f
 `openapi-v1.yaml` in this directory documents the existing backend routes and their current payloads. It is the contract to reconcile with the PHP SDK. Any future key-registry change must update the contract and contract tests in the same change.
 
 The GitHub evidence route proves Git object/file integrity at the selected commit. It does not prove semantic correctness, task completion, or truth of an agent claim. `/v1/verify` treats caller-submitted evidence references as caller-submitted; it does not independently fetch them.
+
+## Current implementation and activation status (2026-11-15)
+
+- The tenant-scoped API-key registry and database-owned authentication boundary are present in `main`; the current Production database catalog check confirms the runtime cannot directly read tenant or API-key tables.
+- Customer identity, session, usage-read, and API-key self-service routes are present in `main`. They are configuration-gated and are not equivalent to an active customer service.
+- Production has no dedicated customer identity/key DSNs, customer session pepper, or SMTP configuration. Preview has dedicated customer DSNs and a session pepper, but SMTP configuration is absent. Do not invite customers or claim signup/login works until the full journey passes.
+- Free technical quota reservation is implemented in code. It is a technical API-call allowance, not a monetary credit; live customer usage has not been demonstrated.
+- Paid checkout, payment verification, authoritative paid entitlements, and refunds are not active. Paid plans must remain non-purchasable.
+- The API does not execute customer actions. `/v1/verify` accepts caller-submitted outcome information and cannot independently establish task completion. The GitHub evidence route verifies Git object/file integrity only. The generic verifier remains fail-closed until a trusted server-side evidence collector is integrated.
+- Draft PRs #71–#73 contain pending staging/security-boundary work. Their migrations are not part of `main` and must not be treated as deployed.
 
 ## 8. Pilot security controls
 
