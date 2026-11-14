@@ -77,12 +77,15 @@ GRANT SELECT (event_id,event_payload,previous_hash,event_hash),
       INSERT (event_payload,previous_hash,event_hash)
     ON public.jas_si_audit_events TO jas_si_audit_writer_owner;
 
+-- These helper routines are owned by jas_si_customer_key_owner.
+-- Grant their narrowly scoped execution rights as that owner, not as the
+-- migration login (which may be neondb_owner and lack grant option).
+SET LOCAL ROLE jas_si_customer_key_owner;
 GRANT EXECUTE ON FUNCTION public.jas_si_customer_key_canonical_jsonb(jsonb)
-    TO jas_si_audit_writer_owner;
+    TO jas_si_audit_writer_owner, jas_si_runtime, jas_si_provisioner;
 GRANT EXECUTE ON FUNCTION public.jas_si_customer_key_sha256(bytea)
     TO jas_si_audit_writer_owner;
-GRANT EXECUTE ON FUNCTION public.jas_si_customer_key_canonical_jsonb(jsonb)
-    TO jas_si_runtime, jas_si_provisioner;
+RESET ROLE;
 
 ALTER TABLE public.jas_si_audit_chain_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_audit_events ENABLE ROW LEVEL SECURITY;
