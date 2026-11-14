@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/customer-identity-onboarding-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
