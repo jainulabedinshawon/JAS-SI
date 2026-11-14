@@ -67,6 +67,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261111_usage_append_only_role_grants.sql",
                 "20261114_customer_usage_read_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
+                "20261119_general_runtime_customer_identity_acl.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
@@ -908,6 +909,50 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         # Revocation remains available to clean up a session after suspension.
         self.assertTrue(self.store.revoke_session(session.token))
         self.assertIsNone(self.store.authenticate_session(session.token))
+
+
+
+    def test_general_runtime_and_provisioner_have_no_effective_identity_table_privileges(self):
+        protected = (
+            "jas_si_customer_accounts",
+            "jas_si_customer_auth_tokens",
+            "jas_si_customer_sessions",
+        )
+        table_privileges = (
+            "SELECT", "INSERT", "UPDATE", "DELETE",
+            "TRUNCATE", "REFERENCES", "TRIGGER",
+        )
+        column_privileges = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                for table in protected:
+                    for privilege in table_privileges:
+                        cur.execute(
+                            "SELECT pg_catalog.has_table_privilege(%s,%s,%s)",
+                            (role, f"public.{table}", privilege),
+                        )
+                        self.assertFalse(
+                            cur.fetchone()[0],
+                            f"{role} must not have {privilege} on {table}",
+                        )
+                    for privilege in column_privileges:
+                        cur.execute(
+                            """
+                            SELECT pg_catalog.has_any_column_privilege(%s,%s,%s)
+                            """,
+                            (role, f"public.{table}", privilege),
+                        )
+                        self.assertFalse(
+                            cur.fetchone()[0],
+                            f"{role} must not have column {privilege} on {table}",
+                        )
+                    cur.execute(f"SET LOCAL ROLE {role}")
+                    cur.execute("SAVEPOINT direct_identity_read_probe")
+                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                        cur.execute(f"SELECT * FROM public.{table} LIMIT 1")
+                    cur.execute("ROLLBACK TO SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RESET ROLE")
 
 
 
