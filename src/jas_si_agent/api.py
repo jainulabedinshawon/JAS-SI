@@ -669,7 +669,6 @@ def verify(
             action_id=payload.action_id,
             observed_state=payload.observed_state,
             evidence_ref=payload.evidence_ref,
-            collected_independently=False,
         )
 
     try:

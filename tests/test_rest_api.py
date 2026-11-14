@@ -160,6 +160,24 @@ class TestJASSIRestAPI(unittest.TestCase):
         properties = schema["components"]["schemas"]["VerifyRequest"]["properties"]
         self.assertNotIn("collected_independently", properties)
 
+    def test_caller_submitted_evidence_remains_unverified(self):
+        response = self.client.post(
+            "/v1/verify",
+            headers=self.valid_headers,
+            json={
+                "action_id": "caller-evidence-no-flag",
+                "claimed_success": True,
+                "observed_state": "success",
+                "evidence_ref": "caller-controlled-reference",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "INCONCLUSIVE")
+        self.assertEqual(data["reason"], "EVIDENCE_PROVENANCE_UNVERIFIED")
+        self.assertEqual(data["evidence_origin"], "caller_submitted")
+
     def test_missing_evidence_reports_no_evidence_origin(self):
         response = self.client.post(
             "/v1/verify",

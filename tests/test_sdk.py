@@ -97,14 +97,12 @@ class TestJASSI(unittest.TestCase):
                 action_id="action-006",
                 observed_state="failure",
                 evidence_ref="test-evidence-006",
-                collected_independently=True,
             ),
         )
 
-        self.assertEqual(
-            result.status,
-            VerificationStatus.FALSE_SUCCESS,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(result.reason, "EVIDENCE_PROVENANCE_UNVERIFIED")
+        self.assertEqual(result.evidence_consistency.value, "FALSE_SUCCESS_CANDIDATE")
 
     def test_non_independent_evidence_is_inconclusive(self):
         result = self.jas.verify(
@@ -116,7 +114,6 @@ class TestJASSI(unittest.TestCase):
                 action_id="action-007",
                 observed_state="success",
                 evidence_ref="agent-self-report",
-                collected_independently=False,
             ),
         )
 
@@ -126,7 +123,7 @@ class TestJASSI(unittest.TestCase):
         )
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "EVIDENCE_PROVENANCE_UNVERIFIED",
         )
 
     def test_invalid_gate_type_is_rejected(self):
