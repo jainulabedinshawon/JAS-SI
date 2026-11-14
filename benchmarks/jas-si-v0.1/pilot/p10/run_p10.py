@@ -203,6 +203,9 @@ def main() -> int:
         ],
     }
 
+    result["apparatus_gate_passed"] = apparatus_gate_passed(result)
+    result["empirical_release_gate_passed"] = empirical_release_gate_passed(result)
+
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     with OUTPUT.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(
@@ -214,8 +217,6 @@ def main() -> int:
         )
         handle.write("\n")
 
-    result["apparatus_gate_passed"] = apparatus_gate_passed(result)
-    result["empirical_release_gate_passed"] = empirical_release_gate_passed(result)
     print(json.dumps(result, indent=2, sort_keys=True))
 
     # Exit status validates only the synthetic apparatus. Empirical release
