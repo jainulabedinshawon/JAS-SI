@@ -276,6 +276,39 @@ class TestPostgresUsageMeter(unittest.TestCase):
                 )
             conn.rollback()
 
+    def test_legacy_provisioner_usage_grants_are_revoked_by_migration(self):
+        migration_path = (
+            ROOT / "src" / "jas_si_agent" / "migrations"
+            / "20261117_runtime_usage_routine_only.sql"
+        )
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "GRANT ALL PRIVILEGES ON TABLE public.jas_si_usage_events "
+                "TO jas_si_provisioner"
+            )
+            cur.execute(
+                "GRANT SELECT (event_id), UPDATE (event_id) "
+                "ON TABLE public.jas_si_usage_events TO jas_si_provisioner"
+            )
+            # Reapply the migration against deliberately restored legacy grants.
+            cur.execute(migration_path.read_text(encoding="utf-8"))
+            cur.execute(
+                """SELECT
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','SELECT'),
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','INSERT'),
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','UPDATE'),
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','DELETE'),
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','TRUNCATE'),
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','REFERENCES'),
+                     has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','TRIGGER'),
+                     has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','SELECT'),
+                     has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','INSERT'),
+                     has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','UPDATE'),
+                     has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','REFERENCES')"""
+            )
+            privileges = cur.fetchone()
+        self.assertEqual(privileges, (False,) * 11)
+
     def test_idempotent_replay_returns_original_event(self):
         args = dict(
             tenant_id=str(self.tenant_a), api_key_id=str(self.key_a),
