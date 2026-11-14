@@ -440,9 +440,7 @@ class PostgresApiKeyRegistry:
         """
         import re
         import psycopg
-        from jas_si_agent.postgres_security_event_store import (
-            PostgresSecurityEventStore,
-        )
+        from psycopg.types.json import Jsonb
 
         if not isinstance(tenant_id, uuid.UUID):
             raise ApiKeyError("A valid tenant UUID is required")
@@ -492,38 +490,6 @@ class PostgresApiKeyRegistry:
                             "SELECT set_config('jas_si.tenant_id', %s, true)",
                             (str(tenant_scope),),
                         )
-                    # Serialize all audit writers, then verify the exact chain
-                    # snapshot that this transaction will extend.
-                    cursor.execute(
-                        """
-                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                        VALUES (TRUE, %s)
-                        ON CONFLICT (singleton) DO NOTHING
-                        """,
-                        ("0" * 64,),
-                    )
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        FOR UPDATE
-                        """
-                    )
-                    if cursor.fetchone() is None:
-                        raise ApiKeyError(
-                            "Audit checkpoint unavailable; provisioning stopped"
-                        )
-                    integrity = (
-                        PostgresSecurityEventStore.verify_integrity_in_transaction(
-                            connection
-                        )
-                    )
-                    if integrity.get("valid") is not True:
-                        raise ApiKeyError(
-                            "Audit chain integrity check failed; provisioning stopped"
-                        )
-
                     cursor.execute(
                         """
                         SELECT status
@@ -563,9 +529,9 @@ class PostgresApiKeyRegistry:
                         (run_id, key_id, tenant_id),
                     )
 
-                PostgresSecurityEventStore.append_in_transaction(
-                    connection,
-                    {
+                cursor.execute(
+                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                    (Jsonb({
                         "event_type": "api_key_issued",
                         "tenant_id": str(tenant_id),
                         "key_id": str(key_id),
@@ -576,7 +542,7 @@ class PostgresApiKeyRegistry:
                         ),
                         "operator_id": creator,
                         "provisioning_run_id": run_id,
-                    },
+                    }),),
                 )
         except ApiKeyError:
             raise
@@ -807,35 +773,6 @@ class PostgresApiKeyRegistry:
                         )
                     cursor.execute(
                         """
-                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                        VALUES (TRUE, %s)
-                        ON CONFLICT (singleton) DO NOTHING
-                        """,
-                        ("0" * 64,),
-                    )
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        FOR UPDATE
-                        """
-                    )
-                    if cursor.fetchone() is None:
-                        raise ApiKeyError(
-                            "Audit checkpoint unavailable; revocation stopped"
-                        )
-                    integrity = (
-                        PostgresSecurityEventStore.verify_integrity_in_transaction(
-                            connection
-                        )
-                    )
-                    if integrity.get("valid") is not True:
-                        raise ApiKeyError(
-                            "Audit chain integrity check failed; revocation stopped"
-                        )
-                    cursor.execute(
-                        """
                         UPDATE jas_si_api_keys
                         SET status = 'revoked', revoked_at = NOW()
                         WHERE key_id = %s AND status = 'active'
@@ -849,15 +786,15 @@ class PostgresApiKeyRegistry:
                         return False
                     tenant_id = row[0]
 
-                PostgresSecurityEventStore.append_in_transaction(
-                    connection,
-                    {
+                cursor.execute(
+                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                    (Jsonb({
                         "event_type": "api_key_revoked",
                         "tenant_id": str(tenant_id),
                         "key_id": str(key_id),
                         "operator_id": operator,
                         "revocation_run_id": run_id,
-                    },
+                    }),),
                 )
             return True
         except ApiKeyError:
