@@ -99,6 +99,6 @@ jobs:
             tests.test_usage_meter_postgres_integration \
             tests.test_customer_identity_postgres_integration \
             tests.test_customer_api_key_rls_integration \
-            tests.test_customer_api_key_rls_integration \
+            tests.test_customer_api_key_security_integration \
             tests.test_api_rate_limit_postgres_integration \
             -v
