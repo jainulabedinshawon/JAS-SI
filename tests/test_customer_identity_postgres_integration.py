@@ -625,6 +625,78 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             "session authentication waiting behind suspension must re-check status and fail closed",
         )
 
+    def test_customer_usage_reads_serialize_with_tenant_suspension(self):
+        from datetime import datetime, timezone
+
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        session = self.store.consume_login_link(login.token)
+        tenant_id = session.account.tenant_id
+        result = {}
+        started = threading.Event()
+
+        def read_usage():
+            started.set()
+            try:
+                result["value"] = self.store.usage_summary(
+                    session.token, datetime.now(timezone.utc)
+                )
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=read_usage, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "usage-read worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_usage_summary%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "customer usage read did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "usage read did not finish after suspension committed")
+        self.assertIsInstance(
+            result.get("error"),
+            CustomerIdentityError,
+            "usage read waiting behind suspension must re-check status and fail closed",
+        )
+
     def test_suspended_tenant_blocks_login_link_issue_and_consumption(self):
         verification = self.store.register(self.email, self.organization)
         self.store.verify_email(verification.token)
