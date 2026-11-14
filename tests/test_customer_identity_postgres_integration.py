@@ -697,6 +697,152 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             "usage read waiting behind suspension must re-check status and fail closed",
         )
 
+    def test_customer_login_link_issue_serializes_with_tenant_suspension(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (self.email,),
+            )
+            tenant_id = cur.fetchone()[0]
+
+        result = {}
+        started = threading.Event()
+
+        def issue_link():
+            started.set()
+            try:
+                result["value"] = self.store.issue_login_link(self.email)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=issue_link, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "login-link issue worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_issue_link%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "login-link issue did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "login-link issue did not finish after suspension committed")
+        if "error" in result:
+            raise result["error"]
+        self.assertIsNone(
+            result.get("value"),
+            "login-link issue waiting behind suspension must re-check status and fail closed",
+        )
+
+    def test_customer_login_link_consumption_serializes_with_tenant_suspension(self):
+        verification = self.store.register(self.email, self.organization)
+        self.store.verify_email(verification.token)
+        login = self.store.issue_login_link(self.email)
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_customer_accounts WHERE email_normalized=lower(%s)",
+                (self.email,),
+            )
+            tenant_id = cur.fetchone()[0]
+
+        result = {}
+        started = threading.Event()
+
+        def consume_link():
+            started.set()
+            try:
+                result["value"] = self.store.consume_login_link(login.token)
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                result["done"] = True
+
+        worker = None
+        with psycopg.connect(self.admin_dsn) as locker, locker.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_tenants WHERE tenant_id=%s FOR UPDATE",
+                (tenant_id,),
+            )
+            worker = threading.Thread(target=consume_link, daemon=True)
+            worker.start()
+            self.assertTrue(started.wait(timeout=2), "login-link consume worker did not start")
+
+            deadline = time.monotonic() + 5
+            blocked_on_tenant = False
+            while time.monotonic() < deadline:
+                with psycopg.connect(self.admin_dsn) as observer, observer.cursor() as check:
+                    check.execute(
+                        """
+                        SELECT wait_event_type
+                          FROM pg_catalog.pg_stat_activity
+                         WHERE pid <> pg_catalog.pg_backend_pid()
+                           AND state='active'
+                           AND query LIKE '%customer_consume_link%'
+                         ORDER BY query_start DESC
+                         LIMIT 1
+                        """
+                    )
+                    row = check.fetchone()
+                if row and row[0] == "Lock":
+                    blocked_on_tenant = True
+                    break
+                if result.get("done"):
+                    break
+                time.sleep(0.02)
+
+            self.assertTrue(
+                blocked_on_tenant,
+                "login-link consume did not wait for the tenant row lock",
+            )
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "login-link consume did not finish after suspension committed")
+        self.assertIsInstance(
+            result.get("error"),
+            CustomerIdentityError,
+            "login-link consume waiting behind suspension must re-check status and fail closed",
+        )
+
     def test_suspended_tenant_blocks_login_link_issue_and_consumption(self):
         verification = self.store.register(self.email, self.organization)
         self.store.verify_email(verification.token)
