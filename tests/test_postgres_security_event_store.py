@@ -19,7 +19,6 @@ from jas_si_agent.postgres_security_event_store import (
 from jas_si_agent.security_event_store import (
     MAX_EVENT_BYTES,
     SecurityEventStoreError,
-    _event_hash,
 )
 
 
