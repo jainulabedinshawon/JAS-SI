@@ -692,7 +692,7 @@ def verify(
     status = getattr(result.status, "value", result.status)
 
     persisted = _log_security_event(
-        "outcome_verified",
+        "outcome_verification_evaluated",
         request,
         event_store,
         status_code=200,
