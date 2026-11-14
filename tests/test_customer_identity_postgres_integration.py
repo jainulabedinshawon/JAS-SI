@@ -63,6 +63,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261110_usage_idempotency_fingerprint.sql",
                 "20261111_usage_append_only_role_grants.sql",
                 "20261114_customer_usage_read_routines.sql",
+                "20261119_general_runtime_customer_identity_acl.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
@@ -459,6 +460,49 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
                 cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
+
+
+    def test_general_runtime_and_provisioner_cannot_read_customer_identity_tables(self):
+        protected = (
+            "jas_si_customer_accounts",
+            "jas_si_customer_auth_tokens",
+            "jas_si_customer_sessions",
+        )
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                for table in protected:
+                    cur.execute(
+                        "SELECT has_table_privilege(%s,%s,'SELECT')",
+                        (role, f"public.{table}"),
+                    )
+                    self.assertFalse(
+                        cur.fetchone()[0],
+                        f"{role} must not have direct SELECT on {table}",
+                    )
+                    cur.execute(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1
+                              FROM pg_catalog.pg_attribute a
+                             WHERE a.attrelid = pg_catalog.to_regclass(%s)
+                               AND a.attnum > 0 AND NOT a.attisdropped
+                               AND pg_catalog.has_column_privilege(%s,a.attrelid,a.attname,'SELECT')
+                        )
+                        """,
+                        (f"public.{table}", role),
+                    )
+                    self.assertFalse(
+                        cur.fetchone()[0],
+                        f"{role} must not have column SELECT on {table}",
+                    )
+                    cur.execute(f"SET LOCAL ROLE {role}")
+                    cur.execute("SAVEPOINT direct_identity_read_probe")
+                    with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                        cur.execute(f"SELECT * FROM public.{table} LIMIT 1")
+                    cur.execute("ROLLBACK TO SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RESET ROLE")
+
 
 
 
