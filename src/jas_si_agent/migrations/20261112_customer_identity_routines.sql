@@ -47,6 +47,13 @@ DROP POLICY IF EXISTS jas_si_tenants_customer_identity_owner_status
 CREATE POLICY jas_si_tenants_customer_identity_owner_status
     ON public.jas_si_tenants FOR SELECT
     TO jas_si_customer_identity_owner USING (true);
+-- PostgreSQL applies UPDATE RLS policy checks to SELECT row-locking clauses.
+-- The owner has UPDATE privilege only on provisioning_lock_version, never status.
+DROP POLICY IF EXISTS jas_si_tenants_customer_identity_owner_lock
+    ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_customer_identity_owner_lock
+    ON public.jas_si_tenants FOR UPDATE
+    TO jas_si_customer_identity_owner USING (true) WITH CHECK (true);
 GRANT SELECT, INSERT ON TABLE public.jas_si_customer_accounts TO jas_si_customer_identity_owner;
 GRANT UPDATE (status, email_verified_at, updated_at) ON TABLE public.jas_si_customer_accounts TO jas_si_customer_identity_owner;
 GRANT SELECT, INSERT ON TABLE public.jas_si_customer_auth_tokens TO jas_si_customer_identity_owner;
