@@ -56,7 +56,7 @@ BEGIN
        AND s.revoked_at IS NULL
        AND s.expires_at > v_now
        AND a.status='active' AND t.status='active'
-     FOR SHARE OF s,a;
+     FOR SHARE OF s,a,t;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Invalid customer session' USING ERRCODE='28000';
     END IF;
@@ -109,7 +109,7 @@ BEGIN
        AND s.revoked_at IS NULL
        AND s.expires_at > v_now
        AND a.status='active' AND t.status='active'
-     FOR SHARE OF s,a;
+     FOR SHARE OF s,a,t;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Invalid customer session' USING ERRCODE='28000';
     END IF;
