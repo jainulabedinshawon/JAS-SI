@@ -40,6 +40,8 @@ GRANT INSERT (tenant_id, tenant_name) ON TABLE public.jas_si_tenants TO jas_si_c
 -- boundary. Grant only the two columns needed and scope RLS to the isolated owner.
 GRANT SELECT (tenant_id, status) ON TABLE public.jas_si_tenants
     TO jas_si_customer_identity_owner;
+GRANT UPDATE (provisioning_lock_version) ON TABLE public.jas_si_tenants
+    TO jas_si_customer_identity_owner;
 DROP POLICY IF EXISTS jas_si_tenants_customer_identity_owner_status
     ON public.jas_si_tenants;
 CREATE POLICY jas_si_tenants_customer_identity_owner_status
@@ -128,7 +130,7 @@ BEGIN
     WHERE a.email_normalized = p_email_normalized AND
         ((p_purpose='verify_email' AND a.status='pending') OR
          (p_purpose='login' AND a.status='active'))
-    FOR UPDATE OF a;
+    FOR UPDATE OF a FOR SHARE OF tenant;
     IF NOT FOUND THEN RETURN; END IF;
     INSERT INTO public.jas_si_customer_auth_tokens
         (token_id,account_id,token_digest,purpose,expires_at)
@@ -160,7 +162,7 @@ BEGIN
     JOIN public.jas_si_tenants tenant
       ON tenant.tenant_id = a.tenant_id AND tenant.status = 'active'
     WHERE a.account_id = v_token.account_id
-    FOR UPDATE OF a;
+    FOR UPDATE OF a FOR SHARE OF tenant;
     IF NOT FOUND OR v_account.status='suspended' THEN RETURN; END IF;
     IF p_purpose='verify_email' THEN
         IF v_account.status <> 'pending' OR v_account.email_verified_at IS NOT NULL THEN RETURN; END IF;
