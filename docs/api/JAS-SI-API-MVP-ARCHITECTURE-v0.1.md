@@ -104,7 +104,7 @@ Required before external pilot credentials are issued:
 - Least-privilege scopes, tenant status checks, key expiry, immediate revocation.
 - Generic authentication errors; constant-time digest comparison.
 - Request IDs and durable audit events, with fail-closed behavior for critical authorization/verification results.
-- Distributed rate limiting before multi-worker/customer production use. Current rate limiter is per-process and keyed by client IP.
+- Shared PostgreSQL-backed rate limiting is integrated for deployed Preview/Production environments: the general API limiter applies across `/v1/*`, and customer registration/login additionally use a dedicated email-abuse limiter. Draft PR #73 further moves customer rate-limit table access and bounded retention cleanup behind a dedicated database-owned boundary; that migration is not deployed until it is reviewed, merged, and independently verified.
 - Backup/restore test for PostgreSQL and audit-chain integrity.
 - No customer data returned across tenant boundaries.
 
