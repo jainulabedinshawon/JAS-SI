@@ -83,6 +83,38 @@ class P10HeldoutVFLTests(unittest.TestCase):
         }
         self.assertFalse(p10_runner.empirical_release_gate_passed(result))
 
+    def test_empirical_gate_rejects_missing_or_unknown_evidence_type(self):
+        otherwise_valid = {
+            "independent_empirical_replications_established": True,
+            "all_feedback_verified": True,
+            "training_heldout_evidence_overlap_count": 0,
+            "seed_count": 10,
+            "required_seed_count": 10,
+            "empirical_threshold_met": True,
+        }
+        self.assertFalse(
+            p10_runner.empirical_release_gate_passed(otherwise_valid)
+        )
+        self.assertFalse(
+            p10_runner.empirical_release_gate_passed(
+                dict(otherwise_valid, evidence_type="UNREVIEWED_SOURCE")
+            )
+        )
+
+    def test_empirical_gate_requires_explicit_real_world_evidence_type(self):
+        otherwise_valid = {
+            "evidence_type": "INDEPENDENT_REAL_WORLD_EMPIRICAL_DATA",
+            "independent_empirical_replications_established": True,
+            "all_feedback_verified": True,
+            "training_heldout_evidence_overlap_count": 0,
+            "seed_count": 10,
+            "required_seed_count": 10,
+            "empirical_threshold_met": True,
+        }
+        self.assertTrue(
+            p10_runner.empirical_release_gate_passed(otherwise_valid)
+        )
+
     def test_identical_seed_outcomes_are_counted_as_one_signature(self):
         signatures = {
             (
