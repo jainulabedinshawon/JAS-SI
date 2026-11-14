@@ -1,11 +1,11 @@
+"""JAS-SI outcome verification primitives.
 
-"""JAS-SI MVP independent verification primitives.
+This module validates report/evidence shape and action binding. It does not
+collect evidence, authenticate its provenance, or execute actions.
 
-This module evaluates reported outcomes against separately supplied
-evidence. It does not collect evidence or execute actions.
-
-A VERIFIED result means the supplied evidence meets this module's
-checks; it does not prove that the evidence source is trustworthy.
+Caller-supplied evidence is always untrusted. Until a server-side trusted
+collector is integrated, the verifier MUST return INCONCLUSIVE for otherwise
+well-formed evidence. A caller-controlled Boolean cannot establish provenance.
 """
 
 from __future__ import annotations
@@ -33,7 +33,9 @@ class VerificationEvidence:
     action_id: str
     observed_state: str
     evidence_ref: str
-    collected_independently: bool
+    # Compatibility-only caller claim. This field is NEVER trusted.
+    # Only a future authenticated server-side collector may establish provenance.
+    collected_independently: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,9 +49,8 @@ def verify_report(
     report: ActionReport,
     evidence: VerificationEvidence | None,
 ) -> VerificationResult:
-    """Compare an action report with separately supplied evidence."""
+    """Validate evidence shape, but fail closed without trusted provenance."""
 
-    # Validate the report before accessing any of its attributes.
     if not isinstance(report, ActionReport):
         return VerificationResult(
             status=VerificationStatus.INCONCLUSIVE,
@@ -57,11 +58,7 @@ def verify_report(
             action_id="",
         )
 
-    action_id = (
-        report.action_id
-        if isinstance(report.action_id, str)
-        else ""
-    )
+    action_id = report.action_id if isinstance(report.action_id, str) else ""
 
     def inconclusive(reason: str) -> VerificationResult:
         return VerificationResult(
@@ -94,35 +91,11 @@ def verify_report(
     if not evidence.evidence_ref.strip():
         return inconclusive("EVIDENCE_REFERENCE_MISSING")
 
-    if evidence.collected_independently is not True:
-        return inconclusive("INDEPENDENCE_NOT_ESTABLISHED")
+    if evidence.observed_state not in {"success", "failure"}:
+        return inconclusive("UNKNOWN_OBSERVED_STATE")
 
-    if evidence.observed_state == "success":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.VERIFIED_SUCCESS,
-                reason="REPORT_MATCHES_SUCCESS_EVIDENCE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.CONTRADICTED_REPORT,
-            reason="EVIDENCE_SHOWS_SUCCESS_BUT_REPORT_DOES_NOT",
-            action_id=action_id,
-        )
-
-    if evidence.observed_state == "failure":
-        if report.claimed_success:
-            return VerificationResult(
-                status=VerificationStatus.FALSE_SUCCESS,
-                reason="REPORT_CLAIMS_SUCCESS_BUT_EVIDENCE_SHOWS_FAILURE",
-                action_id=action_id,
-            )
-
-        return VerificationResult(
-            status=VerificationStatus.VERIFIED_FAILURE,
-            reason="REPORT_MATCHES_FAILURE_EVIDENCE",
-            action_id=action_id,
-        )
-
-    return inconclusive("UNKNOWN_OBSERVED_STATE")
+    # Critical trust boundary: collected_independently is supplied by the
+    # caller and therefore cannot authenticate how evidence was collected.
+    # Do not emit VERIFIED_* or FALSE_SUCCESS until a trusted collector
+    # independently retrieves and validates the evidence source.
+    return inconclusive("TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")

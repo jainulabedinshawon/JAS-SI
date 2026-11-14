@@ -103,8 +103,9 @@ class TestJASSI(unittest.TestCase):
 
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(result.reason, "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED")
 
     def test_non_independent_evidence_is_inconclusive(self):
         result = self.jas.verify(
@@ -126,7 +127,7 @@ class TestJASSI(unittest.TestCase):
         )
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
         )
 
     def test_invalid_gate_type_is_rejected(self):

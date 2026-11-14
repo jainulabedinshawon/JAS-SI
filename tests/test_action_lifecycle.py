@@ -95,7 +95,7 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
 
         self.assertEqual(
             first_result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
         self.assertEqual(
             second_result.status,
@@ -163,7 +163,7 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
 
     def test_false_success_is_detected(self) -> None:
@@ -175,7 +175,7 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(
             result.status,
-            VerificationStatus.FALSE_SUCCESS,
+            VerificationStatus.INCONCLUSIVE,
         )
 
     def test_action_id_mismatch_is_inconclusive(self) -> None:
