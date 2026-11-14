@@ -205,6 +205,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $function$
       AND s.token_digest=p_session_digest AND s.revoked_at IS NULL
       AND s.expires_at > pg_catalog.clock_timestamp()
       AND a.status='active' AND t.status='active'
+    FOR SHARE OF s,a,t
 $function$;
 
 CREATE OR REPLACE FUNCTION public.customer_revoke_session(p_session_digest bytea)
