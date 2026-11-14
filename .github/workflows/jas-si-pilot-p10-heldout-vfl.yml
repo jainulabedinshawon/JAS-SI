@@ -56,7 +56,13 @@ jobs:
           assert abs(data["mean_baseline_false_success_rate"] - 0.30) < 1e-12
           assert abs(data["mean_post_feedback_false_success_rate"] - 0.10) < 1e-12
           assert abs(data["mean_absolute_fsr_improvement"] - 0.20) < 1e-12
-          assert data["practical_threshold_met"] is True
+          assert data["fixture_practical_threshold_met"] is True
+          assert data["practical_threshold_met"] is None
+          assert data["empirical_threshold_met"] is None
+          assert data["distinct_seed_outcome_count"] == 1
+          assert data["independent_empirical_replications_established"] is False
+          assert data["empirical_release_gate_passed"] is False
+          assert data["apparatus_gate_passed"] is True
           assert len(data["per_seed_results"]) == 10
 
           print("P10 synthetic apparatus validation passed.")
@@ -64,7 +70,9 @@ jobs:
           print("Baseline FSR:", data["mean_baseline_false_success_rate"])
           print("Post-feedback FSR:", data["mean_post_feedback_false_success_rate"])
           print("Mean absolute improvement:", data["mean_absolute_fsr_improvement"])
-          print("Practical threshold met:", data["practical_threshold_met"])
+          print("Fixture-only threshold met:", data["fixture_practical_threshold_met"])
+          print("Distinct seed outcome signatures:", data["distinct_seed_outcome_count"])
+          print("Empirical release gate passed:", data["empirical_release_gate_passed"])
           PY
 
       - name: Upload P10 result artifact
