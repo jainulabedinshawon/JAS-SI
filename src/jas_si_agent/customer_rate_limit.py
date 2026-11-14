@@ -37,81 +37,68 @@ class PostgresCustomerRateLimiter:
         ).digest()
 
     def verify_schema(self) -> bool:
+        """Require the dedicated database-owned rate-limit boundary."""
         import psycopg
 
-        with psycopg.connect(self._dsn) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """SELECT effective.rolname, effective.rolsuper, effective.rolbypassrls,
-                          effective.rolcanlogin, effective.rolcreatedb,
-                          effective.rolcreaterole, effective.rolreplication,
-                          effective.rolinherit,
-                          EXISTS (SELECT 1 FROM pg_auth_members AS membership
-                                  WHERE membership.member = effective.oid) AS effective_has_memberships,
-                          login.rolname, login.rolsuper, login.rolbypassrls,
-                          login.rolcanlogin, login.rolinherit,
-                          login.rolcreatedb, login.rolcreaterole, login.rolreplication,
-                          (SELECT count(*) FROM pg_auth_members AS membership
-                           WHERE membership.member = login.oid) AS login_membership_count,
-                          EXISTS (SELECT 1 FROM pg_auth_members AS membership
-                                  WHERE membership.member = login.oid
-                                    AND membership.roleid = effective.oid
-                                    AND NOT membership.admin_option
-                                    AND NOT membership.inherit_option
-                                    AND membership.set_option) AS login_has_only_settable_runtime_membership,
-                          rate_table.oid IS NOT NULL,
-                          pg_catalog.pg_get_userbyid(rate_table.relowner) <> effective.rolname,
-                          pg_catalog.has_schema_privilege(effective.rolname,'public','USAGE'),
-                          NOT pg_catalog.has_schema_privilege(effective.rolname,'public','CREATE'),
-                          pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'SELECT'),
-                          pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'INSERT'),
-                          pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'UPDATE'),
-                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'DELETE'),
-                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'TRUNCATE'),
-                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'REFERENCES'),
-                          NOT pg_catalog.has_table_privilege(effective.rolname,rate_table.oid,'TRIGGER'),
-                          NOT EXISTS (
-                              SELECT 1
-                                FROM pg_catalog.aclexplode(
-                                    COALESCE(rate_table.relacl,
-                                      pg_catalog.acldefault('r',rate_table.relowner))
-                                ) acl
-                               WHERE acl.grantee IN (0,effective.oid)
-                                 AND (
-                                     acl.grantee=0
-                                     OR acl.privilege_type NOT IN ('SELECT','INSERT','UPDATE')
-                                     OR acl.is_grantable
-                                 )
-                          ),
-                          NOT EXISTS (
-                              SELECT 1
-                                FROM pg_catalog.pg_attribute column_info
-                                CROSS JOIN LATERAL pg_catalog.aclexplode(column_info.attacl) acl
-                               WHERE column_info.attrelid=rate_table.oid
-                                 AND column_info.attnum>0 AND NOT column_info.attisdropped
-                                 AND acl.grantee IN (0,effective.oid)
-                          )
-                       FROM pg_catalog.pg_roles AS effective
-                       JOIN pg_catalog.pg_roles AS login ON login.rolname = session_user
-                       LEFT JOIN pg_catalog.pg_class AS rate_table
-                         ON rate_table.oid=pg_catalog.to_regclass('public.jas_si_customer_rate_limits')
-                       WHERE effective.rolname = current_user"""
-                )
-                row = cursor.fetchone()
-        return bool(
-            row
-            and row[0] == "jas_si_customer_runtime"
-            and not any(row[1:9])
-            and row[9] != row[0]
-            and not row[10] and not row[11] and row[12]
-            and not row[13] and not row[14] and not row[15] and not row[16]
-            and row[17] == 1 and row[18]
-            and row[19] and row[20]
-            and row[21] and row[22]
-            and row[23] and row[24] and row[25]
-            and row[26] and row[27] and row[28] and row[29]
-            and row[30] and row[31]
-        )
+        try:
+            with psycopg.connect(self._dsn) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT
+                              current_user = 'jas_si_customer_runtime'
+                              AND rate_table.oid IS NOT NULL
+                              AND pg_catalog.pg_get_userbyid(rate_table.relowner)
+                                  = 'jas_si_customer_rate_limit_owner'
+                              AND routine.oid IS NOT NULL
+                              AND pg_catalog.pg_get_userbyid(routine.proowner)
+                                  = 'jas_si_customer_rate_limit_owner'
+                              AND routine.prosecdef
+                              AND routine.proconfig @> ARRAY['search_path=pg_catalog']
+                              AND pg_catalog.has_function_privilege(
+                                  current_user,routine.oid,'EXECUTE')
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM pg_catalog.aclexplode(
+                                      COALESCE(routine.proacl,
+                                        pg_catalog.acldefault('f',routine.proowner))
+                                  ) acl
+                                  WHERE acl.grantee=0
+                                    AND acl.privilege_type='EXECUTE'
+                              )
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'SELECT')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'INSERT')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'UPDATE')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'DELETE')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'TRUNCATE')
+                              AND NOT pg_catalog.has_any_column_privilege(
+                                  current_user,rate_table.oid,'SELECT')
+                              AND NOT pg_catalog.has_any_column_privilege(
+                                  current_user,rate_table.oid,'INSERT')
+                              AND NOT pg_catalog.has_any_column_privilege(
+                                  current_user,rate_table.oid,'UPDATE')
+                           FROM (
+                               SELECT c.oid,c.relowner
+                                 FROM pg_catalog.pg_class c
+                                WHERE c.oid=pg_catalog.to_regclass(
+                                  'public.jas_si_customer_rate_limits')
+                           ) rate_table
+                           CROSS JOIN (
+                               SELECT p.oid,p.proowner,p.prosecdef,p.proconfig,p.proacl
+                                 FROM pg_catalog.pg_proc p
+                                WHERE p.oid=pg_catalog.to_regprocedure(
+                                  'public.jas_si_customer_rate_limit_check(bytea,integer,integer)')
+                           ) routine"""
+                    )
+                    row = cursor.fetchone()
+            return bool(row and row[0])
+        except Exception as exc:
+            raise CustomerRateLimitError(
+                "Customer rate-limit schema verification failed"
+            ) from exc
 
     def check(
         self,
