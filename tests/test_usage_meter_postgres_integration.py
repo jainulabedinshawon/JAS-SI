@@ -39,6 +39,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         cur.execute(f"CREATE ROLE {role} NOLOGIN")
                 for name in (
                     "002_create_tenant_api_keys.sql",
+                    "005_provisioner_tenant_row_lock.sql",
                     "20261110_usage_metering.sql",
                     "20261110_usage_idempotency_fingerprint.sql",
                     "20261111_usage_append_only_role_grants.sql",

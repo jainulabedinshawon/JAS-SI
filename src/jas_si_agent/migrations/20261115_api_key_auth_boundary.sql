@@ -52,6 +52,8 @@ GRANT UPDATE (last_used_at)
     ON public.jas_si_api_keys TO jas_si_api_key_auth_owner;
 GRANT SELECT (tenant_id, tenant_name, status)
     ON public.jas_si_tenants TO jas_si_api_key_auth_owner;
+GRANT UPDATE (provisioning_lock_version)
+    ON public.jas_si_tenants TO jas_si_api_key_auth_owner;
 
 ALTER TABLE public.jas_si_api_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_tenants ENABLE ROW LEVEL SECURITY;
@@ -68,6 +70,10 @@ DROP POLICY IF EXISTS jas_si_tenants_auth_owner_select ON public.jas_si_tenants;
 CREATE POLICY jas_si_tenants_auth_owner_select
     ON public.jas_si_tenants FOR SELECT TO jas_si_api_key_auth_owner
     USING (true);
+DROP POLICY IF EXISTS jas_si_tenants_auth_owner_lock ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_auth_owner_lock
+    ON public.jas_si_tenants FOR UPDATE TO jas_si_api_key_auth_owner
+    USING (true) WITH CHECK (true);
 
 GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
 SET LOCAL ROLE jas_si_api_key_auth_owner;
@@ -92,20 +98,34 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Tenant identity is derived from the key row. The caller cannot supply
-    -- a tenant UUID or a tenant GUC. A concurrent revocation/suspension is
-    -- rechecked by PostgreSQL while updating the key row.
+    -- Derive tenant identity from the key row, then lock the active tenant
+    -- before updating the key. Tenant suspension updates conflict with this
+    -- shared lock; after a suspension commits, the status predicate is rechecked.
     RETURN QUERY
+    WITH active_tenant AS MATERIALIZED (
+        SELECT t.tenant_id,t.tenant_name
+          FROM public.jas_si_tenants AS t
+         WHERE t.tenant_id=(
+             SELECT k.tenant_id
+               FROM public.jas_si_api_keys AS k
+              WHERE k.key_id=p_key_id
+                AND k.secret_digest=p_candidate_digest
+                AND k.pepper_version=1
+                AND k.status='active'
+                AND (k.expires_at IS NULL OR k.expires_at>pg_catalog.clock_timestamp())
+         )
+           AND t.status='active'
+         FOR SHARE OF t
+    )
     UPDATE public.jas_si_api_keys AS k
        SET last_used_at=pg_catalog.clock_timestamp()
-      FROM public.jas_si_tenants AS t
+      FROM active_tenant AS t
      WHERE k.key_id=p_key_id
        AND k.tenant_id=t.tenant_id
        AND k.secret_digest=p_candidate_digest
        AND k.pepper_version=1
        AND k.status='active'
        AND (k.expires_at IS NULL OR k.expires_at>pg_catalog.clock_timestamp())
-       AND t.status='active'
     RETURNING k.key_id,k.tenant_id,t.tenant_name::text,k.scopes;
 END;
 $function$;

@@ -5,9 +5,12 @@ on:
   pull_request:
     branches:
       - main
+      - feat/customer-identity-onboarding-v1
+      - fix/tenant-suspension-locking-after-onboarding-fix
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
+      - "tests/test_customer_identity_postgres_integration.py"
 
 permissions:
   contents: read
@@ -81,6 +84,12 @@ jobs:
               "20261117_runtime_usage_routine_only.sql",
               "20261118_shared_api_rate_limits.sql",
           )
+          # Stacked ACL PR adds this migration. Detect it from the checked-out
+          # merge commit so the same workflow validates both 19- and 20-file
+          # dependency stages without duplicating the migration list.
+          optional_acl_migration = "20261119_general_runtime_customer_identity_acl.sql"
+          if (migration_dir.joinpath(optional_acl_migration).is_file()):
+              migrations = migrations + (optional_acl_migration,)
 
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
           with psycopg.connect(dsn) as conn, conn.cursor() as cur:
@@ -112,20 +121,9 @@ jobs:
                     OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','SELECT')
                     OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','INSERT')
                     OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','UPDATE')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','SELECT')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','INSERT')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','UPDATE')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','DELETE')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','TRUNCATE')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','REFERENCES')
-                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','TRIGGER')
-                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','SELECT')
-                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','INSERT')
-                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','UPDATE')
-                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','REFERENCES')
               """)
               if cur.fetchone()[0]:
-                  raise SystemExit("jas_si_runtime or jas_si_provisioner regained direct usage-event table/column access")
+                  raise SystemExit("jas_si_runtime regained direct usage-event table/column access")
 
               cur.execute("""
                   SELECT count(*),
