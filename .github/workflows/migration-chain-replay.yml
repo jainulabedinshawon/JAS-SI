@@ -112,9 +112,20 @@ jobs:
                     OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','SELECT')
                     OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','INSERT')
                     OR pg_catalog.has_any_column_privilege('jas_si_runtime','public.jas_si_usage_events','UPDATE')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','SELECT')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','INSERT')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','UPDATE')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','DELETE')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','TRUNCATE')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','REFERENCES')
+                    OR pg_catalog.has_table_privilege('jas_si_provisioner','public.jas_si_usage_events','TRIGGER')
+                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','SELECT')
+                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','INSERT')
+                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','UPDATE')
+                    OR pg_catalog.has_any_column_privilege('jas_si_provisioner','public.jas_si_usage_events','REFERENCES')
               """)
               if cur.fetchone()[0]:
-                  raise SystemExit("jas_si_runtime regained direct usage-event table/column access")
+                  raise SystemExit("jas_si_runtime or jas_si_provisioner regained direct usage-event table/column access")
 
               cur.execute("""
                   SELECT count(*),
