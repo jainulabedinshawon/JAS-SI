@@ -58,6 +58,19 @@ BEGIN
                     v_role, v_table;
             END IF;
         END LOOP;
+
+        -- Identity SECURITY DEFINER routines are customer-runtime-only.
+        -- Fail closed if a general role inherits EXECUTE through any grant path.
+        IF EXISTS (
+            SELECT 1
+              FROM pg_catalog.pg_proc p
+              JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public'
+               AND pg_catalog.left(p.proname,9)='customer_'
+               AND pg_catalog.has_function_privilege(v_role,p.oid,'EXECUTE')
+        ) THEN
+            RAISE EXCEPTION '% retains EXECUTE on customer identity routines', v_role;
+        END IF;
     END LOOP;
 END
-$$;
+$;
