@@ -3,7 +3,7 @@
 **Status:** Historical product exploration only; superseded by ADR-002 for commerce ownership and rollout. It is not an approved implementation plan. No payment number, live checkout, transaction acceptance, paid entitlement, or production migration is enabled.
 
 > [!WARNING]
- > **Current commerce authority:** ADR-002 is authoritative. JAS-SI standalone tenants may later use an approved provider adapter under JAS-SI's own server-controlled commerce authority; JAS Platform-linked tenants use JAS Platform as the sole commerce authority. This manual TrxID proposal is not selected for either mode and must not be implemented or activated without a new explicit decision. This historical document is retained only to preserve original requirements and fraud-control analysis.
+> **Current commerce authority:** ADR-002 is authoritative. JAS-SI standalone tenants may later use an approved provider adapter under JAS-SI's own server-controlled commerce authority; JAS Platform-linked tenants use JAS Platform as the sole commerce authority. This manual TrxID proposal is not selected for either mode and must not be implemented or activated without a new explicit decision. This historical document is retained only to preserve original requirements and fraud-control analysis.
 
 ## Historical proposal (not approved for JAS-SI implementation)
 
