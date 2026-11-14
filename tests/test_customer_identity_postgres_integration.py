@@ -496,8 +496,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         f"{role} must not have column SELECT on {table}",
                     )
                     cur.execute(f"SET LOCAL ROLE {role}")
+                    cur.execute("SAVEPOINT direct_identity_read_probe")
                     with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                         cur.execute(f"SELECT * FROM public.{table} LIMIT 1")
+                    cur.execute("ROLLBACK TO SAVEPOINT direct_identity_read_probe")
+                    cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
                     cur.execute("RESET ROLE")
 
 
