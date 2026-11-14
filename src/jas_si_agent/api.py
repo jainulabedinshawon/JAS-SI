@@ -143,6 +143,8 @@ def initialize_security_event_store() -> None:
             raise RuntimeError("API key registry schema is not installed")
         if not registry.verify_api_key_auth_boundary():
             raise RuntimeError("API key authentication security boundary is not ready")
+        if not registry.verify_audit_writer_boundary():
+            raise RuntimeError("PostgreSQL audit writer boundary is not ready")
     except Exception as exc:
         raise RuntimeError(
             "API key registry readiness check failed; startup denied"
