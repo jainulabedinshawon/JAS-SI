@@ -81,14 +81,27 @@ def calculate_seed(seed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def release_gate_passed(result: dict[str, Any]) -> bool:
-    """A P10 pass requires every integrity condition and the effect threshold."""
+def apparatus_gate_passed(result: dict[str, Any]) -> bool:
+    """Validate the synthetic apparatus without making an empirical claim."""
     return (
         result.get("all_feedback_verified") is True
         and result.get("training_heldout_evidence_overlap_count") == 0
         and result.get("seed_count") == REQUIRED_SEEDS
         and result.get("required_seed_count") == REQUIRED_SEEDS
-        and result.get("practical_threshold_met") is True
+        and result.get("fixture_practical_threshold_met") is True
+    )
+
+
+def empirical_release_gate_passed(result: dict[str, Any]) -> bool:
+    """Synthetic fixtures can never satisfy the empirical release gate."""
+    return (
+        result.get("evidence_type") != "SYNTHETIC_DEVELOPMENT_FIXTURE"
+        and result.get("independent_empirical_replications_established") is True
+        and result.get("all_feedback_verified") is True
+        and result.get("training_heldout_evidence_overlap_count") == 0
+        and result.get("seed_count") == REQUIRED_SEEDS
+        and result.get("required_seed_count") == REQUIRED_SEEDS
+        and result.get("empirical_threshold_met") is True
     )
 
 
@@ -140,6 +153,16 @@ def main() -> int:
         mean_improvement = mean(improvements)
         threshold_met = mean_improvement >= DELTA
 
+    outcome_signatures = {
+        (
+            item["baseline_true_success"],
+            item["baseline_false_success"],
+            item["post_feedback_true_success"],
+            item["post_feedback_false_success"],
+        )
+        for item in seeds
+    }
+
     baseline_rates = [
         item["baseline_false_success_rate"] for item in per_seed
     ]
@@ -157,7 +180,12 @@ def main() -> int:
         "mean_baseline_false_success_rate": mean(baseline_rates),
         "mean_post_feedback_false_success_rate": mean(post_rates),
         "mean_absolute_fsr_improvement": mean_improvement,
-        "practical_threshold_met": threshold_met,
+        "fixture_practical_threshold_met": threshold_met,
+        "practical_threshold_met": None,
+        "empirical_threshold_met": None,
+        "distinct_seed_outcome_count": len(outcome_signatures),
+        "independent_empirical_replications_established": False,
+        "empirical_release_gate_passed": False,
         "training_heldout_evidence_overlap_count": len(overlap),
         "all_feedback_verified": all(
             item["verified_failure_feedback"] is True for item in seeds
@@ -169,7 +197,9 @@ def main() -> int:
             "No independent external evaluator is used in this apparatus.",
             "Threshold attainment is not statistical significance.",
             "No claim of real-world verified-failure learning is established.",
-            "Repeated synthetic values across seeds are not independent empirical replications.",
+            "All ten fixture seeds currently encode identical outcome counts.",
+            "Distinct fixture identifiers do not establish independent experimental replications.",
+            "The synthetic fixture cannot satisfy the empirical release gate or establish a practical threshold.",
         ],
     }
 
@@ -184,9 +214,13 @@ def main() -> int:
         )
         handle.write("\n")
 
+    result["apparatus_gate_passed"] = apparatus_gate_passed(result)
+    result["empirical_release_gate_passed"] = empirical_release_gate_passed(result)
     print(json.dumps(result, indent=2, sort_keys=True))
 
-    return 0 if release_gate_passed(result) else 1
+    # Exit status validates only the synthetic apparatus. Empirical release
+    # remains blocked until independently generated evidence is supplied.
+    return 0 if result["apparatus_gate_passed"] else 1
 
 
 if __name__ == "__main__":
