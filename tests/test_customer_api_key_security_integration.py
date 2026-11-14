@@ -49,6 +49,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
                 "20261112_customer_identity_routines.sql",
                 "20261113_customer_api_key_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
+                "20261121_security_audit_writer_boundary.sql",
             ]
             for name in migrations:
                 path = ROOT / "src" / "jas_si_agent" / "migrations" / name
@@ -104,6 +105,35 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         self.assertIsNotNone(link)
         session_token = self.identity.consume_login_link(link.token).token
         return session_token
+
+    def test_audit_writer_boundary_restricts_direct_mutation(self):
+        registry = PostgresApiKeyRegistry(self.admin_dsn, self.api_pepper)
+        self.assertTrue(registry.verify_audit_writer_boundary())
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                cur.execute("SELECT set_config('role', %s, true)", (role,))
+                cur.execute(
+                    """SELECT has_table_privilege(current_user,
+                              'public.jas_si_audit_chain_state','INSERT'),
+                              has_table_privilege(current_user,
+                              'public.jas_si_audit_chain_state','UPDATE'),
+                              has_table_privilege(current_user,
+                              'public.jas_si_audit_events','INSERT')"""
+                )
+                self.assertEqual(cur.fetchone(), (False, False, False))
+                cur.execute(
+                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                    (psycopg.types.json.Jsonb({
+                        "event_type": "audit_writer_boundary_test",
+                        "role": role,
+                    }),),
+                )
+                cur.execute("RESET ROLE")
+            cur.execute("SELECT count(*) FROM public.jas_si_audit_events")
+            self.assertGreaterEqual(cur.fetchone()[0], 2)
+
+        self.assertTrue(PostgresSecurityEventStore(self.admin_dsn).verify_integrity()["valid"])
 
     def test_database_derives_tenant_from_session_and_audits_atomically(self):
         session_a = self._session("alpha-" + uuid.uuid4().hex + "@example.test")
