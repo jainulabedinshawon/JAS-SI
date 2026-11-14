@@ -81,6 +81,8 @@ GRANT EXECUTE ON FUNCTION public.jas_si_customer_key_canonical_jsonb(jsonb)
     TO jas_si_audit_writer_owner;
 GRANT EXECUTE ON FUNCTION public.jas_si_customer_key_sha256(bytea)
     TO jas_si_audit_writer_owner;
+GRANT EXECUTE ON FUNCTION public.jas_si_customer_key_canonical_jsonb(jsonb)
+    TO jas_si_runtime, jas_si_provisioner;
 
 ALTER TABLE public.jas_si_audit_chain_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_audit_events ENABLE ROW LEVEL SECURITY;
