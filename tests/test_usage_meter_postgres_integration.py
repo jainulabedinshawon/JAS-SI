@@ -281,7 +281,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
             ROOT / "src" / "jas_si_agent" / "migrations"
             / "20261117_runtime_usage_routine_only.sql"
         )
-        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 "GRANT ALL PRIVILEGES ON TABLE public.jas_si_usage_events "
                 "TO jas_si_provisioner"
