@@ -10,7 +10,6 @@ from jas_si_agent.security_event_store import (
     MAX_EVENT_BYTES,
     SecurityEventStoreError,
     _canonical_json,
-    _event_hash,
 )
 
 
