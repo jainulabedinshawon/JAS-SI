@@ -954,6 +954,26 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
                     cur.execute("RESET ROLE")
 
+            for role in ("jas_si_runtime", "jas_si_provisioner"):
+                cur.execute(
+                    """
+                    SELECT p.proname
+                      FROM pg_catalog.pg_proc p
+                      JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                     WHERE n.nspname='public'
+                       AND p.proname LIKE 'customer_%'
+                       AND pg_catalog.has_function_privilege(%s,p.oid,'EXECUTE')
+                     ORDER BY p.proname
+                    """,
+                    (role,),
+                )
+                executable = [row[0] for row in cur.fetchall()]
+                self.assertEqual(
+                    executable,
+                    [],
+                    f"{role} must not execute customer identity routines",
+                )
+
 
 
 if __name__ == "__main__":
