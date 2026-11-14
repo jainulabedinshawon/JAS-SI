@@ -124,27 +124,9 @@ class PostgresCustomerRateLimiter:
             with psycopg.connect(self._dsn) as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """
-                        INSERT INTO jas_si_customer_rate_limits
-                            (bucket_key, window_started_at, request_count, updated_at)
-                        VALUES (%s, NOW(), 1, NOW())
-                        ON CONFLICT (bucket_key) DO UPDATE SET
-                            window_started_at = CASE
-                                WHEN jas_si_customer_rate_limits.window_started_at
-                                     <= NOW() - (%s * INTERVAL '1 second')
-                                THEN NOW()
-                                ELSE jas_si_customer_rate_limits.window_started_at
-                            END,
-                            request_count = CASE
-                                WHEN jas_si_customer_rate_limits.window_started_at
-                                     <= NOW() - (%s * INTERVAL '1 second')
-                                THEN 1
-                                ELSE jas_si_customer_rate_limits.request_count + 1
-                            END,
-                            updated_at = NOW()
-                        RETURNING request_count, window_started_at
-                        """,
-                        (bucket_key, window_seconds, window_seconds),
+                        "SELECT allowed,retry_after_seconds "
+                        "FROM public.jas_si_customer_rate_limit_check(%s,%s,%s)",
+                        (bucket_key, limit, window_seconds),
                     )
                     row = cursor.fetchone()
                     if row is None:
