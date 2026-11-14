@@ -529,10 +529,11 @@ class PostgresApiKeyRegistry:
                         (run_id, key_id, tenant_id),
                     )
 
-                cursor.execute(
-                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
-                    (Jsonb({
-                        "event_type": "api_key_issued",
+                with connection.cursor() as audit_cursor:
+                    audit_cursor.execute(
+                        "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                        (Jsonb({
+                            "event_type": "api_key_issued",
                         "tenant_id": str(tenant_id),
                         "key_id": str(key_id),
                         "key_name": name,
@@ -541,9 +542,9 @@ class PostgresApiKeyRegistry:
                             expires_at.isoformat() if expires_at else None
                         ),
                         "operator_id": creator,
-                        "provisioning_run_id": run_id,
-                    }),),
-                )
+                            "provisioning_run_id": run_id,
+                        }),),
+                    )
         except ApiKeyError:
             raise
         except Exception as exc:
@@ -741,9 +742,7 @@ class PostgresApiKeyRegistry:
         """
         import re
         import psycopg
-        from jas_si_agent.postgres_security_event_store import (
-            PostgresSecurityEventStore,
-        )
+        from psycopg.types.json import Jsonb
 
         if not isinstance(key_id, uuid.UUID):
             raise ApiKeyError("A valid key UUID is required")
@@ -786,16 +785,17 @@ class PostgresApiKeyRegistry:
                         return False
                     tenant_id = row[0]
 
-                cursor.execute(
-                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
-                    (Jsonb({
-                        "event_type": "api_key_revoked",
+                with connection.cursor() as audit_cursor:
+                    audit_cursor.execute(
+                        "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                        (Jsonb({
+                            "event_type": "api_key_revoked",
                         "tenant_id": str(tenant_id),
                         "key_id": str(key_id),
                         "operator_id": operator,
-                        "revocation_run_id": run_id,
-                    }),),
-                )
+                            "revocation_run_id": run_id,
+                        }),),
+                    )
             return True
         except ApiKeyError:
             raise
