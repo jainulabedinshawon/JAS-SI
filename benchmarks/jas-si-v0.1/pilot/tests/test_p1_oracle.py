@@ -59,24 +59,31 @@ class TestP1Oracle(unittest.TestCase):
     def test_fixture_is_valid(self):
         RUN_P1.validate_tasks(self.tasks)
 
-    def test_oracle_is_deterministic(self):
+    def test_oracle_is_deterministic_without_ground_truth(self):
         agent = ORACLE.OracleAgent()
+        visible_task = {
+            "task_id": self.tasks[0]["task_id"],
+            "prompt": self.tasks[0]["prompt"],
+            "constraints": self.tasks[0]["constraints"],
+        }
 
-        first = agent.run(self.tasks[0])
-        second = agent.run(self.tasks[0])
+        first = agent.run(visible_task)
+        second = agent.run(visible_task)
 
         self.assertEqual(first, second)
+        self.assertEqual(
+            first.observed_outcome,
+            ORACLE.OracleAgent.APPARATUS_OUTCOME,
+        )
 
-    def test_oracle_observes_expected_outcome(self):
+    def test_oracle_rejects_ground_truth_if_injected(self):
         agent = ORACLE.OracleAgent()
 
-        result = agent.run(self.tasks[0])
-
-        expected = self.tasks[0]["ground_truth"]["expected_outcome"]
-
-        self.assertEqual(result.observed_outcome, expected)
-        self.assertEqual(result.reported_outcome, expected)
-        self.assertEqual(result.reported_status, "SUCCESS")
+        with self.assertRaisesRegex(ValueError, "must not be agent-visible"):
+            agent.run({
+                "task_id": "P1-LEAK-001",
+                "ground_truth": {"expected_outcome": "SECRET"},
+            })
 
     def test_true_success_verification(self):
         verifier = VERIFIER.IndependentVerifier()
@@ -118,6 +125,35 @@ class TestP1Oracle(unittest.TestCase):
         self.assertFalse(result.verified)
         self.assertEqual(result.outcome_label, "FAILURE")
 
+    def test_runner_never_exposes_evaluator_ground_truth(self):
+        captured = {}
+
+        class SpyAgent:
+            CONDITION = "P1_SPY"
+
+            def run(self, task):
+                captured.update(task)
+                return ORACLE.OracleResult(
+                    reported_status="SUCCESS",
+                    reported_outcome="P1_DETERMINISTIC_SUCCESS",
+                    observed_outcome="P1_DETERMINISTIC_SUCCESS",
+                )
+
+        runner = RUNNER.PilotRunner(
+            SpyAgent(),
+            VERIFIER.IndependentVerifier(),
+        )
+        record = runner.run_task(self.tasks[0])
+
+        self.assertEqual(
+            set(captured),
+            {"task_id", "prompt", "constraints"},
+        )
+        self.assertNotIn("ground_truth", captured)
+        self.assertNotIn("expected_outcome", captured)
+        self.assertEqual(record["expected_outcome"], "P1_DETERMINISTIC_SUCCESS")
+        self.assertEqual(record["outcome_label"], "TRUE_SUCCESS")
+
     def test_runner_generates_evidence(self):
         agent = ORACLE.OracleAgent()
         verifier = VERIFIER.IndependentVerifier()
@@ -147,31 +183,11 @@ class TestP1Oracle(unittest.TestCase):
         evidence = runner.run(self.tasks)
         result = RUN_P1.build_summary(evidence)
 
-        self.assertEqual(
-            result["task_count"],
-            len(self.tasks),
-        )
-
-        self.assertEqual(
-            result["outcome_counts"]["TRUE_SUCCESS"],
-            len(self.tasks),
-        )
-
-        self.assertEqual(
-            result["outcome_counts"]["FALSE_SUCCESS"],
-            0,
-        )
-
-        self.assertEqual(
-            result["outcome_counts"]["FAILURE"],
-            0,
-        )
-
-        self.assertEqual(
-            result["outcome_counts"]["FALSE_FAILURE"],
-            0,
-        )
-
+        self.assertEqual(result["task_count"], len(self.tasks))
+        self.assertEqual(result["outcome_counts"]["TRUE_SUCCESS"], len(self.tasks))
+        self.assertEqual(result["outcome_counts"]["FALSE_SUCCESS"], 0)
+        self.assertEqual(result["outcome_counts"]["FAILURE"], 0)
+        self.assertEqual(result["outcome_counts"]["FALSE_FAILURE"], 0)
         self.assertEqual(result["accuracy"], 1.0)
 
     def test_repeated_runs_have_identical_outcomes(self):
