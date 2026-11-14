@@ -20,6 +20,7 @@ except ImportError:
     psycopg = None
     make_conninfo = None
 
+from jas_si_agent.api_key_registry import PostgresApiKeyRegistry
 from jas_si_agent.customer_rate_limit import PostgresCustomerRateLimiter
 from jas_si_agent.customer_identity import (
     CustomerIdentityConflict,
@@ -63,6 +64,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261110_usage_idempotency_fingerprint.sql",
                 "20261111_usage_append_only_role_grants.sql",
                 "20261114_customer_usage_read_routines.sql",
+                "20261115_api_key_auth_boundary.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
@@ -459,6 +461,27 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
                 cur.execute("SELECT event_id FROM public.jas_si_usage_events LIMIT 1")
+
+
+    def test_suspended_tenant_cannot_authenticate_api_key(self):
+        api_pepper = b"tenant-suspension-api-key-test-pepper-32-bytes"
+        registry = PostgresApiKeyRegistry(self.admin_dsn, api_pepper)
+        tenant_id = registry.create_tenant("suspension-" + uuid.uuid4().hex)
+        issued = registry.issue_key(
+            tenant_id, "suspension-check", ["authorization:check"], "integration-test"
+        )
+        self.assertIsNotNone(registry.authenticate(issued.token))
+
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+
+        self.assertIsNone(
+            registry.authenticate(issued.token),
+            "API-key authentication must fail closed when its tenant is suspended",
+        )
 
 
     def test_suspended_tenant_cannot_authenticate_or_read_usage_but_can_revoke_session(self):
