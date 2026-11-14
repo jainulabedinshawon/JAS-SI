@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 from typing import Any, Mapping
 
@@ -97,7 +98,8 @@ class PostgresSecurityEventStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT event_payload, previous_hash, event_hash
+                    SELECT event_payload, previous_hash, event_hash,
+                           public.jas_si_customer_key_canonical_jsonb(event_payload)
                     FROM jas_si_audit_events
                     ORDER BY event_id ASC
                     """
@@ -133,7 +135,19 @@ class PostgresSecurityEventStore:
                         f"Hash-chain link mismatch at position {event_number}"
                     )
                 try:
-                    expected_hash = _event_hash(payload, previous_hash)
+                    canonical_payload = row[3]
+                if not isinstance(canonical_payload, str):
+                    raise SecurityEventStoreError(
+                        f"Invalid canonical event data at position {event_number}"
+                    )
+                material = (
+                    b'{"event":'
+                    + canonical_payload.encode("utf-8")
+                    + b',"previous_hash":'
+                    + ('"' + previous_hash + '"').encode("utf-8")
+                    + b'}'
+                )
+                expected_hash = hashlib.sha256(material).hexdigest()
                 except (TypeError, ValueError, RecursionError) as exc:
                     raise SecurityEventStoreError(
                         f"Invalid event data at position {event_number}"
