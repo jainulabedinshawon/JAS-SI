@@ -243,6 +243,11 @@ class AuthorizeRequest(BaseModel):
 
 
 class VerifyRequest(BaseModel):
+    """Caller-submitted claims; evidence provenance is server-controlled."""
+
+    class Config:
+        extra = "forbid"
+
     action_id: str = Field(min_length=1, max_length=128)
     claimed_success: bool
     observed_state: Optional[str] = Field(
@@ -252,13 +257,6 @@ class VerifyRequest(BaseModel):
     evidence_ref: Optional[str] = Field(
         default=None,
         max_length=2048,
-    )
-    collected_independently: bool = Field(
-        default=False,
-        description=(
-            "Non-authoritative caller claim. Ignored for trust decisions; "
-            "only an authenticated server-side collector can establish provenance."
-        ),
     )
 
 
