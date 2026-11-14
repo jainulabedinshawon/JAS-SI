@@ -1,6 +1,6 @@
 # JAS-SI Private Pilot API Onboarding (Draft)
 
-Status: internal operator runbook. Not a public signup flow. Do not send a customer an API key until the backend key registry and private staging deployment are implemented and tested.
+Status (2026-11-15): internal operator runbook, not a public signup flow. The tenant-scoped key registry and API-key authentication are implemented in `main`; however, staging still has a tenant-suspension row-lock drift tracked by draft PR #71, and database audit/rate-limit mutation boundaries are being hardened in draft PRs #72–#73. Do not issue an external pilot key until these changes are reviewed, staging is migrated safely, and the live API/customer journey passes independent smoke tests.
 
 ## Pilot access sequence
 
