@@ -213,12 +213,12 @@ BEGIN
 END;
 $function$;
 
--- Function EXECUTE defaults to PUBLIC; revoke it as the function owner.
+-- Function EXECUTE defaults to PUBLIC; set the exact allow-list as its owner.
 REVOKE ALL ON FUNCTION public.jas_si_audit_append_event(jsonb) FROM PUBLIC;
-RESET ROLE;
-REVOKE CREATE ON SCHEMA public FROM jas_si_audit_writer_owner;
 GRANT EXECUTE ON FUNCTION public.jas_si_audit_append_event(jsonb)
     TO jas_si_runtime, jas_si_provisioner, jas_si_customer_key_owner;
+RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_audit_writer_owner;
 
 -- Replace the customer-key-specific writer with a delegating wrapper so its
 -- owner no longer needs direct mutation privileges on global audit tables.
