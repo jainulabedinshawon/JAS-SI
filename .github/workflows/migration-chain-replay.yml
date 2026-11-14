@@ -80,6 +80,7 @@ jobs:
               "20261116_api_key_bound_usage_routines.sql",
               "20261117_runtime_usage_routine_only.sql",
               "20261118_shared_api_rate_limits.sql",
+              "20261119_general_runtime_customer_identity_acl.sql",
           )
 
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
