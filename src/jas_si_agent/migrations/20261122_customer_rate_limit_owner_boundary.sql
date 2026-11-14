@@ -74,6 +74,7 @@ DECLARE
     v_window_started_at timestamptz;
     v_request_count integer;
     v_now timestamptz;
+    v_created boolean := false;
 BEGIN
     IF p_bucket_key IS NULL OR pg_catalog.octet_length(p_bucket_key)<>32
        OR p_limit IS NULL OR p_limit<1
@@ -85,32 +86,40 @@ BEGIN
     INSERT INTO public.jas_si_customer_rate_limits
         (bucket_key,window_started_at,request_count,updated_at)
     VALUES (p_bucket_key,pg_catalog.clock_timestamp(),1,pg_catalog.clock_timestamp())
-    ON CONFLICT (bucket_key) DO NOTHING;
+    ON CONFLICT (bucket_key) DO NOTHING
+    RETURNING true INTO v_created;
 
-    SELECT r.window_started_at,r.request_count
-      INTO v_window_started_at,v_request_count
-      FROM public.jas_si_customer_rate_limits r
-     WHERE r.bucket_key=p_bucket_key
-     FOR UPDATE;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Customer rate-limit bucket unavailable';
-    END IF;
-
-    -- Decide only after obtaining the per-IP row lock.
     v_now := pg_catalog.clock_timestamp();
-    IF v_window_started_at <= v_now-(p_window_seconds*interval '1 second') THEN
+    IF v_created THEN
+        -- The INSERT already counted this request; do not increment it again.
         v_window_started_at := v_now;
         v_request_count := 1;
     ELSE
-        v_request_count := v_request_count+1;
-    END IF;
+        SELECT r.window_started_at,r.request_count
+          INTO v_window_started_at,v_request_count
+          FROM public.jas_si_customer_rate_limits r
+         WHERE r.bucket_key=p_bucket_key
+         FOR UPDATE;
 
-    UPDATE public.jas_si_customer_rate_limits
-       SET window_started_at=v_window_started_at,
-           request_count=v_request_count,
-           updated_at=v_now
-     WHERE bucket_key=p_bucket_key;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Customer rate-limit bucket unavailable';
+        END IF;
+
+        -- Decide only after obtaining the per-IP row lock.
+        v_now := pg_catalog.clock_timestamp();
+        IF v_window_started_at <= v_now-(p_window_seconds*interval '1 second') THEN
+            v_window_started_at := v_now;
+            v_request_count := 1;
+        ELSE
+            v_request_count := v_request_count+1;
+        END IF;
+
+        UPDATE public.jas_si_customer_rate_limits
+           SET window_started_at=v_window_started_at,
+               request_count=v_request_count,
+               updated_at=v_now
+         WHERE bucket_key=p_bucket_key;
+    END IF;
 
     allowed := v_request_count<=p_limit;
     retry_after_seconds := CASE
