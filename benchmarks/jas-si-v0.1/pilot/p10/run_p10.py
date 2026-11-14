@@ -95,7 +95,7 @@ def apparatus_gate_passed(result: dict[str, Any]) -> bool:
 def empirical_release_gate_passed(result: dict[str, Any]) -> bool:
     """Synthetic fixtures can never satisfy the empirical release gate."""
     return (
-        result.get("evidence_type") != "SYNTHETIC_DEVELOPMENT_FIXTURE"
+        result.get("evidence_type") == "INDEPENDENT_REAL_WORLD_EMPIRICAL_DATA"
         and result.get("independent_empirical_replications_established") is True
         and result.get("all_feedback_verified") is True
         and result.get("training_heldout_evidence_overlap_count") == 0
