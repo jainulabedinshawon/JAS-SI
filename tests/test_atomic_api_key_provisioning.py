@@ -27,6 +27,7 @@ from jas_si_agent.api_key_registry import ApiKeyError, PostgresApiKeyRegistry
 from jas_si_agent.postgres_security_event_store import (
     PostgresSecurityEventStore,
 )
+from jas_si_agent.usage_meter import PostgresUsageMeter
 
 
 @unittest.skipUnless(
@@ -53,6 +54,11 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/004_audit_event_id_identity.sql",
             ROOT / "src/jas_si_agent/migrations/005_provisioner_tenant_row_lock.sql",
             ROOT / "src/jas_si_agent/migrations/006_api_key_registry_role_grants.sql",
+            ROOT / "src/jas_si_agent/migrations/20261110_usage_metering.sql",
+            ROOT / "src/jas_si_agent/migrations/20261110_usage_idempotency_fingerprint.sql",
+            ROOT / "src/jas_si_agent/migrations/20261111_usage_append_only_role_grants.sql",
+            ROOT / "src/jas_si_agent/migrations/20261115_api_key_auth_boundary.sql",
+            ROOT / "src/jas_si_agent/migrations/20261116_api_key_bound_usage_routines.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
@@ -530,9 +536,45 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
         )
         store_patch.start()
         self.addCleanup(store_patch.stop)
+        meter_patch = patch.object(
+            api.app.state,
+            "usage_meter",
+            PostgresUsageMeter(self.dsn),
+            create=True,
+        )
+        meter_patch.start()
+        self.addCleanup(meter_patch.stop)
+        # This suite validates PostgreSQL API-key authentication. Keep the
+        # independent shared-ingress limiter boundary deterministic here;
+        # its PostgreSQL behavior is covered by tests/test_api_rate_limit.py.
+        test_rate_limiter = type(
+            "AllowIntegrationTestRateLimiter",
+            (),
+            {
+                "check": lambda self, client_ip, *, limit, window_seconds: (
+                    True,
+                    limit - 1,
+                    0,
+                )
+            },
+        )()
+        limiter_patch = patch.object(
+            api.app.state,
+            "api_rate_limiter",
+            test_rate_limiter,
+            create=True,
+        )
+        limiter_patch.start()
+        self.addCleanup(limiter_patch.stop)
         with api._rate_limit_lock:
             api._rate_limit_buckets.clear()
-        return TestClient(api.app)
+        # These integration tests set the API environment to Preview. Simulate
+        # the trusted client-IP header injected by the Vercel edge so requests
+        # exercise authentication instead of failing the deployed-proxy guard.
+        return TestClient(
+            api.app,
+            headers={"x-vercel-forwarded-for": "203.0.113.10"},
+        )
 
     def test_real_registry_missing_key_returns_401(self):
         self._tenant()

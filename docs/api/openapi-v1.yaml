@@ -10,8 +10,8 @@ info:
     authorization and submitted outcomes and checks GitHub blob integrity.
     It does not execute customer actions or claim semantic truth.
 servers:
-  - url: https://api.example.invalid
-    description: Placeholder; replace with the actual private deployment URL.
+  - url: https://jas-si.vercel.app
+    description: JAS-SI hosted application origin. Endpoint availability depends on deployed runtime configuration; customer identity, database-backed API keys and usage require approved secrets and migrations. Billing and payment collection are not connected.
 security:
   - ApiKeyAuth: []
 tags:
@@ -135,14 +135,464 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+  /plans:
+    get:
+      security: []
+      operationId: listPlans
+      tags: [Plans]
+      summary: Read the public plan catalogue
+      description: Free is a bounded technical quota. Paid plans are preview-only until prices, entitlements and payment operations are enabled.
+      responses:
+        '200':
+          description: Public plan catalogue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanCatalog' }
+  /v1/customer/register:
+    post:
+      security: []
+      operationId: registerCustomer
+      tags: [Customer Identity]
+      summary: Request a customer account verification email
+      description: Returns a generic response to reduce account enumeration. Requires configured customer database and SMTP delivery.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerRegisterRequest' }
+      responses:
+        '202':
+          description: Generic acceptance response
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerMessageResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/login:
+    post:
+      security: []
+      operationId: requestCustomerLogin
+      tags: [Customer Identity]
+      summary: Request a one-time customer sign-in email
+      description: Returns a generic response whether or not an active account exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerEmailRequest' }
+      responses:
+        '202':
+          description: Generic acceptance response
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerMessageResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/verify-email:
+    post:
+      security: []
+      operationId: verifyCustomerEmail
+      tags: [Customer Identity]
+      summary: Consume a one-time email verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerTokenRequest' }
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerVerificationResponse' }
+        '400': { $ref: '#/components/responses/InvalidCustomerLink' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/session:
+    post:
+      security: []
+      operationId: createCustomerSession
+      tags: [Customer Identity]
+      summary: Consume a one-time sign-in token and create a browser session
+      description: Sets HttpOnly session and readable CSRF cookies. Production and preview cookies are Secure and SameSite=Strict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerTokenRequest' }
+      responses:
+        '200':
+          description: Customer session created
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAccountResponse' }
+        '400': { $ref: '#/components/responses/InvalidCustomerLink' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/me:
+    get:
+      security:
+        - CustomerSessionAuth: []
+      operationId: getCustomerAccount
+      tags: [Customer Identity]
+      summary: Get the signed-in customer account
+      responses:
+        '200':
+          description: Authenticated customer account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAccountResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/logout:
+    post:
+      security:
+        - CustomerSessionAuth: []
+      operationId: logoutCustomer
+      tags: [Customer Identity]
+      summary: Revoke the current customer session
+      parameters:
+        - in: header
+          name: X-JAS-SI-CSRF
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Session revoked and cookies cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [signed_out]
+                properties:
+                  signed_out: { type: boolean, const: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/usage:
+    get:
+      security:
+        - CustomerSessionAuth: []
+      operationId: getCustomerUsage
+      tags: [Customer Usage]
+      summary: Read the signed-in tenant's usage and Free quota
+      description: Reports technical usage only. It does not represent money, invoices, payment status or paid entitlements.
+      responses:
+        '200':
+          description: Tenant-scoped technical usage and quota
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerUsageResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/usage/events:
+    get:
+      security:
+        - CustomerSessionAuth: []
+      operationId: getCustomerUsageEvents
+      tags: [Customer Usage]
+      summary: Read a cursor-paginated usage event history
+      description: >-
+        Returns technical usage events for the authenticated customer session only.
+        Tenant identity is resolved by the database; tenant IDs are not accepted from callers.
+        Use both before and before_event_id from next_cursor together to fetch the next page.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+        - name: before
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: before_event_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Tenant-scoped usage event page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerUsageEventsResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/usage:
+    get:
+      security:
+        - ApiKeyAuth: []
+      operationId: getApiKeyUsage
+      tags: [Customer Usage]
+      summary: Read usage for the authenticated API-key tenant
+      parameters:
+        - in: query
+          name: since
+          required: false
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Tenant-scoped technical usage and quota
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerUsageResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/api-keys:
+    get:
+      security:
+        - CustomerSessionAuth: []
+      operationId: listCustomerApiKeys
+      tags: [Customer API Keys]
+      summary: List API-key metadata for the signed-in tenant
+      description: Returns only the authenticated customer's key metadata. Raw tokens and stored digests are never returned.
+      responses:
+        '200':
+          description: Customer API-key metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerApiKeyListResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      security:
+        - CustomerSessionAuth: []
+      operationId: createCustomerApiKey
+      tags: [Customer API Keys]
+      summary: Create a tenant-scoped API key
+      description: Requires the customer session cookie and matching X-JAS-SI-CSRF cookie/header. The raw token is returned once only.
+      parameters:
+        - in: header
+          name: X-JAS-SI-CSRF
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerApiKeyCreateRequest' }
+      responses:
+        '201':
+          description: API key created; copy the raw token now
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerApiKeyCreateResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /v1/customer/api-keys/{key_id}/revoke:
+    post:
+      security:
+        - CustomerSessionAuth: []
+      operationId: revokeCustomerApiKey
+      tags: [Customer API Keys]
+      summary: Revoke one API key belonging to the signed-in tenant
+      description: Requires the customer session cookie and matching X-JAS-SI-CSRF cookie/header. Cross-tenant key IDs are not disclosed.
+      parameters:
+        - in: path
+          name: key_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-JAS-SI-CSRF
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: API key revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerApiKeyRevocationResponse' }
+        '401': { $ref: '#/components/responses/CustomerUnauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Key not found in the authenticated tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 components:
   securitySchemes:
+    CustomerSessionAuth:
+      type: apiKey
+      in: cookie
+      name: jassi_customer_session
+      description: First-party customer session cookie issued after one-time email sign-in.
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
       description: API key provisioned out-of-band by a JAS-SI operator.
   schemas:
+    CustomerRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, organization_name]
+      properties:
+        email: { type: string, format: email, minLength: 3, maxLength: 254 }
+        organization_name: { type: string, minLength: 1, maxLength: 160 }
+    CustomerEmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, format: email, minLength: 3, maxLength: 254 }
+    CustomerTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string, minLength: 32, maxLength: 128 }
+    CustomerMessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+    CustomerVerificationResponse:
+      type: object
+      required: [verified, message]
+      properties:
+        verified: { type: boolean, const: true }
+        message: { type: string }
+    CustomerAccountResponse:
+      type: object
+      required: [account_id, email, organization_name, status]
+      properties:
+        account_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        organization_name: { type: string }
+        status: { type: string, enum: [active] }
+    PlanCatalog:
+      type: object
+      required: [catalog_version, billing_mode, payment_status, currency_policy, plans, disclaimer]
+      properties:
+        catalog_version: { type: string }
+        billing_mode: { type: string, const: standalone_limited }
+        payment_status: { type: string, const: not_connected }
+        currency_policy: { type: string }
+        disclaimer: { type: string }
+        plans:
+          type: array
+          items:
+            type: object
+            required: [plan_id, name, monthly_units, price_minor, currency, purchasable, features]
+            properties:
+              plan_id: { type: string, enum: [free, starter, pro, enterprise] }
+              name: { type: string }
+              monthly_units: { type: [integer, 'null'] }
+              price_minor: { type: [integer, 'null'], minimum: 0 }
+              currency: { type: [string, 'null'] }
+              purchasable: { type: boolean }
+              features: { type: array, items: { type: string } }
+    CustomerUsageResponse:
+      type: object
+      required: [tenant_id, since, units, events, by_operation, quota, billing_status, note]
+      properties:
+        tenant_id: { type: string, format: uuid }
+        since: { type: string, format: date-time }
+        units: { type: integer, minimum: 0 }
+        events: { type: integer, minimum: 0 }
+        by_operation:
+          type: array
+          items:
+            type: object
+            required: [operation, events, units, last_recorded_at]
+            properties:
+              operation: { type: string }
+              events: { type: integer, minimum: 0 }
+              units: { type: integer, minimum: 0 }
+              last_recorded_at: { type: [string, 'null'], format: date-time }
+        quota:
+          type: object
+          required: [period, period_start, resets_at, monthly_limit, used_units, remaining_units, exhausted]
+          properties:
+            period: { type: string, const: utc_calendar_month }
+            period_start: { type: string, format: date-time }
+            resets_at: { type: string, format: date-time }
+            monthly_limit: { type: integer, minimum: 1 }
+            used_units: { type: integer, minimum: 0 }
+            remaining_units: { type: integer, minimum: 0 }
+            exhausted: { type: boolean }
+        billing_status: { type: string, const: not_connected }
+        note: { type: string }
+    CustomerUsageEventsResponse:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [event_id, request_id, operation, units, occurred_at]
+            properties:
+              event_id: { type: string, format: uuid }
+              request_id: { type: string }
+              operation: { type: string }
+              units: { type: integer, minimum: 0 }
+              occurred_at: { type: string, format: date-time }
+        next_cursor:
+          oneOf:
+            - type: object
+              required: [before, before_event_id]
+              properties:
+                before: { type: string, format: date-time }
+                before_event_id: { type: string, format: uuid }
+            - type: 'null'
+    CustomerApiKeyCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [key_name, scopes]
+      properties:
+        key_name: { type: string, minLength: 1, maxLength: 120 }
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [authorization:check, outcomes:submit, github:evidence:verify, usage:read]
+        expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
+    CustomerApiKeyCreateResponse:
+      type: object
+      required: [key_id, key_name, key_prefix, token, scopes, expires_at, warning]
+      properties:
+        key_id: { type: string, format: uuid }
+        key_name: { type: string }
+        key_prefix: { type: string }
+        token: { type: string, description: Raw token; returned once only. }
+        scopes: { type: array, items: { type: string } }
+        expires_at: { type: string, format: date-time }
+        warning: { type: string }
+    CustomerApiKeyMetadata:
+      type: object
+      required: [key_id, key_name, key_prefix, scopes, status, created_at]
+      properties:
+        key_id: { type: string, format: uuid }
+        key_name: { type: string }
+        key_prefix: { type: string }
+        scopes: { type: array, items: { type: string } }
+        status: { type: string, enum: [active, revoked] }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+    CustomerApiKeyListResponse:
+      type: object
+      required: [items, count]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CustomerApiKeyMetadata' } }
+        count: { type: integer, minimum: 0 }
+    CustomerApiKeyRevocationResponse:
+      type: object
+      required: [revoked, key_id]
+      properties:
+        revoked: { type: boolean, const: true }
+        key_id: { type: string, format: uuid }
     AuthorizeRequest:
       type: object
       additionalProperties: false
@@ -244,6 +694,16 @@ components:
   responses:
     Forbidden:
       description: API key is valid but does not have the required endpoint scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidCustomerLink:
+      description: One-time customer link is invalid, expired or already consumed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    CustomerUnauthorized:
+      description: Missing or invalid customer session cookie
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

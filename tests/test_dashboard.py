@@ -27,6 +27,14 @@ class DashboardRouteTests(unittest.TestCase):
         self.assertIn('data-lang="php"', response.text)
         self.assertIn('data-lang="node"', response.text)
 
+    def test_console_points_customers_to_gated_self_service_portal(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('href="/customer"', response.text)
+        self.assertIn("when its dedicated database roles", response.text)
+        self.assertIn("technical usage and event history", response.text)
+        self.assertIn("These units are not money", response.text)
+
     def test_health_endpoint_remains_json(self):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)

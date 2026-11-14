@@ -14,12 +14,21 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 class TestAPIStartup(unittest.TestCase):
     def setUp(self):
         self.original_store = api.app.state.security_event_store
+        self.original_api_limiter = getattr(api.app.state, "api_rate_limiter", None)
+        self.rate_limiter_patcher = patch.object(api, "PostgresApiRateLimiter")
+        self.rate_limiter_patcher.start()
         self.jsonl_store = JsonlSecurityEventStore(
             "/tmp/jas-si-startup-test.jsonl"
         )
         api.app.state.security_event_store = self.jsonl_store
 
     def tearDown(self):
+        self.rate_limiter_patcher.stop()
+        if self.original_api_limiter is None:
+            if hasattr(api.app.state, "api_rate_limiter"):
+                delattr(api.app.state, "api_rate_limiter")
+        else:
+            api.app.state.api_rate_limiter = self.original_api_limiter
         api.app.state.security_event_store = self.original_store
 
     def configure(self, **overrides):
@@ -29,6 +38,7 @@ class TestAPIStartup(unittest.TestCase):
             "api_key": "test-only-api-key",
             "api_key_pepper": b"test-only-pepper-that-is-at-least-32-bytes",
             "database_url": "postgresql://test:test@localhost/test",
+            "api_rate_limit_pepper": b"api-rate-limit-test-pepper-at-least-32-bytes",
         }
         values.update(overrides)
         return replace(api.settings, **values)
@@ -134,14 +144,40 @@ class TestAPIStartup(unittest.TestCase):
                 return_value=fake_store,
             ),
             patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
         ):
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = True
             api.initialize_security_event_store()
 
         fake_store.verify_integrity.assert_called_once_with()
         registry.return_value.verify_schema.assert_called_once_with()
+        registry.return_value.verify_api_key_auth_boundary.assert_called_once_with()
+        usage_meter.return_value.verify_api_key_usage_routines.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
+        )
+
+    def test_preview_denies_startup_when_api_key_auth_boundary_is_unsafe(self):
+        fake_store = unittest.mock.Mock()
+        fake_store.verify_integrity.return_value = {
+            "valid": True,
+            "verified_event_count": 0,
+        }
+
+        with (
+            patch.object(api, "settings", self.configure()),
+            patch.object(api, "PostgresSecurityEventStore", return_value=fake_store),
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
+        ):
+            registry.return_value.verify_schema.return_value = True
+            registry.return_value.verify_api_key_auth_boundary.return_value = False
+            with self.assertRaisesRegex(RuntimeError, "registry readiness check failed"):
+                api.initialize_security_event_store()
+
+        self.assertIs(
+            api.app.state.security_event_store,
+            self.jsonl_store,
         )
 
     def test_valid_integrity_switches_to_postgres(self):
@@ -160,7 +196,9 @@ class TestAPIStartup(unittest.TestCase):
                 return_value=fake_store,
             ) as postgres,
             patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
         ):
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = True
             api.initialize_security_event_store()
 
         postgres.assert_called_once_with(
@@ -168,10 +206,28 @@ class TestAPIStartup(unittest.TestCase):
         )
         fake_store.verify_integrity.assert_called_once_with()
         registry.return_value.verify_schema.assert_called_once_with()
+        registry.return_value.verify_api_key_auth_boundary.assert_called_once_with()
+        usage_meter.return_value.verify_api_key_usage_routines.assert_called_once_with()
         self.assertIs(
             api.app.state.security_event_store,
             fake_store,
         )
+
+    def test_preview_denies_startup_when_usage_routines_are_not_ready(self):
+        fake_store = unittest.mock.Mock()
+        fake_store.verify_integrity.return_value = {"valid": True, "verified_event_count": 0}
+        with (
+            patch.object(api, "settings", self.configure()),
+            patch.object(api, "PostgresSecurityEventStore", return_value=fake_store),
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch.object(api, "PostgresUsageMeter") as usage_meter,
+        ):
+            registry.return_value.verify_schema.return_value = True
+            registry.return_value.verify_api_key_auth_boundary.return_value = True
+            usage_meter.return_value.verify_api_key_usage_routines.return_value = False
+            with self.assertRaisesRegex(RuntimeError, "usage readiness check failed"):
+                api.initialize_security_event_store()
+        self.assertIs(api.app.state.security_event_store, self.jsonl_store)
 
     def test_invalid_integrity_denies_startup_without_fallback(self):
         fake_store = unittest.mock.Mock()

@@ -24,6 +24,7 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
 
         self.assertIsNone(settings.trusted_anchor_hmac_secret)
         self.assertIsNone(settings.trusted_anchor_provider_id)
+        self.assertEqual(settings.environment, "development")
 
     def test_valid_anchor_credentials_are_loaded(self) -> None:
         secret = "test-secret-with-at-least-32-bytes-long"
@@ -121,6 +122,26 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
             settings = Settings.from_env()
 
         self.assertNotIn(secret, repr(settings))
+
+
+    def test_vercel_environment_is_used_when_application_override_is_absent(self) -> None:
+        with patch.dict(os.environ, {"VERCEL_ENV": "production"}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual(settings.environment, "production")
+
+    def test_explicit_application_environment_overrides_vercel(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"JAS_SI_ENVIRONMENT": "test", "VERCEL_ENV": "production"},
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertEqual(settings.environment, "test")
+
+    def test_invalid_vercel_environment_is_rejected(self) -> None:
+        with patch.dict(os.environ, {"VERCEL_ENV": "unknown"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "Invalid JAS_SI_ENVIRONMENT"):
+                Settings.from_env()
 
 
 if __name__ == "__main__":
