@@ -45,6 +45,11 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             "20261110_usage_metering.sql",
             "20261110_usage_idempotency_fingerprint.sql",
             "007_customer_api_key_self_service.sql",
+            "20261110_customer_identity.sql",
+            "20261112_customer_identity_routines.sql",
+            "20261113_customer_api_key_routines.sql",
+            "20261115_api_key_auth_boundary.sql",
+            "20261121_security_audit_writer_boundary.sql",
         )
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             for role in roles:
@@ -77,10 +82,8 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             raise AssertionError("Customer API-key DSN did not assume the dedicated RLS role")
         if PostgresApiKeyRegistry(DATABASE_URL, cls.pepper).verify_customer_runtime_role():
             raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
-        if cls.registry.verify_customer_audit_isolation():
-            raise AssertionError(
-                "Expected the current migration's direct audit grants to be detected until the hardened migration replaces them"
-            )
+        if not cls.registry.verify_customer_audit_isolation():
+            raise AssertionError("Customer API-key runtime must not have direct audit-table privileges")
 
     @classmethod
     def tearDownClass(cls):
