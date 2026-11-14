@@ -123,7 +123,7 @@ class TestJASSI(unittest.TestCase):
         )
         self.assertEqual(
             result.reason,
-            "INDEPENDENCE_NOT_ESTABLISHED",
+            "EVIDENCE_PROVENANCE_UNVERIFIED",
         )
 
     def test_invalid_gate_type_is_rejected(self):
