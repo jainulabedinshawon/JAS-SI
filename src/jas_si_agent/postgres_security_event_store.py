@@ -117,7 +117,7 @@ class PostgresSecurityEventStore:
             previous_hash = GENESIS_HASH
             verified_count = 0
             for event_number, row in enumerate(rows, start=1):
-                payload, recorded_previous, recorded_hash = row
+                payload, recorded_previous, recorded_hash, canonical_payload = row
                 if not isinstance(payload, dict):
                     raise SecurityEventStoreError(
                         f"Invalid event payload at position {event_number}"
@@ -135,8 +135,7 @@ class PostgresSecurityEventStore:
                         f"Hash-chain link mismatch at position {event_number}"
                     )
                 try:
-                    canonical_payload = row[3]
-                if not isinstance(canonical_payload, str):
+                    if not isinstance(canonical_payload, str):
                     raise SecurityEventStoreError(
                         f"Invalid canonical event data at position {event_number}"
                     )
