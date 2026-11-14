@@ -93,10 +93,8 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
             self.evidence(),
         )
 
-        self.assertEqual(
-            first_result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
-        )
+        self.assertEqual(first_result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(first_result.reason, "EVIDENCE_PROVENANCE_UNVERIFIED")
         self.assertEqual(
             second_result.status,
             VerificationStatus.INCONCLUSIVE,
@@ -120,7 +118,6 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
             action_id="action-001",
             observed_state=observed_state,
             evidence_ref="test-evidence-001",
-            collected_independently=True,
         )
 
     def test_safe_request_is_authorized_by_policy(self) -> None:
@@ -161,10 +158,9 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
             self.report(True),
             self.evidence("success"),
         )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.VERIFIED_SUCCESS,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(result.reason, "EVIDENCE_PROVENANCE_UNVERIFIED")
+        self.assertEqual(result.evidence_consistency.value, "MATCHED_SUCCESS")
 
     def test_false_success_is_detected(self) -> None:
         decision = self.coordinator.authorize(self.request())
@@ -173,10 +169,9 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
             self.report(True),
             self.evidence("failure"),
         )
-        self.assertEqual(
-            result.status,
-            VerificationStatus.FALSE_SUCCESS,
-        )
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(result.reason, "EVIDENCE_PROVENANCE_UNVERIFIED")
+        self.assertEqual(result.evidence_consistency.value, "FALSE_SUCCESS_CANDIDATE")
 
     def test_action_id_mismatch_is_inconclusive(self) -> None:
         decision = self.coordinator.authorize(self.request())
