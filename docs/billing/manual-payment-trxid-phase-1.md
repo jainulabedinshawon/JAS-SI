@@ -1,9 +1,9 @@
 # Historical Concept — Manual Payment / TrxID Reconciliation
 
-**Status:** Historical product exploration only; superseded by `JAS-SI-BILLING-CORE-ARCHITECTURE-v0.1.md`. It is not an approved implementation plan for JAS-SI. No payment number, live checkout, transaction acceptance, paid entitlement, or production migration is enabled.
+**Status:** Historical product exploration only; superseded by ADR-002 for commerce ownership and rollout. It is not an approved implementation plan. No payment number, live checkout, transaction acceptance, paid entitlement, or production migration is enabled.
 
 > [!WARNING]
-> **Commerce ownership:** JAS Platform is the sole owner of checkout, payment collection and verification, TrxID reconciliation, invoices, refunds, financial ledger and authoritative paid entitlements. JAS-SI must not implement the manual payment workflow described below. JAS-SI may consume an authenticated entitlement decision from JAS Platform and enforce service quota. This historical document is retained only to preserve the original requirements and fraud-control analysis.
+ > **Current commerce authority:** ADR-002 is authoritative. JAS-SI standalone tenants may later use an approved provider adapter under JAS-SI's own server-controlled commerce authority; JAS Platform-linked tenants use JAS Platform as the sole commerce authority. This manual TrxID proposal is not selected for either mode and must not be implemented or activated without a new explicit decision. This historical document is retained only to preserve original requirements and fraud-control analysis.
 
 ## Historical proposal (not approved for JAS-SI implementation)
 
