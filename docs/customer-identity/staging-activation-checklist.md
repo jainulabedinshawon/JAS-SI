@@ -77,9 +77,15 @@ The existing Vercel `VERCEL_ENV` fallback determines Preview/Production cookie a
 
 ## Billing and entitlement boundary
 
-Paid checkout is not part of this JAS-SI branch. The plan catalogue is descriptive; Starter, Pro, and Enterprise must remain non-purchasable. JAS Platform is the authoritative owner of payment state, invoices, refunds, and paid entitlements. JAS-SI must consume an authenticated, verifiable entitlement decision from JAS Platform before any paid quota or capability is granted.
+JAS-SI is designed to operate as an independent standalone SaaS first. Under ADR-002, each tenant has exactly one server-controlled commerce authority:
+- `jas_si_standalone`: JAS-SI will own its provider adapter, order snapshots, verified provider-event inbox, minimal reconciliation ledger, subscription/payment lifecycle, and authoritative paid entitlement for that tenant.
+- `jas_platform_linked`: JAS Platform owns checkout, payments, financial records and paid entitlements; JAS-SI consumes an authenticated, tenant-bound entitlement decision.
 
-Do not collect card details, publish unverified prices, accept manual payment references, or mark an account paid from a browser request. Before paid access is enabled, require an independently authenticated entitlement response, tenant binding, expiry/revocation semantics, replay protection, audit evidence, and tests for downgrade/refund/chargeback outcomes.
+The authority is selected only from trusted server-side tenant configuration. A tenant must never have both authorities active. ADR-002 is the current architecture authority; the Billing Core v0.1 and manual TrxID documents are historical context where they conflict.
+
+No payment provider, hosted checkout, financial ledger, paid entitlement or manual TrxID collection is active in this PR. The plan catalogue is descriptive; Starter, Pro and Enterprise remain non-purchasable until a provider is selected, sandbox reconciliation passes, prices/unit economics are approved, and separate production authorization is granted.
+
+Do not collect card details in JAS-SI, publish unverified prices, accept browser-supplied payment claims, or mark an account paid from a client request. For standalone mode, only server-verified provider events or authenticated provider lookups may establish payment state. For Platform-linked mode, require an authenticated entitlement response with tenant binding, expiry/revocation semantics, replay protection, audit evidence and tests for downgrade/refund/chargeback outcomes. Never dual-write financial state.
 
 ## Explicit approval gates
 
