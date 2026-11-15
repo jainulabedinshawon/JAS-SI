@@ -600,7 +600,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
                 "total_count": 2,
                 "workflow_runs": [
                     self.workflow_run(101, ".github/workflows/tests.yml"),
-                    self.run(102, ".github/workflows/security.yml"),
+                    self.workflow_run(102, ".github/workflows/security.yml"),
                 ],
             },
         )
@@ -627,8 +627,8 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
             {
                 "total_count": 2,
                 "workflow_runs": [
-                    self.run(101, ".github/workflows/tests.yml"),
-                    self.run(
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(
                         102,
                         ".github/workflows/security.yml",
                         conclusion="failure",
@@ -649,7 +649,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
             {
                 "total_count": 1,
                 "workflow_runs": [
-                    self.run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
                 ],
             },
         )
@@ -682,7 +682,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
 
     @patch("jas_si_agent.verify_router.httpx.stream")
     def test_wrong_commit_workflow_is_never_counted(self, mock_stream):
-        run = self.run(101, ".github/workflows/tests.yml")
+        run = self.workflow_run(101, ".github/workflows/tests.yml")
         run["head_sha"] = "c" * 40
         mock_stream.return_value = FakeGitHubResponse(
             200,
