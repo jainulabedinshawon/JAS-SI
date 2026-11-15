@@ -167,6 +167,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE
     v_tenant_id uuid;
     v_status text;
+    v_existing_task_id uuid;
     v_existing_hash bytea;
 BEGIN
     IF p_task_id IS NULL OR p_api_key_id IS NULL
@@ -207,12 +208,12 @@ BEGIN
     END IF;
 
     SELECT existing_task.task_id,existing_task.status,existing_task.request_hash
-      INTO task_id,v_status,v_existing_hash
+      INTO v_existing_task_id,v_status,v_existing_hash
       FROM public.jas_si_agent_tasks AS existing_task
      WHERE existing_task.tenant_id=v_tenant_id
        AND existing_task.idempotency_key=p_idempotency_key
      FOR SHARE;
-    IF task_id IS NULL OR v_existing_hash IS DISTINCT FROM p_request_hash THEN
+    IF v_existing_task_id IS NULL OR v_existing_hash IS DISTINCT FROM p_request_hash THEN
         RAISE EXCEPTION 'Idempotency key was reused with a different request'
             USING ERRCODE='22023';
     END IF;
@@ -220,7 +221,7 @@ BEGIN
         q.input_payload,q.result_payload,q.error_code::text,q.attempt_count,
         q.max_attempts,q.created_at,q.updated_at,q.completed_at
       FROM public.jas_si_agent_tasks q
-     WHERE q.tenant_id=v_tenant_id AND q.task_id=task_id;
+     WHERE q.tenant_id=v_tenant_id AND q.task_id=v_existing_task_id;
 END;
 $function$;
 
