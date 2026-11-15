@@ -226,6 +226,7 @@ def verify_github_repository_task(
         or evidence.commit_sha != request.commit_sha
         or not isinstance(evidence.tree_sha, str)
         or len(evidence.tree_sha) != 40
+        or any(char not in "0123456789abcdef" for char in evidence.tree_sha)
         or not isinstance(evidence.content_digest, str)
         or len(evidence.content_digest) != 64
         or any(char not in "0123456789abcdef" for char in evidence.content_digest)
