@@ -92,6 +92,7 @@ jobs:
               "20261123_agent_task_store.sql",
               "20261123_agent_task_scope_allowlist.sql",
               "20261124_agent_task_worker_lifecycle.sql",
+              "20261125_agent_task_usage_scope.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
