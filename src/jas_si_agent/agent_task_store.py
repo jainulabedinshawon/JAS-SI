@@ -130,24 +130,24 @@ class PostgresAgentTaskStore:
 
             with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT task_id,status,created
+                    """SELECT task_id,status,created,task_type,input_payload,
+                              result_payload,error_code,attempt_count,max_attempts,
+                              created_at,updated_at,completed_at
                        FROM public.jas_si_agent_task_create(
                          %s,%s,%s,%s,%s,%s,%s,%s)""",
                     (task_id, api_key_id, candidate_digest, idempotency_key,
                      request_hash, task_type.strip(), Jsonb(payload), max_attempts),
                 )
-                created_id, status, created = cursor.fetchone()
-                cursor.execute(
-                    """SELECT task_id,task_type,status,input_payload,result_payload,
-                              error_code,attempt_count,max_attempts,created_at,
-                              updated_at,completed_at
-                       FROM public.jas_si_agent_task_get(%s,%s,%s)""",
-                    (api_key_id, candidate_digest, created_id),
-                )
                 row = cursor.fetchone()
                 if row is None:
-                    raise AgentTaskStoreError("Created task could not be retrieved")
-            return AgentTaskSubmission(self._to_task(row), bool(created))
+                    raise AgentTaskStoreError("Task creation returned no durable record")
+                task = AgentTask(
+                    task_id=row[0], status=row[1], task_type=row[3],
+                    input_payload=row[4], result_payload=row[5], error_code=row[6],
+                    attempt_count=row[7], max_attempts=row[8], created_at=row[9],
+                    updated_at=row[10], completed_at=row[11],
+                )
+            return AgentTaskSubmission(task, bool(row[2]))
         except AgentTaskStoreError:
             raise
         except Exception as exc:
