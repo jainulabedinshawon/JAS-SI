@@ -209,22 +209,31 @@ def verify_github_repository_task(
             commit_sha=request.commit_sha,
             paths=tuple(request.paths),
         )
-    except (GitHubCredentialResolutionError, Exception):
+    except Exception:
         return inconclusive("INDEPENDENT_EVIDENCE_COLLECTION_FAILED")
 
     if not isinstance(evidence, CollectedGitHubEvidence):
         return inconclusive("INVALID_COLLECTOR_RESULT")
     if (
-        not evidence.collector_id.strip()
+        not isinstance(evidence.collector_id, str)
+        or not evidence.collector_id.strip()
+        or not isinstance(evidence.collected_at, datetime)
         or evidence.collected_at.tzinfo is None
         or evidence.collected_at.utcoffset() is None
+        or evidence.collected_at > datetime.now(timezone.utc)
+        or not isinstance(evidence.repository, str)
         or evidence.repository.casefold() != request.repository.casefold()
         or evidence.commit_sha != request.commit_sha
-        or not evidence.tree_sha
+        or not isinstance(evidence.tree_sha, str)
+        or len(evidence.tree_sha) != 40
+        or not isinstance(evidence.content_digest, str)
         or len(evidence.content_digest) != 64
+        or any(char not in "0123456789abcdef" for char in evidence.content_digest)
     ):
         return inconclusive("INDEPENDENT_EVIDENCE_BINDING_INVALID")
 
+    if not isinstance(evidence.files, tuple):
+        return inconclusive("INDEPENDENT_EVIDENCE_FILE_SET_MISMATCH")
     observed_paths = {
         str(item.get("path")): item
         for item in evidence.files
@@ -238,10 +247,27 @@ def verify_github_repository_task(
             item.get("integrity") != "VERIFIED"
             or not isinstance(item.get("blob_sha"), str)
             or len(item["blob_sha"]) != 40
+            or len(item["blob_sha"]) != 40
+            or any(char not in "0123456789abcdef" for char in item["blob_sha"])
             or not isinstance(item.get("sha256"), str)
             or len(item["sha256"]) != 64
+            or any(char not in "0123456789abcdef" for char in item["sha256"])
         ):
             return inconclusive("INDEPENDENT_FILE_INTEGRITY_NOT_VERIFIED")
+
+    canonical = "|".join(
+        [
+            evidence.repository,
+            evidence.commit_sha,
+            evidence.tree_sha,
+            *[
+                f"{item['path']}:{item['blob_sha']}:{item['sha256']}"
+                for item in evidence.files
+            ],
+        ]
+    ).encode("utf-8")
+    if hashlib.sha256(canonical).hexdigest() != evidence.content_digest:
+        return inconclusive("INDEPENDENT_EVIDENCE_DIGEST_MISMATCH")
 
     return TaskVerificationDecision(
         status=VerificationStatus.VERIFIED_SUCCESS,
