@@ -579,6 +579,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         event = evidence_events[0]
         self.assertEqual(event["outcome"], "integrity_verified")
         self.assertEqual(event["status_code"], 200)
+        self.assertEqual(event["access_mode"], "public_repository_only")
         self.assertEqual(event["repository"], "owner/project")
         self.assertEqual(event["commit_sha"], COMMIT_SHA)
         self.assertEqual(event["requested_file_count"], 1)
@@ -605,6 +606,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(len(evidence_events), 1)
         self.assertEqual(evidence_events[0]["outcome"], "rejected")
         self.assertEqual(evidence_events[0]["status_code"], 404)
+        self.assertEqual(evidence_events[0]["access_mode"], "public_repository_only")
 
     @patch("jas_si_agent.verify_router.httpx.get")
     def test_evidence_result_fails_closed_when_audit_persistence_fails(
