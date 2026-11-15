@@ -793,6 +793,15 @@ def _require_api_key(
         # Keep only the peppered digest in this request context; never retain the raw token.
         request.state.api_key_candidate_digest = authenticated.candidate_digest
         request.state.api_key_required_scope = required_scope
+        if (
+            request.url.path == "/v1/agent/tasks"
+            and request.method == "POST"
+            and getattr(request.app.state, "agent_task_submission_enabled", False) is not True
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="Agent task execution is not currently available",
+            )
         _record_usage_for_authenticated_tenant(request)
         return
 
