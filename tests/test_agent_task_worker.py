@@ -49,7 +49,8 @@ class FakeStore:
 
 def make_lease(task_type="reasoning"):
     return AgentTaskLease(
-        task_id=uuid.uuid4(), task_type=task_type, input_payload={"prompt": "test"},
+        task_id=uuid.uuid4(), tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000099"),
+        task_type=task_type, input_payload={"prompt": "test"},
         attempt_count=1, max_attempts=2, lease_fence=4,
         lease_expires_at=datetime.now(timezone.utc),
     )
@@ -83,6 +84,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         outcome = self.make_worker(store, handler).run_once()
         self.assertEqual(outcome.state, "awaiting_verification")
         self.assertEqual(calls, [lease.task_id])
+        self.assertEqual(lease.tenant_id, uuid.UUID("00000000-0000-0000-0000-000000000099"))
         self.assertEqual(store.report_calls[0][0], lease.task_id)
         self.assertEqual(store.fail_calls, [])
 
