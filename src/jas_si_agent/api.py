@@ -740,6 +740,7 @@ def _require_api_key(
             "/v1/authorize": "authorization:check",
             "/v1/verify": "outcomes:submit",
             "/v1/github/evidence": "github:evidence:verify",
+            "/v1/github/actions/evidence": "github:evidence:verify",
             "/v1/usage": "usage:read",
             "/v1/usage/events": "usage:read",
         }
