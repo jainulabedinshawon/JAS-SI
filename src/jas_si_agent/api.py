@@ -509,6 +509,7 @@ async def security_and_rate_limit_middleware(
             "/v1/authorize": "authorization.evaluate",
             "/v1/verify": "outcome.submit",
             "/v1/github/evidence": "github.evidence.verify",
+        "/v1/github/actions/evidence": "github.actions.evidence",
         }
         operation = metered_paths.get(request.url.path)
         meter = getattr(request.app.state, "usage_meter", None)
@@ -622,6 +623,7 @@ def _record_usage_for_authenticated_tenant(request: Request) -> None:
         "authorization.evaluate": "authorization:check",
         "outcome.submit": "outcomes:submit",
         "github.evidence.verify": "github:evidence:verify",
+        "github.actions.evidence": "github:evidence:verify",
     }[operation]
     meter = getattr(request.app.state, "usage_meter", None)
     fingerprint = getattr(request.state, "request_fingerprint", None)
