@@ -155,6 +155,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             grant_id="grant-1", approved_by="human", human_approved=True,
             allowed_actions=("write_file",), allowed_resources=("src/example.py",),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            tenant_id=lease.tenant_id,
         )
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
@@ -175,6 +176,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             grant_id="grant-2", approved_by="human", human_approved=True,
             allowed_actions=("write_file",), allowed_resources=("src/example.py",),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            tenant_id=lease.tenant_id,
         )
         def simulate(_item):
             calls.append("simulate")
@@ -210,6 +212,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             grant_id="grant-lease-loss", approved_by="human", human_approved=True,
             allowed_actions=("write_file",), allowed_resources=("src/example.py",),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            tenant_id=lease.tenant_id,
         )
 
         def simulate(_item):
@@ -243,6 +246,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             grant_id="grant-3", approved_by="human", human_approved=True,
             allowed_actions=("write_file",), allowed_resources=("src/example.py",),
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            tenant_id=lease.tenant_id,
         )
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
