@@ -47,8 +47,14 @@ BEGIN
     IF pg_catalog.to_regclass('public.jas_si_customer_rate_limits') IS NULL
        OR NOT EXISTS (
            SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_customer_runtime'
+       )
+       OR NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_runtime'
+       )
+       OR NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_provisioner'
        ) THEN
-        RAISE EXCEPTION 'Customer rate-limit table and runtime role are required';
+        RAISE EXCEPTION 'Customer rate-limit table and all runtime roles are required';
     END IF;
 END
 $block$;
@@ -152,9 +158,12 @@ GRANT EXECUTE ON FUNCTION public.jas_si_customer_rate_limit_check(bytea,integer,
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_rate_limit_owner;
 
--- The app role gets no direct table or column access, including legacy grants.
+-- No application role may inspect or mutate bucket state directly. The
+-- database-owned routine is the only permitted access path. Revoke legacy
+-- table and column grants from all application roles, including inherited
+-- PUBLIC-effective grants, before asserting the effective boundary.
 REVOKE ALL PRIVILEGES ON TABLE public.jas_si_customer_rate_limits
-    FROM PUBLIC, jas_si_customer_runtime;
+    FROM PUBLIC, jas_si_customer_runtime, jas_si_runtime, jas_si_provisioner;
 DO $revoke_columns$
 DECLARE
     v_column text;
@@ -166,9 +175,33 @@ BEGIN
            AND a.attnum>0 AND NOT a.attisdropped
     LOOP
         EXECUTE pg_catalog.format(
-            'REVOKE ALL PRIVILEGES (%I) ON TABLE public.jas_si_customer_rate_limits FROM PUBLIC, jas_si_customer_runtime',
+            'REVOKE ALL PRIVILEGES (%I) ON TABLE public.jas_si_customer_rate_limits FROM PUBLIC, jas_si_customer_runtime, jas_si_runtime, jas_si_provisioner',
             v_column
         );
     END LOOP;
 END
 $revoke_columns$;
+
+DO $assert_runtime_acl$
+DECLARE
+    v_role text;
+BEGIN
+    FOREACH v_role IN ARRAY ARRAY[
+        'jas_si_customer_runtime','jas_si_runtime','jas_si_provisioner'
+    ] LOOP
+        IF pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','SELECT')
+           OR pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','INSERT')
+           OR pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','UPDATE')
+           OR pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','DELETE')
+           OR pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','TRUNCATE')
+           OR pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','REFERENCES')
+           OR pg_catalog.has_table_privilege(v_role,'public.jas_si_customer_rate_limits','TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_role,'public.jas_si_customer_rate_limits','SELECT')
+           OR pg_catalog.has_any_column_privilege(v_role,'public.jas_si_customer_rate_limits','INSERT')
+           OR pg_catalog.has_any_column_privilege(v_role,'public.jas_si_customer_rate_limits','UPDATE')
+           OR pg_catalog.has_any_column_privilege(v_role,'public.jas_si_customer_rate_limits','REFERENCES') THEN
+            RAISE EXCEPTION '% retains direct customer rate-limit table privileges',v_role;
+        END IF;
+    END LOOP;
+END
+$assert_runtime_acl$;
