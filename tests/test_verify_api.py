@@ -246,6 +246,21 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
                 "Bearer installation-token-secret",
             )
 
+        persisted = JsonlSecurityEventStore(
+            Path(self.temp_dir.name) / "security-events.jsonl"
+        ).load_events()
+        evidence_events = [
+            event for event in persisted
+            if event.get("event_type") == "github_evidence_verification"
+        ]
+        self.assertEqual(len(evidence_events), 1)
+        event = evidence_events[0]
+        self.assertEqual(event["tenant_id"], str(tenant_id))
+        self.assertEqual(event["access_mode"], "tenant_github_app_installation")
+        self.assertEqual(event["outcome"], "integrity_verified")
+        self.assertNotIn("installation-token-secret", str(event))
+        self.assertNotIn("access_token", event)
+
     def test_tenant_installation_provider_mismatch_fails_closed(self):
         class MismatchedProvider:
             def resolve(self, *, tenant_id, repository):
