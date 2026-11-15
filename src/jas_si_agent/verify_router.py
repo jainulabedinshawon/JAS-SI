@@ -50,6 +50,17 @@ class GitHubEvidenceRequest(BaseModel):
     )
     paths: list[str] = Field(min_length=1, max_length=_MAX_FILES)
 
+class GitHubActionsEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repository: str = Field(min_length=3, max_length=200)
+    commit_sha: str = Field(
+        min_length=40,
+        max_length=40,
+        pattern=r"^[0-9a-f]{40}$",
+    )
+    required_workflow_paths: list[str] = Field(min_length=1, max_length=20)
+
 def _client_error(status_code: int, detail: str) -> HTTPException:
     return HTTPException(
         status_code=status_code,
@@ -457,5 +468,183 @@ def verify_github_evidence(
         payload,
         status_code=200,
         outcome="integrity_verified",
+    )
+    return result
+
+
+def _verify_github_actions_evidence(
+    payload: GitHubActionsEvidenceRequest,
+) -> dict[str, Any]:
+    """Collect workflow outcomes directly from GitHub for one immutable commit."""
+    if not _REPO_PATTERN.fullmatch(payload.repository):
+        raise _client_error(422, "Invalid GitHub repository format.")
+    if not _SHA_PATTERN.fullmatch(payload.commit_sha):
+        raise _client_error(422, "A full 40-character lowercase commit SHA is required.")
+    if len(set(payload.required_workflow_paths)) != len(payload.required_workflow_paths):
+        raise _client_error(422, "Duplicate required workflow paths are not allowed.")
+
+    for path in payload.required_workflow_paths:
+        if (
+            not isinstance(path, str)
+            or not path
+            or len(path) > 500
+            or path.startswith("/")
+            or "\\" in path
+            or "\x00" in path
+            or any(part in ("", ".", "..") for part in path.split("/"))
+            or not path.startswith(".github/workflows/")
+        ):
+            raise _client_error(422, "Invalid GitHub Actions workflow path.")
+
+    result = _github_get(
+        f"{_GITHUB_API}/repos/{payload.repository}/actions/runs",
+        params={"head_sha": payload.commit_sha, "per_page": "100"},
+    )
+    total_count = result.get("total_count")
+    runs = result.get("workflow_runs")
+    if not isinstance(total_count, int) or isinstance(total_count, bool) or total_count < 0:
+        raise _client_error(502, "GitHub workflow response has an invalid total count.")
+    if not isinstance(runs, list):
+        raise _client_error(502, "GitHub workflow response is missing its run list.")
+    if total_count > 100:
+        return {
+            "service": "JAS-SI Verify",
+            "status": "INCONCLUSIVE",
+            "reason": "WORKFLOW_RESULT_SET_TRUNCATED",
+            "repository": payload.repository,
+            "commit_sha": payload.commit_sha,
+            "evidence_origin": "github_api",
+            "workflow_runs_collected": len(runs),
+            "semantic_truth_verified": False,
+            "action_execution_verified": False,
+        }
+
+    latest_by_path: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        if not isinstance(run, dict):
+            raise _client_error(502, "GitHub workflow response contains an invalid run.")
+        run_sha = run.get("head_sha")
+        if not isinstance(run_sha, str) or not _SHA_PATTERN.fullmatch(run_sha):
+            raise _client_error(502, "GitHub returned an invalid workflow commit SHA.")
+        if run_sha != payload.commit_sha:
+            continue
+        path = run.get("path")
+        if not isinstance(path, str):
+            raise _client_error(502, "GitHub returned a workflow run without a path.")
+        if path not in payload.required_workflow_paths:
+            continue
+        run_number = run.get("run_number")
+        run_attempt = run.get("run_attempt")
+        run_id = run.get("id")
+        status = run.get("status")
+        conclusion = run.get("conclusion")
+        if (
+            not isinstance(run_number, int) or isinstance(run_number, bool) or run_number < 1
+            or not isinstance(run_attempt, int) or isinstance(run_attempt, bool) or run_attempt < 1
+            or not isinstance(run_id, int) or isinstance(run_id, bool) or run_id < 1
+            or not isinstance(status, str)
+            or (conclusion is not None and not isinstance(conclusion, str))
+        ):
+            raise _client_error(502, "GitHub returned malformed workflow run metadata.")
+        previous = latest_by_path.get(path)
+        if previous is None or (run_number, run_attempt, run_id) > (
+            previous["run_number"], previous["run_attempt"], previous["id"]
+        ):
+            latest_by_path[path] = {
+                "id": run_id,
+                "run_number": run_number,
+                "run_attempt": run_attempt,
+                "status": status,
+                "conclusion": conclusion,
+                "head_sha": run_sha,
+                "path": path,
+            }
+
+    collected = []
+    overall = "VERIFIED_SUCCESS"
+    for path in payload.required_workflow_paths:
+        run = latest_by_path.get(path)
+        if run is None:
+            overall = "INCONCLUSIVE" if overall != "VERIFIED_FAILURE" else overall
+            collected.append({"path": path, "status": "MISSING", "conclusion": None})
+            continue
+        collected.append(run)
+        if run["status"] != "completed":
+            if overall != "VERIFIED_FAILURE":
+                overall = "INCONCLUSIVE"
+        elif run["conclusion"] == "success":
+            pass
+        elif run["conclusion"] in {
+            "failure", "cancelled", "timed_out", "action_required", "startup_failure"
+        }:
+            overall = "VERIFIED_FAILURE"
+        elif overall != "VERIFIED_FAILURE":
+            overall = "INCONCLUSIVE"
+
+    return {
+        "service": "JAS-SI Verify",
+        "status": overall,
+        "verification_scope": "github_actions_workflow_outcomes",
+        "repository": payload.repository,
+        "commit_sha": payload.commit_sha,
+        "evidence_origin": "github_api",
+        "required_workflows": len(payload.required_workflow_paths),
+        "workflow_results": collected,
+        "semantic_truth_verified": False,
+        "action_execution_verified": False,
+        "read_only": True,
+    }
+
+
+def _persist_github_actions_audit_event(
+    request: Request,
+    payload: GitHubActionsEvidenceRequest,
+    *,
+    status_code: int,
+    outcome: str,
+) -> None:
+    store = getattr(request.app.state, "security_event_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Evidence verification could not be securely audited")
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": "github_actions_evidence_verification",
+        "request_id": getattr(request.state, "request_id", "unknown"),
+        "method": request.method,
+        "endpoint": request.url.path,
+        "status_code": status_code,
+        "outcome": outcome,
+        "repository": payload.repository,
+        "commit_sha": payload.commit_sha,
+        "required_workflow_count": len(payload.required_workflow_paths),
+    }
+    for field in ("tenant_id", "api_key_id"):
+        value = getattr(request.state, field, None)
+        if value is not None:
+            event[field] = value
+    try:
+        store.append(event)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Evidence verification could not be securely audited") from None
+
+
+@router.post("/github/actions/evidence")
+def verify_github_actions_evidence(
+    payload: GitHubActionsEvidenceRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Collect and verify GitHub Actions outcomes for an exact commit SHA."""
+    try:
+        result = _verify_github_actions_evidence(payload)
+    except HTTPException as exc:
+        _persist_github_actions_audit_event(
+            request, payload, status_code=exc.status_code, outcome="rejected"
+        )
+        raise
+    _persist_github_actions_audit_event(
+        request,
+        payload,
+        status_code=200,
+        outcome=str(result.get("status", "INCONCLUSIVE")).lower(),
     )
     return result
