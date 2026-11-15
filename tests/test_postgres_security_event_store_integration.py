@@ -318,6 +318,7 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             "20261119_general_runtime_customer_identity_acl.sql",
             "20261120_api_key_auth_runtime_tenant_acl.sql",
             "20261123_agent_task_store.sql",
+            "20261123_agent_task_scope_allowlist.sql",
         )
         with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
             for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
@@ -508,6 +509,24 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
                 (self.tenant_a, idempotency_key),
             )
             self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_customer_key_issue_accepts_agent_task_scopes_before_session_auth(self):
+        # Scope validation must accept the new task scopes, then fail only because
+        # this isolated test deliberately supplies no live customer session.
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            with self.assertRaises(psycopg.Error) as raised:
+                cursor.execute(
+                    """SELECT * FROM public.customer_api_key_issue(
+                         %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        b"s" * 32, uuid.uuid4(), "agent task test",
+                        "jassi_live_" + uuid.uuid4().hex,
+                        b"d" * 32, 1,
+                        ["agent:tasks:read", "agent:tasks:write"],
+                        None, "scope-test-" + uuid.uuid4().hex,
+                    ),
+                )
+        self.assertEqual(raised.exception.sqlstate, "28000")
 
     def test_input_validation_rejects_non_json_and_oversized_payloads(self):
         with self.assertRaises(ValueError):
