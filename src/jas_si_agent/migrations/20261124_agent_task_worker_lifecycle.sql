@@ -161,7 +161,9 @@ BEGIN
      WHERE q.task_id=p_task_id
        AND q.lease_owner=p_worker_id::text
        AND q.lease_fence=p_lease_fence
-       AND q.status IN ('running','cancel_requested')
+       -- A cancellation request must stop lease renewal so the worker can
+       -- acknowledge it and cooperatively stop before reporting a result.
+       AND q.status='running'
        AND q.lease_expires_at>pg_catalog.clock_timestamp();
     GET DIAGNOSTICS v_updated=ROW_COUNT;
     RETURN v_updated=1;
