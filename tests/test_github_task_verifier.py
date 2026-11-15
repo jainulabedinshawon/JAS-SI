@@ -37,9 +37,25 @@ def make_report(**updates):
         "task_type": "github.read_repository",
         "repository": "owner/project",
         "commit_sha": SHA,
-        # Deliberately untrusted; verifier must not use this as proof.
-        "semantic_truth_verified": True,
-        "evidence_integrity": {"status": "FAKE_SUCCESS"},
+        # Worker evidence is untrusted until compared with a fresh collector read.
+        "semantic_truth_verified": False,
+        "evidence_integrity": {
+            "status": "EVIDENCE_INTEGRITY_VERIFIED",
+            "verification_scope": "github_commit_and_file_integrity",
+            "repository": "owner/project",
+            "commit_sha": SHA,
+            "tree_sha": "b" * 40,
+            "files_verified": 1,
+            "read_only": True,
+            "semantic_truth_verified": False,
+            "files": [{
+                "path": "README.md",
+                "blob_sha": "c" * 40,
+                "sha256": "d" * 64,
+                "size_bytes": 123,
+                "integrity": "VERIFIED",
+            }],
+        },
     }
     result.update(updates)
     return WorkerTaskReport(TASK, True, result)
@@ -130,6 +146,31 @@ class GitHubTaskVerifierTests(unittest.TestCase):
         self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
         self.assertEqual(result.reason, "WORKER_REPORT_REQUEST_MISMATCH")
         collector.collect.assert_not_called()
+
+    def test_worker_report_hash_mismatch_is_inconclusive(self):
+        collector = Mock()
+        collector.collect.return_value = make_evidence()
+        report = make_report()
+        payload = dict(report.result_payload)
+        worker_evidence = dict(payload["evidence_integrity"])
+        worker_evidence["files"] = [{
+            "path": "README.md",
+            "blob_sha": "f" * 40,
+            "sha256": "d" * 64,
+            "size_bytes": 123,
+            "integrity": "VERIFIED",
+        }]
+        payload["evidence_integrity"] = worker_evidence
+        forged_report = WorkerTaskReport(TASK, True, payload)
+
+        result = verify_github_repository_task(
+            make_task(),
+            forged_report,
+            collector=collector,
+        )
+
+        self.assertEqual(result.status, VerificationStatus.INCONCLUSIVE)
+        self.assertEqual(result.reason, "WORKER_EVIDENCE_FILE_MISMATCH")
 
     def test_wrong_collected_file_set_is_inconclusive(self):
         collector = Mock()
