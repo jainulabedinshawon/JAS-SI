@@ -79,6 +79,27 @@ class PostgresAgentTaskStore:
                      ),
                      NOT pg_catalog.has_table_privilege(
                        current_user,'public.jas_si_agent_tasks','SELECT'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_tasks','INSERT'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_tasks','UPDATE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_tasks','DELETE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_tasks','TRUNCATE'
+                     ),
+                     NOT pg_catalog.has_any_column_privilege(
+                       current_user,'public.jas_si_agent_tasks','SELECT'
+                     ),
+                     NOT pg_catalog.has_any_column_privilege(
+                       current_user,'public.jas_si_agent_tasks','INSERT'
+                     ),
+                     NOT pg_catalog.has_any_column_privilege(
+                       current_user,'public.jas_si_agent_tasks','UPDATE'
                      )
                 """
             )
