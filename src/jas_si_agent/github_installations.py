@@ -14,7 +14,23 @@ from typing import Protocol
 from uuid import UUID
 
 
-_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_OWNER_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
+_REPOSITORY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+
+
+def is_valid_github_repository(repository: str) -> bool:
+    """Validate owner/name as two safe GitHub API path segments."""
+    if not isinstance(repository, str) or len(repository) > 140:
+        return False
+    parts = repository.split("/")
+    if len(parts) != 2:
+        return False
+    owner, name = parts
+    return bool(
+        _OWNER_PATTERN.fullmatch(owner)
+        and _REPOSITORY_NAME_PATTERN.fullmatch(name)
+        and name not in {".", ".."}
+    )
 
 
 class GitHubCredentialResolutionError(RuntimeError):
@@ -38,10 +54,7 @@ class TenantGitHubInstallationCredential:
             or self.installation_id <= 0
         ):
             raise ValueError("installation_id must be a positive integer")
-        if (
-            not isinstance(self.repository, str)
-            or not _REPOSITORY_PATTERN.fullmatch(self.repository)
-        ):
+        if not is_valid_github_repository(self.repository):
             raise ValueError("repository must be an owner/name identifier")
         if (
             not isinstance(self.access_token, str)
@@ -82,7 +95,7 @@ def resolve_tenant_github_credential(
 
     if not isinstance(tenant_id, UUID):
         raise GitHubCredentialResolutionError("Authenticated tenant identity is required")
-    if not isinstance(repository, str) or not _REPOSITORY_PATTERN.fullmatch(repository):
+    if not is_valid_github_repository(repository):
         raise GitHubCredentialResolutionError("Repository identifier is invalid")
     try:
         credential = provider.resolve(tenant_id=tenant_id, repository=repository)
