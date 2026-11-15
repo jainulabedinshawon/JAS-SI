@@ -94,7 +94,8 @@ BEGIN
     -- its attempt budget is exhausted. A lost cancellation acknowledgement
     -- is never misreported as a confirmed cancellation.
     UPDATE public.jas_si_agent_tasks q
-       SET status=CASE WHEN q.attempt_count < q.max_attempts
+       SET status=CASE WHEN q.status='cancel_requested' THEN 'failed'
+                       WHEN q.attempt_count < q.max_attempts
                        THEN 'queued' ELSE 'failed' END,
            lease_owner=NULL,
            lease_expires_at=NULL,
@@ -107,9 +108,9 @@ BEGIN
                ELSE 'WORKER_LEASE_EXPIRED_MAX_ATTEMPTS'
            END,
            updated_at=v_now,
-           completed_at=CASE WHEN q.attempt_count < q.max_attempts
-                                  AND q.status='running'
-                             THEN NULL ELSE v_now END
+           completed_at=CASE WHEN q.status='cancel_requested'
+                                      OR q.attempt_count >= q.max_attempts
+                             THEN v_now ELSE NULL END
      WHERE q.status IN ('running','cancel_requested')
        AND q.lease_expires_at <= v_now;
 
