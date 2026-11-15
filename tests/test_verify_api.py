@@ -218,9 +218,17 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
                 )
 
         provider = Provider()
-        with patch.object(
+        tenant_id = uuid.uuid4()
+
+        def authenticated_tenant(request):
+            request.state.tenant_id = str(tenant_id)
+
+        with patch.dict(
+            api.app.dependency_overrides,
+            {api._require_api_key: authenticated_tenant},
+        ), patch.object(
             api.app.state, "github_installation_provider", provider, create=True
-        ), patch("jas_si_agent.verify_router.httpx.get") as mock_get:
+        ), patch("jas_si.agent.verify_router.httpx.get") as mock_get:
             mock_get.side_effect = [self.commit_response(), self.file_response()]
             response = self.perform_verification(mock_get)
 
@@ -248,7 +256,13 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
                     expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
                 )
 
-        with patch.object(
+        def authenticated_tenant(request):
+            request.state.tenant_id = str(uuid.uuid4())
+
+        with patch.dict(
+            api.app.dependency_overrides,
+            {api._require_api_key: authenticated_tenant},
+        ), patch.object(
             api.app.state,
             "github_installation_provider",
             MismatchedProvider(),
