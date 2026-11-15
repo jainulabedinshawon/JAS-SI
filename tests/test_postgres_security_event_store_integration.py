@@ -677,6 +677,26 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         self.assertEqual(current.error_code, "WORKER_LOST_DURING_CANCELLATION")
         self.assertIsNotNone(current.completed_at)
 
+    def test_worker_error_after_cancel_request_acknowledges_cancellation(self):
+        task = self._create(max_attempts=3).task
+        worker_id = uuid.uuid4()
+        claim = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertTrue(self.store.cancel(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ))
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
+            (worker_id,task.task_id,claim[5],"TOOL_INTERRUPTED"),
+        ), [("cancelled",)])
+        current = self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        )
+        self.assertEqual(current.status, "cancelled")
+        self.assertEqual(current.error_code, "CANCELLED_AFTER_WORKER_ERROR")
+        self.assertIsNotNone(current.completed_at)
+
     def test_worker_failure_retries_then_becomes_terminal(self):
         task = self._create(max_attempts=2).task
         worker_id = uuid.uuid4()
