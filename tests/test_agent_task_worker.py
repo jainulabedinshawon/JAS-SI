@@ -109,7 +109,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         grant = AuthorizationGrant(
             grant_id="grant-unsigned", approved_by="human", human_approved=True,
             allowed_actions=("write_file",), allowed_resources=("src/example.py",),
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5), tenant_id=lease.tenant_id,
         )
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
@@ -121,6 +121,30 @@ class AgentTaskWorkerTests(unittest.TestCase):
         outcome = self.make_worker(store, handler).run_once()
         self.assertEqual(outcome.state, "failed")
         self.assertEqual(store.fail_calls[0][2], "GRANT_SIGNATURE_REQUIRED")
+        self.assertEqual(calls, [])
+        self.assertEqual(store.report_calls, [])
+
+    def test_signed_grant_from_another_tenant_is_rejected_before_simulation(self):
+        lease = make_lease()
+        calls = []
+        grant = AuthorizationGrant(
+            grant_id="grant-other-tenant", approved_by="human", human_approved=True,
+            allowed_actions=("write_file",), allowed_resources=("src/example.py",),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            tenant_id=uuid.uuid4(),
+        )
+        handler = TaskHandler(
+            "reasoning", "write_file", lambda _item: "src/example.py",
+            lambda _item, _cancelled: calls.append("execute") or {"ok": True},
+            grant_for=lambda _item: grant,
+            grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY),
+            verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY),
+            simulate=lambda _item: calls.append("simulate") or SimulationResult(True, "preflight"),
+        )
+        store = FakeStore(lease)
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "failed")
+        self.assertEqual(store.fail_calls[0][2], "GRANT_TENANT_MISMATCH")
         self.assertEqual(calls, [])
         self.assertEqual(store.report_calls, [])
 
