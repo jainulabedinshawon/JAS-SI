@@ -612,6 +612,7 @@ def _record_usage_for_authenticated_tenant(request: Request) -> None:
         "/v1/authorize": "authorization.evaluate",
         "/v1/verify": "outcome.submit",
         "/v1/github/evidence": "github.evidence.verify",
+        "/v1/github/actions/evidence": "github.actions.evidence",
     }
     operation = operations.get(request.url.path)
     tenant_id = getattr(request.state, "tenant_id", None)
