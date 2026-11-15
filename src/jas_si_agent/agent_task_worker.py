@@ -10,7 +10,12 @@ from dataclasses import dataclass
 from threading import Event, Thread
 from typing import Callable, Mapping
 
-from jas_si_agent.authorization import ActionRequest, AuthorizationGate, AuthorizationGrant
+from jas_si_agent.authorization import (
+    GRANT_REQUIRED_ACTIONS,
+    ActionRequest,
+    AuthorizationGate,
+    AuthorizationGrant,
+)
 from jas_si_agent.agent_task_worker_store import (
     AgentTaskLease,
     AgentTaskWorkerStoreError,
@@ -20,6 +25,14 @@ from jas_si_agent.agent_task_worker_store import (
 TaskExecutor = Callable[[AgentTaskLease, Event], Mapping[str, object]]
 ResourceResolver = Callable[[AgentTaskLease], str]
 GrantResolver = Callable[[AgentTaskLease], AuthorizationGrant | None]
+SimulationResolver = Callable[[AgentTaskLease], "SimulationResult"]
+
+
+@dataclass(frozen=True)
+class SimulationResult:
+    """Host-produced pre-action simulation summary; never proof of real outcome."""
+    proceed: bool
+    summary: str
 
 
 @dataclass(frozen=True)
@@ -30,6 +43,7 @@ class TaskHandler:
     resource_for: ResourceResolver
     execute: TaskExecutor
     grant_for: GrantResolver | None = None
+    simulate: SimulationResolver | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +94,7 @@ class AgentTaskWorker:
                 or not callable(handler.resource_for)
                 or not callable(handler.execute)
                 or (handler.grant_for is not None and not callable(handler.grant_for))
+                or (handler.simulate is not None and not callable(handler.simulate))
             ):
                 raise ValueError("Invalid task handler registration")
             validated[key] = handler
@@ -169,11 +184,41 @@ class AgentTaskWorker:
             )
             if decision.allowed is not True:
                 failure_code = "ACTION_NOT_AUTHORIZED"
+            elif handler.action_type in GRANT_REQUIRED_ACTIONS and handler.simulate is None:
+                # Consequential actions must have an explicit host simulation
+                # contract. A missing simulator is a hard stop, never a bypass.
+                failure_code = "SIMULATION_REQUIRED"
             else:
-                result = handler.execute(lease, cancelled)
-                if not isinstance(result, Mapping):
-                    failure_code = "INVALID_HANDLER_RESULT"
-                    result = None
+                simulation: SimulationResult | None = None
+                if handler.simulate is not None:
+                    simulation = handler.simulate(lease)
+                    if (
+                        not isinstance(simulation, SimulationResult)
+                        or not isinstance(simulation.proceed, bool)
+                        or not isinstance(simulation.summary, str)
+                        or not simulation.summary.strip()
+                        or len(simulation.summary) > 500
+                    ):
+                        failure_code = "SIMULATION_INVALID"
+                    elif simulation.proceed is not True:
+                        failure_code = "SIMULATION_REJECTED"
+                if failure_code is None:
+                    result = handler.execute(lease, cancelled)
+                    if not isinstance(result, Mapping):
+                        failure_code = "INVALID_HANDLER_RESULT"
+                        result = None
+                    elif simulation is not None:
+                        if "jas_si_pre_action_simulation" in result:
+                            failure_code = "RESERVED_RESULT_FIELD_COLLISION"
+                            result = None
+                        else:
+                            result = {
+                                **dict(result),
+                                "jas_si_pre_action_simulation": {
+                                    "proceed": simulation.proceed,
+                                    "summary": simulation.summary,
+                                },
+                            }
         except Exception:
             failure_code = "HANDLER_EXECUTION_ERROR"
         finally:
@@ -262,4 +307,4 @@ class AgentTaskWorker:
                 stop_event.wait(float(idle_wait_seconds))
 
 
-__all__ = ["AgentTaskWorker", "TaskHandler", "WorkerOutcome"]
+__all__ = ["AgentTaskWorker", "SimulationResult", "TaskHandler", "WorkerOutcome"]
