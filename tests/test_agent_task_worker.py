@@ -3,9 +3,10 @@ from __future__ import annotations
 import threading
 import unittest
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from jas_si_agent.agent_task_worker import AgentTaskWorker, TaskHandler
+from jas_si_agent.agent_task_worker import AgentTaskWorker, SimulationResult, TaskHandler
+from jas_si_agent.authorization import AuthorizationGrant
 from jas_si_agent.agent_task_worker_store import AgentTaskLease, AgentTaskWorkerStoreError
 
 
@@ -95,6 +96,75 @@ class AgentTaskWorkerTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(store.report_calls, [])
         self.assertEqual(store.fail_calls[0][2], "ACTION_NOT_AUTHORIZED")
+
+
+    def test_consequential_action_requires_simulation_even_with_valid_grant(self):
+        lease = make_lease()
+        calls = []
+        grant = AuthorizationGrant(
+            grant_id="grant-1", approved_by="human", human_approved=True,
+            allowed_actions=("write_file",), allowed_resources=("src/example.py",),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        handler = TaskHandler(
+            "reasoning", "write_file", lambda _item: "src/example.py",
+            lambda _item, _cancelled: calls.append("execute") or {"ok": True},
+            grant_for=lambda _item: grant,
+        )
+        store = FakeStore(lease)
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "failed")
+        self.assertEqual(calls, [])
+        self.assertEqual(store.fail_calls[0][2], "SIMULATION_REQUIRED")
+        self.assertEqual(store.report_calls, [])
+
+    def test_consequential_action_simulates_after_authorization_before_execution(self):
+        lease = make_lease()
+        calls = []
+        grant = AuthorizationGrant(
+            grant_id="grant-2", approved_by="human", human_approved=True,
+            allowed_actions=("write_file",), allowed_resources=("src/example.py",),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        def simulate(_item):
+            calls.append("simulate")
+            return SimulationResult(proceed=True, summary="Patch is bounded to the approved file")
+        def execute(_item, _cancelled):
+            calls.append("execute")
+            return {"ok": True}
+        handler = TaskHandler(
+            "reasoning", "write_file", lambda _item: "src/example.py",
+            execute, grant_for=lambda _item: grant, simulate=simulate,
+        )
+        store = FakeStore(lease)
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "awaiting_verification")
+        self.assertEqual(calls, ["simulate", "execute"])
+        self.assertEqual(
+            store.report_calls[0][2]["jas_si_pre_action_simulation"],
+            {"proceed": True, "summary": "Patch is bounded to the approved file"},
+        )
+
+    def test_rejected_simulation_prevents_consequential_execution(self):
+        lease = make_lease()
+        calls = []
+        grant = AuthorizationGrant(
+            grant_id="grant-3", approved_by="human", human_approved=True,
+            allowed_actions=("write_file",), allowed_resources=("src/example.py",),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        handler = TaskHandler(
+            "reasoning", "write_file", lambda _item: "src/example.py",
+            lambda _item, _cancelled: calls.append("execute") or {"ok": True},
+            grant_for=lambda _item: grant,
+            simulate=lambda _item: SimulationResult(proceed=False, summary="Risk threshold exceeded"),
+        )
+        store = FakeStore(lease)
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "failed")
+        self.assertEqual(calls, [])
+        self.assertEqual(store.fail_calls[0][2], "SIMULATION_REJECTED")
+        self.assertEqual(store.report_calls, [])
 
     def test_unknown_task_type_fails_closed(self):
         store = FakeStore(make_lease("unregistered"))
