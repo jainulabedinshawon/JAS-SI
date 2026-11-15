@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 from uuid import UUID
 
 
 _OWNER_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 _REPOSITORY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+_MAX_INSTALLATION_TOKEN_TTL = timedelta(hours=1, minutes=5)
 
 
 def is_valid_github_repository(repository: str) -> bool:
@@ -61,7 +62,7 @@ class TenantGitHubInstallationCredential:
             or not self.access_token
             or len(self.access_token) > 4096
             or self.access_token.strip() != self.access_token
-            or any(ord(char) < 33 or ord(char) == 127 for char in self.access_token)
+            or any(ord(char) < 33 or ord(char) > 126 for char in self.access_token)
         ):
             raise ValueError("installation access token is invalid")
         if (
@@ -117,8 +118,16 @@ def resolve_tenant_github_credential(
             "GitHub installation repository binding mismatch"
         )
     current_time = now or datetime.now(timezone.utc)
-    if current_time.tzinfo is None or current_time.utcoffset() is None:
+    if (
+        not isinstance(current_time, datetime)
+        or current_time.tzinfo is None
+        or current_time.utcoffset() is None
+    ):
         raise ValueError("now must be timezone-aware")
     if credential.expires_at <= current_time:
         raise GitHubCredentialResolutionError("GitHub installation credential is expired")
+    if credential.expires_at > current_time + _MAX_INSTALLATION_TOKEN_TTL:
+        raise GitHubCredentialResolutionError(
+            "GitHub installation credential lifetime exceeds the allowed limit"
+        )
     return credential
