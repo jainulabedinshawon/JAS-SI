@@ -23,6 +23,8 @@ ALLOWED_SCOPES = frozenset({
     "outcomes:submit",
     "github:evidence:verify",
     "usage:read",
+    "agent:tasks:read",
+    "agent:tasks:write",
 })
 
 
