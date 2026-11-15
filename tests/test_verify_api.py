@@ -228,7 +228,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             {api._require_api_key: authenticated_tenant},
         ), patch.object(
             api.app.state, "github_installation_provider", provider, create=True
-        ), patch("jas_si.agent.verify_router.httpx.get") as mock_get:
+        ), patch("jas_si_agent.verify_router.httpx.get") as mock_get:
             mock_get.side_effect = [self.commit_response(), self.file_response()]
             response = self.perform_verification(mock_get)
 
