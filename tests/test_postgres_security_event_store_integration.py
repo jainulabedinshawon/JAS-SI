@@ -4,6 +4,7 @@ import os
 import sys
 import threading
 import unittest
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -27,6 +28,11 @@ from jas_si_agent.postgres_security_event_store import (
 from jas_si_agent.security_event_store import (
     SecurityEventStoreError,
     _event_hash,
+)
+from jas_si_agent.agent_task_store import (
+    AgentTaskIdempotencyConflict,
+    AgentTaskStoreError,
+    PostgresAgentTaskStore,
 )
 
 
@@ -310,8 +316,6 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             "20261118_shared_api_rate_limits.sql",
             "20261119_general_runtime_customer_identity_acl.sql",
             "20261120_api_key_auth_runtime_tenant_acl.sql",
-            "20261121_security_audit_writer_boundary.sql",
-            "20261122_customer_rate_limit_owner_boundary.sql",
             "20261123_agent_task_store.sql",
         )
         with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
@@ -377,6 +381,14 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         self._create(idempotency_key=key, input_payload={"goal":"one"})
         with self.assertRaises(AgentTaskIdempotencyConflict):
             self._create(idempotency_key=key, input_payload={"goal":"two"})
+
+    def test_idempotency_hash_covers_task_type_and_retry_policy(self):
+        key = f"request-hash-{uuid.uuid4().hex}"
+        self._create(idempotency_key=key, task_type="agent.inspect", max_attempts=2)
+        with self.assertRaises(AgentTaskIdempotencyConflict):
+            self._create(idempotency_key=key, task_type="agent.execute", max_attempts=2)
+        with self.assertRaises(AgentTaskIdempotencyConflict):
+            self._create(idempotency_key=key, task_type="agent.inspect", max_attempts=3)
 
     def test_tenant_cannot_read_or_cancel_another_tenant_task(self):
         submission = self._create()
