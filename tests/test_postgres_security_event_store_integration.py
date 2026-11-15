@@ -513,14 +513,16 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
     def test_customer_key_issue_accepts_agent_task_scopes_before_session_auth(self):
         # Scope validation must accept the new task scopes, then fail only because
         # this isolated test deliberately supplies no live customer session.
+        key_id = uuid.uuid4()
         with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SET LOCAL ROLE jas_si_customer_key_owner")
             with self.assertRaises(psycopg.Error) as raised:
                 cursor.execute(
                     """SELECT * FROM public.customer_api_key_issue(
                          %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (
-                        b"s" * 32, uuid.uuid4(), "agent task test",
-                        "jassi_live_" + uuid.uuid4().hex,
+                        b"s" * 32, key_id, "agent task test",
+                        "jassi_live_" + key_id.hex,
                         b"d" * 32, 1,
                         ["agent:tasks:read", "agent:tasks:write"],
                         None, "scope-test-" + uuid.uuid4().hex,
