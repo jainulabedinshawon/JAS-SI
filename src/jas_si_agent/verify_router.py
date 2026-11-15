@@ -397,6 +397,7 @@ def _persist_evidence_audit_event(
     *,
     status_code: int,
     outcome: str,
+    access_mode: str,
 ) -> None:
     """Persist GitHub evidence verification outcome before returning it."""
     store = getattr(request.app.state, "security_event_store", None)
@@ -414,6 +415,7 @@ def _persist_evidence_audit_event(
         "endpoint": request.url.path,
         "status_code": status_code,
         "outcome": outcome,
+        "access_mode": access_mode,
         "repository": payload.repository,
         "commit_sha": payload.commit_sha,
         "requested_file_count": len(payload.paths),
@@ -443,6 +445,7 @@ def verify_github_evidence(
         access_mode = "public_repository_only"
         provider = getattr(request.app.state, "github_installation_provider", None)
         if provider is not None:
+            access_mode = "tenant_github_app_installation"
             raw_tenant_id = getattr(request.state, "tenant_id", None)
             try:
                 tenant_id = UUID(str(raw_tenant_id))
@@ -464,7 +467,8 @@ def verify_github_evidence(
                 ) from None
             if credential is not None:
                 access_token = credential.access_token
-                access_mode = "tenant_github_app_installation"
+            else:
+                access_mode = "public_repository_only"
 
         result = _verify_github_evidence(
             payload,
@@ -477,6 +481,7 @@ def verify_github_evidence(
             payload,
             status_code=exc.status_code,
             outcome="rejected",
+            access_mode=access_mode,
         )
         raise
 
@@ -485,5 +490,6 @@ def verify_github_evidence(
         payload,
         status_code=200,
         outcome="integrity_verified",
+        access_mode=access_mode,
     )
     return result
