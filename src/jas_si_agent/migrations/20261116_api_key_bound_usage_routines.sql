@@ -95,11 +95,10 @@ BEGIN
         RAISE EXCEPTION 'Invalid API-key usage reservation request' USING ERRCODE='22023';
     END IF;
 
-    IF p_operation NOT IN ('authorization.evaluate','outcome.submit','github.evidence.verify','agent.task.submit')
+    IF p_operation NOT IN ('authorization.evaluate','outcome.submit','github.evidence.verify')
        OR (p_operation='authorization.evaluate' AND p_required_scope<>'authorization:check')
        OR (p_operation='outcome.submit' AND p_required_scope<>'outcomes:submit')
-       OR (p_operation='github.evidence.verify' AND p_required_scope<>'github:evidence:verify')
-       OR (p_operation='agent.task.submit' AND p_required_scope<>'agent:tasks:write') THEN
+       OR (p_operation='github.evidence.verify' AND p_required_scope<>'github:evidence:verify') THEN
         RAISE EXCEPTION 'API-key usage operation/scope mismatch' USING ERRCODE='42501';
     END IF;
 
