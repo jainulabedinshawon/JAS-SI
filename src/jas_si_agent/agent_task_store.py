@@ -112,10 +112,17 @@ class PostgresAgentTaskStore:
             raise ValueError("api_key_id must be a UUID")
         if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
             raise ValueError("candidate_digest must be 32 bytes")
-        payload, request_hash = self._validate_request(
+        payload, _ = self._validate_request(
             idempotency_key=idempotency_key, task_type=task_type,
             input_payload=input_payload, max_attempts=max_attempts,
         )
+        request_material = json.dumps(
+            {"task_type": task_type.strip(), "input_payload": payload,
+             "max_attempts": max_attempts},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        request_hash = hashlib.sha256(request_material).digest()
         task_id = uuid.uuid4()
         try:
             import psycopg
