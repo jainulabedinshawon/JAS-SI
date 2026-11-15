@@ -103,11 +103,12 @@ def _github_headers() -> dict[str, str]:
         "User-Agent": "JAS-SI-Verify/0.1",
     }
 
-    token = os.getenv("JAS_SI_GITHUB_TOKEN")
-
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
+    # This endpoint is multi-tenant and accepts a customer-supplied
+    # repository identifier. A process-wide GitHub token could silently grant
+    # every tenant access to repositories owned by the service account.
+    # Until a tenant-bound GitHub App installation resolver is integrated,
+    # evidence lookup is deliberately limited to repositories accessible
+    # without credentials (normally public repositories).
     return headers
 
 def _github_get(
