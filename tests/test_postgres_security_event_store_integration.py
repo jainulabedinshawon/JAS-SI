@@ -336,6 +336,7 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         self.key_a, self.key_b = uuid.uuid4(), uuid.uuid4()
         self.digest_a, self.digest_b = b"a" * 32, b"b" * 32
         with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("DELETE FROM public.jas_si_agent_tasks")
             for tenant_id in (self.tenant_a, self.tenant_b):
                 cursor.execute(
                     "INSERT INTO public.jas_si_tenants(tenant_id,tenant_name) VALUES (%s,%s)",
@@ -651,6 +652,30 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         self.assertEqual(self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
         ).status, "cancelled")
+
+    def test_expired_cancellation_is_terminal_and_never_requeued(self):
+        task = self._create(max_attempts=3).task
+        worker_id = uuid.uuid4()
+        claim = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertTrue(self.store.cancel(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ))
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE public.jas_si_agent_tasks SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE task_id=%s",
+                (task.task_id,),
+            )
+        self.assertEqual(self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (uuid.uuid4(),)
+        ), [])
+        current = self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        )
+        self.assertEqual(current.status, "failed")
+        self.assertEqual(current.error_code, "WORKER_LOST_DURING_CANCELLATION")
+        self.assertIsNotNone(current.completed_at)
 
     def test_worker_failure_retries_then_becomes_terminal(self):
         task = self._create(max_attempts=2).task
