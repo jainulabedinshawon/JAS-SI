@@ -93,9 +93,12 @@ BEGIN
        OR pg_catalog.pg_get_userbyid((SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid=v_proc))
           <> 'jas_si_customer_key_owner'
        OR NOT (SELECT p.prosecdef FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
-       OR NOT ('search_path=pg_catalog'=ANY(
-           (SELECT p.proconfig FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
-       ))
+       OR NOT (
+           COALESCE(
+               (SELECT p.proconfig FROM pg_catalog.pg_proc p WHERE p.oid=v_proc),
+               ARRAY[]::text[]
+           ) @> ARRAY['search_path=pg_catalog']::text[]
+       )
        OR NOT pg_catalog.has_function_privilege(
            'jas_si_customer_key_runtime',v_proc,'EXECUTE'
        )
