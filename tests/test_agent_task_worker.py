@@ -129,18 +129,32 @@ class AgentTaskWorkerTests(unittest.TestCase):
         self.assertEqual(store.report_calls, [])
         self.assertEqual(len(store.ack_calls), 1)
 
-    def test_cancel_acknowledgement_stops_execution_without_report(self):
-        store = FakeStore(make_lease(), renew_result=False, cancel_ack=True)
+    def test_cancel_is_acknowledged_only_after_handler_returns(self):
+        stopped = threading.Event()
+
+        class CancellationStore(FakeStore):
+            def acknowledge_cancel(self, *, task_id, lease_fence):
+                self.assert_handler_stopped = stopped.is_set()
+                return super().acknowledge_cancel(task_id=task_id, lease_fence=lease_fence)
+
+        store = CancellationStore(make_lease(), renew_result=False, cancel_ack=True)
+
         def cooperative_handler(_lease, cancelled):
             cancelled.wait(1)
+            stopped.set()
             return {"claimed_success": True}
-        handler = TaskHandler("reasoning", "read_repository", lambda _item: "README.md", cooperative_handler)
+
+        handler = TaskHandler(
+            "reasoning", "read_repository", lambda _item: "README.md",
+            cooperative_handler,
+        )
         worker = AgentTaskWorker(
             store=store, handlers={"reasoning": handler}, lease_seconds=15,
             heartbeat_interval_seconds=0.01,
         )
         outcome = worker.run_once()
         self.assertEqual(outcome.state, "cancelled")
+        self.assertTrue(store.assert_handler_stopped)
         self.assertEqual(store.report_calls, [])
 
     def test_invalid_registration_and_heartbeat_configuration_rejected(self):
