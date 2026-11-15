@@ -485,6 +485,30 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
                 )
             connection.rollback()
 
+    def test_concurrent_idempotent_submissions_create_one_task(self):
+        idempotency_key = f"concurrent-{uuid.uuid4().hex}"
+        barrier = threading.Barrier(2)
+
+        def submit():
+            barrier.wait(timeout=10)
+            return self._create(idempotency_key=idempotency_key)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(submit) for _ in range(2)]
+            submissions = [future.result(timeout=30) for future in futures]
+
+        self.assertEqual(sum(item.created for item in submissions), 1)
+        self.assertEqual(
+            submissions[0].task.task_id,
+            submissions[1].task.task_id,
+        )
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM public.jas_si_agent_tasks WHERE tenant_id=%s AND idempotency_key=%s",
+                (self.tenant_a, idempotency_key),
+            )
+            self.assertEqual(cursor.fetchone()[0], 1)
+
     def test_input_validation_rejects_non_json_and_oversized_payloads(self):
         with self.assertRaises(ValueError):
             self._create(input_payload={"bad":float("nan")})
