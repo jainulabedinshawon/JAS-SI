@@ -74,7 +74,7 @@ class GitHubRepositoryReadHandlerTests(unittest.TestCase):
         provider = FakeCredentialProvider(credential)
         handler = build_github_repository_read_handler(provider)
         with patch(
-            "jas_si.github_repository_read._verify_github_evidence",
+            "jas_si_agent.github_repository_read._verify_github_evidence",
             return_value={"status": "EVIDENCE_INTEGRITY_VERIFIED", "semantic_truth_verified": False},
         ) as verify:
             result = handler.execute(make_lease(), threading.Event())
@@ -95,7 +95,7 @@ class GitHubRepositoryReadHandlerTests(unittest.TestCase):
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
         handler = build_github_repository_read_handler(FakeCredentialProvider(credential))
-        with patch("jas_si.github_repository_read._verify_github_evidence") as verify:
+        with patch("jas_si_agent.github_repository_read._verify_github_evidence") as verify:
             with self.assertRaisesRegex(RuntimeError, "tenant binding mismatch"):
                 handler.execute(make_lease(), threading.Event())
         verify.assert_not_called()
@@ -108,7 +108,7 @@ class GitHubRepositoryReadHandlerTests(unittest.TestCase):
             "commit_sha": "mutable-branch",
             "paths": ["../secret"],
         })
-        with patch("jas_si.github_repository_read._verify_github_evidence") as verify:
+        with patch("jas_si_agent.github_repository_read._verify_github_evidence") as verify:
             with self.assertRaisesRegex(ValueError, "input is invalid"):
                 handler.execute(lease, threading.Event())
         self.assertEqual(provider.calls, [])
@@ -119,7 +119,7 @@ class GitHubRepositoryReadHandlerTests(unittest.TestCase):
         handler = build_github_repository_read_handler(provider)
         cancelled = threading.Event()
         cancelled.set()
-        with patch("jas_si.github_repository_read._verify_github_evidence") as verify:
+        with patch("jas_si_agent.github_repository_read._verify_github_evidence") as verify:
             with self.assertRaisesRegex(RuntimeError, "cancelled"):
                 handler.execute(make_lease(), cancelled)
         self.assertEqual(provider.calls, [])
