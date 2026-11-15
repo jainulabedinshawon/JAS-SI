@@ -81,6 +81,16 @@ class TestGrantSigning(unittest.TestCase):
             verify_grant_signature(self.grant, "0" * 64, b"short")
         )
 
+    def test_tenant_mutation_invalidates_task_bound_signature(self) -> None:
+        import uuid
+
+        task_id = uuid.uuid4()
+        signature = sign_task_grant(self.grant, task_id, self.key)
+        altered = replace(self.grant, tenant_id=uuid.uuid4())
+        self.assertFalse(
+            verify_task_grant_signature(altered, task_id, signature, self.key)
+        )
+
     def test_task_bound_signature_verifies_only_for_its_task(self) -> None:
         import uuid
 
