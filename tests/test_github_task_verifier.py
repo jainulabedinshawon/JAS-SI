@@ -58,7 +58,7 @@ def make_evidence():
             "sha256": "d" * 64,
             "integrity": "VERIFIED",
         },),
-        content_digest="e" * 64,
+        content_digest="62e0b41e95d976ac90506102aa1fba35b1d520113c5e5aee1e9787a81fc12af9",
     )
 
 
