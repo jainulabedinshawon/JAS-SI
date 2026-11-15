@@ -212,7 +212,7 @@ BEGIN
            lease_expires_at=NULL,error_code=NULL,
            updated_at=pg_catalog.clock_timestamp(),completed_at=NULL
      WHERE q.task_id=p_task_id AND q.lease_owner=p_worker_id::text
-       AND q.lease_fence=p_lease_fence AND q.status='running'
+       AND q.lease_fence=p_lease_fence AND q.status IN ('running','cancel_requested')
        AND q.lease_expires_at>pg_catalog.clock_timestamp();
     GET DIAGNOSTICS v_updated=ROW_COUNT;
     RETURN v_updated=1;
@@ -235,14 +235,19 @@ BEGIN
         RAISE EXCEPTION 'Invalid worker failure report' USING ERRCODE='22023';
     END IF;
     UPDATE public.jas_si_agent_tasks q
-       SET status=CASE WHEN q.attempt_count<q.max_attempts
+       SET status=CASE WHEN q.status='cancel_requested' THEN 'cancelled'
+                       WHEN q.attempt_count<q.max_attempts
                        THEN 'queued' ELSE 'failed' END,
            next_attempt_at=pg_catalog.clock_timestamp()
                + pg_catalog.make_interval(secs=>p_retry_delay_seconds),
-           lease_owner=NULL,lease_expires_at=NULL,error_code=p_error_code,
+           lease_owner=NULL,lease_expires_at=NULL,
+           error_code=CASE WHEN q.status='cancel_requested'
+                           THEN 'CANCELLED_AFTER_WORKER_ERROR'
+                           ELSE p_error_code END,
            updated_at=pg_catalog.clock_timestamp(),
-           completed_at=CASE WHEN q.attempt_count<q.max_attempts
-                             THEN NULL ELSE pg_catalog.clock_timestamp() END
+           completed_at=CASE WHEN q.status='cancel_requested'
+                                  OR q.attempt_count>=q.max_attempts
+                             THEN pg_catalog.clock_timestamp() ELSE NULL END
      WHERE q.task_id=p_task_id AND q.lease_owner=p_worker_id::text
        AND q.lease_fence=p_lease_fence AND q.status='running'
        AND q.lease_expires_at>pg_catalog.clock_timestamp()
