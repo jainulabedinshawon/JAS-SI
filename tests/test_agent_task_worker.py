@@ -5,7 +5,7 @@ import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from jas_si_agent.agent_task_worker import AgentTaskWorker, SimulationResult, TaskHandler
+from jas_si_agent.agent_task_worker import AgentTaskWorker, SimulationResult, TaskHandler, TenantScopedResource
 from jas_si_agent.authorization import AuthorizationGrant
 from jas_si_agent.grant_signing import sign_task_grant, verify_task_grant_signature
 
@@ -47,6 +47,10 @@ class FakeStore:
         return "failed"
 
 
+def scoped_resource(lease, resource):
+    return TenantScopedResource(tenant_id=lease.tenant_id, resource=resource)
+
+
 def make_lease(task_type="reasoning"):
     return AgentTaskLease(
         task_id=uuid.uuid4(), tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000099"),
@@ -66,7 +70,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
     def test_empty_queue_does_not_execute_handler(self):
         calls = []
         handler = TaskHandler(
-            "reasoning", "read_repository", lambda _lease: "README.md",
+            "reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"),
             lambda _lease, _cancelled: calls.append("execute") or {"ok": True},
         )
         outcome = self.make_worker(FakeStore(), handler).run_once()
@@ -77,7 +81,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         lease = make_lease()
         calls = []
         handler = TaskHandler(
-            "reasoning", "read_repository", lambda item: f"tasks/{item.task_id}",
+            "reasoning", "read_repository", lambda lease: scoped_resource(lease, f"tasks/{lease.task_id}"),
             lambda item, _cancelled: calls.append(item.task_id) or {"answer": "evidence-backed"},
         )
         store = FakeStore(lease)
@@ -88,11 +92,40 @@ class AgentTaskWorkerTests(unittest.TestCase):
         self.assertEqual(store.report_calls[0][0], lease.task_id)
         self.assertEqual(store.fail_calls, [])
 
+    def test_unscoped_resource_string_is_rejected_before_execution(self):
+        lease = make_lease()
+        calls = []
+        handler = TaskHandler(
+            "reasoning", "read_repository", lambda _item: "README.md",
+            lambda _item, _cancelled: calls.append("execute") or {"ok": True},
+        )
+        store = FakeStore(lease)
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "failed")
+        self.assertEqual(store.fail_calls[0][2], "RESOURCE_TENANT_BINDING_REQUIRED")
+        self.assertEqual(calls, [])
+        self.assertEqual(store.report_calls, [])
+
+    def test_resource_bound_to_another_tenant_is_rejected_before_execution(self):
+        lease = make_lease()
+        calls = []
+        handler = TaskHandler(
+            "reasoning", "read_repository",
+            lambda _item: TenantScopedResource(uuid.uuid4(), "README.md"),
+            lambda _item, _cancelled: calls.append("execute") or {"ok": True},
+        )
+        store = FakeStore(lease)
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "failed")
+        self.assertEqual(store.fail_calls[0][2], "RESOURCE_TENANT_MISMATCH")
+        self.assertEqual(calls, [])
+        self.assertEqual(store.report_calls, [])
+
     def test_grant_required_action_is_denied_without_server_grant(self):
         lease = make_lease()
         calls = []
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             lambda _item, _cancelled: calls.append("must-not-run") or {"ok": True},
         )
         store = FakeStore(lease)
@@ -287,7 +320,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
     def test_unknown_task_type_fails_closed(self):
         store = FakeStore(make_lease("unregistered"))
         handler = TaskHandler(
-            "reasoning", "read_repository", lambda _item: "README.md",
+            "reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"),
             lambda _item, _cancelled: {"ok": True},
         )
         outcome = self.make_worker(store, handler).run_once()
