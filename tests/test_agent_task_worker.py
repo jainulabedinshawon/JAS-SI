@@ -145,6 +145,47 @@ class AgentTaskWorkerTests(unittest.TestCase):
             {"proceed": True, "summary": "Patch is bounded to the approved file"},
         )
 
+    def test_lease_loss_during_simulation_prevents_executor_invocation(self):
+        lease = make_lease()
+        renewal_rejected = threading.Event()
+        calls = []
+
+        class LeaseLossStore(FakeStore):
+            def renew(self, *, task_id, lease_fence, lease_seconds):
+                self.renew_calls.append((task_id, lease_fence, lease_seconds))
+                renewal_rejected.set()
+                return False
+
+        grant = AuthorizationGrant(
+            grant_id="grant-lease-loss", approved_by="human", human_approved=True,
+            allowed_actions=("write_file",), allowed_resources=("src/example.py",),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+
+        def simulate(_item):
+            calls.append("simulate")
+            self.assertTrue(renewal_rejected.wait(1))
+            return SimulationResult(proceed=True, summary="Preflight completed")
+
+        def execute(_item, _cancelled):
+            calls.append("execute")
+            return {"ok": True}
+
+        store = LeaseLossStore(lease, cancel_ack=True)
+        handler = TaskHandler(
+            "reasoning", "write_file", lambda _item: "src/example.py",
+            execute, grant_for=lambda _item: grant, simulate=simulate,
+        )
+        worker = AgentTaskWorker(
+            store=store, handlers={"reasoning": handler}, lease_seconds=15,
+            heartbeat_interval_seconds=0.01,
+        )
+        outcome = worker.run_once()
+        self.assertEqual(outcome.state, "cancelled")
+        self.assertEqual(calls, ["simulate"])
+        self.assertEqual(store.report_calls, [])
+        self.assertEqual(store.ack_calls, [(lease.task_id, lease.lease_fence)])
+
     def test_rejected_simulation_prevents_consequential_execution(self):
         lease = make_lease()
         calls = []
