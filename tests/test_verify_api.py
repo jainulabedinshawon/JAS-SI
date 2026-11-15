@@ -4,8 +4,10 @@ import base64
 import hashlib
 import tempfile
 import unittest
+import uuid
 
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,6 +18,7 @@ from fastapi.testclient import TestClient
 from jas_si_agent import api
 from jas_si_agent.security_event_store import JsonlSecurityEventStore
 from jas_si_agent import verify_router
+from jas_si_agent.github_installations import TenantGitHubInstallationCredential
 
 TEST_API_KEY = "test-only-jas-si-api-key"
 
@@ -196,6 +199,65 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
     def test_evidence_lookup_never_uses_process_wide_github_token(self):
         headers = verify_router._github_headers()
         self.assertNotIn("Authorization", headers)
+
+    def test_tenant_installation_provider_scopes_private_repo_request(self):
+        class Provider:
+            def __init__(self):
+                self.tenant_id = None
+                self.repository = None
+
+            def resolve(self, *, tenant_id, repository):
+                self.tenant_id = tenant_id
+                self.repository = repository
+                return TenantGitHubInstallationCredential(
+                    tenant_id=tenant_id,
+                    installation_id=12345,
+                    repository=repository,
+                    access_token="installation-token-secret",
+                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+                )
+
+        provider = Provider()
+        with patch.object(
+            api.app.state, "github_installation_provider", provider, create=True
+        ), patch("jas_si_agent.verify_router.httpx.get") as mock_get:
+            mock_get.side_effect = [self.commit_response(), self.file_response()]
+            response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["access_mode"], "tenant_github_app_installation"
+        )
+        self.assertEqual(provider.repository, "owner/project")
+        self.assertIsInstance(provider.tenant_id, uuid.UUID)
+        self.assertEqual(mock_get.call_count, 2)
+        for call in mock_get.call_args_list:
+            self.assertEqual(
+                call.kwargs["headers"]["Authorization"],
+                "Bearer installation-token-secret",
+            )
+
+    def test_tenant_installation_provider_mismatch_fails_closed(self):
+        class MismatchedProvider:
+            def resolve(self, *, tenant_id, repository):
+                return TenantGitHubInstallationCredential(
+                    tenant_id=uuid.uuid4(),
+                    installation_id=12345,
+                    repository=repository,
+                    access_token="installation-token-secret",
+                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+                )
+
+        with patch.object(
+            api.app.state,
+            "github_installation_provider",
+            MismatchedProvider(),
+            create=True,
+        ), patch("jas_si_agent.verify_router.httpx.get") as mock_get:
+            response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(mock_get.call_count, 0)
 
     def test_missing_api_key_is_rejected(self):
         response = self.client.post(
