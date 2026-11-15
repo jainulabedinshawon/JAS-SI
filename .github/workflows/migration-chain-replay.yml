@@ -156,6 +156,29 @@ jobs:
                   raise SystemExit("jas_si_runtime regained direct tenant-table/column access")
 
               cur.execute("""
+                  SELECT EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                      CROSS JOIN (VALUES
+                        ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                        ('TRUNCATE'),('REFERENCES'),('TRIGGER')
+                      ) privileges(privilege)
+                     WHERE pg_catalog.has_table_privilege(
+                       role_name,'public.jas_si_customer_rate_limits',privilege)
+                  ) OR EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                      CROSS JOIN (VALUES
+                        ('SELECT'),('INSERT'),('UPDATE'),('REFERENCES')
+                      ) privileges(privilege)
+                     WHERE pg_catalog.has_any_column_privilege(
+                       role_name,'public.jas_si_customer_rate_limits',privilege)
+                  )
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("General runtime/provisioner regained direct customer rate-limit table/column access")
+
+              cur.execute("""
                   SELECT count(*),
                          pg_catalog.bool_and(p.prosecdef),
                          pg_catalog.bool_and(NOT r.rolcanlogin AND NOT r.rolsuper
