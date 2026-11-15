@@ -284,133 +284,6 @@ class TestPostgresAuditIntegration(unittest.TestCase):
         )
 
 
-    def _worker_call(self, sql, params):
-        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
-            cursor.execute("SET ROLE jas_si_agent_worker")
-            cursor.execute(sql, params)
-            return cursor.fetchall()
-
-    def test_worker_claim_is_atomic_and_fenced(self):
-        task = self._create().task
-        worker_id = uuid.uuid4()
-        claimed = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
-            (worker_id,),
-        )
-        self.assertEqual(len(claimed), 1)
-        self.assertEqual(claimed[0][0], task.task_id)
-        self.assertEqual(claimed[0][3], 1)
-        self.assertEqual(claimed[0][5], 1)
-        self.assertEqual(self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
-            (uuid.uuid4(),),
-        ), [])
-
-    def test_worker_renewal_requires_current_fence(self):
-        task = self._create().task
-        worker_id = uuid.uuid4()
-        claimed = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
-        )[0]
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_renew(%s,%s,%s,60)",
-            (worker_id, task.task_id, claimed[5]),
-        ), [(True,)])
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_renew(%s,%s,%s,60)",
-            (worker_id, task.task_id, claimed[5] + 1),
-        ), [(False,)])
-
-    def test_stale_worker_cannot_report_after_reclaim(self):
-        from psycopg.types.json import Jsonb
-        task = self._create().task
-        old_worker, new_worker = uuid.uuid4(), uuid.uuid4()
-        old_claim = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (old_worker,)
-        )[0]
-        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE public.jas_si_agent_tasks SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE task_id=%s",
-                (task.task_id,),
-            )
-        new_claim = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (new_worker,)
-        )[0]
-        self.assertEqual(new_claim[5], old_claim[5] + 1)
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
-            (old_worker, task.task_id, old_claim[5], Jsonb({"claim":"success"})),
-        ), [(False,)])
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
-            (new_worker, task.task_id, new_claim[5], Jsonb({"claim":"success"})),
-        ), [(True,)])
-        current = self.store.get(
-            api_key_id=self.key_a,candidate_digest=self.digest_a,
-            task_id=task.task_id,
-        )
-        self.assertEqual(current.status, "awaiting_verification")
-        self.assertIsNone(current.completed_at)
-
-    def test_worker_cancellation_requires_acknowledgement(self):
-        task = self._create().task
-        worker_id = uuid.uuid4()
-        claim = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
-        )[0]
-        self.assertTrue(self.store.cancel(
-            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
-        ))
-        self.assertEqual(self.store.get(
-            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
-        ).status, "cancel_requested")
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,%s)",
-            (worker_id,task.task_id,claim[5]),
-        ), [(True,)])
-        self.assertEqual(self.store.get(
-            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
-        ).status, "cancelled")
-
-    def test_worker_failure_retries_then_becomes_terminal(self):
-        task = self._create(max_attempts=2).task
-        worker_id = uuid.uuid4()
-        first = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
-        )[0]
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
-            (worker_id,task.task_id,first[5],"TRANSIENT_ERROR"),
-        ), [("queued",)])
-        second = self._worker_call(
-            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
-        )[0]
-        self.assertEqual(second[3], 2)
-        self.assertEqual(self._worker_call(
-            "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
-            (worker_id,task.task_id,second[5],"TRANSIENT_ERROR"),
-        ), [("failed",)])
-        current = self.store.get(
-            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
-        )
-        self.assertEqual(current.status, "failed")
-        self.assertIsNotNone(current.completed_at)
-
-    def test_worker_role_cannot_be_used_without_capability_membership(self):
-        # Public callers must not be able to invoke worker routines as runtime.
-        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
-            cursor.execute("SET ROLE jas_si_runtime")
-            with self.assertRaises(psycopg.Error):
-                cursor.execute(
-                    "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
-                    (uuid.uuid4(),),
-                )
-            connection.rollback()
-
-
-if __name__ == "__main__":
-    unittest.main()
-
 
 # Durable task-store integration tests share this established PostgreSQL CI job.
 @unittest.skipUnless(DATABASE_URL and psycopg is not None, "PostgreSQL integration database is not configured")
@@ -691,4 +564,130 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             self._create(input_payload={"bad":float("nan")})
         with self.assertRaises(ValueError):
             self._create(input_payload={"large":"x"*70000})
+    def _worker_call(self, sql, params):
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SET ROLE jas_si_agent_worker")
+            cursor.execute(sql, params)
+            return cursor.fetchall()
 
+    def test_worker_claim_is_atomic_and_fenced(self):
+        task = self._create().task
+        worker_id = uuid.uuid4()
+        claimed = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
+            (worker_id,),
+        )
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual(claimed[0][0], task.task_id)
+        self.assertEqual(claimed[0][3], 1)
+        self.assertEqual(claimed[0][5], 1)
+        self.assertEqual(self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
+            (uuid.uuid4(),),
+        ), [])
+
+    def test_worker_renewal_requires_current_fence(self):
+        task = self._create().task
+        worker_id = uuid.uuid4()
+        claimed = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_renew(%s,%s,%s,60)",
+            (worker_id, task.task_id, claimed[5]),
+        ), [(True,)])
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_renew(%s,%s,%s,60)",
+            (worker_id, task.task_id, claimed[5] + 1),
+        ), [(False,)])
+
+    def test_stale_worker_cannot_report_after_reclaim(self):
+        from psycopg.types.json import Jsonb
+        task = self._create().task
+        old_worker, new_worker = uuid.uuid4(), uuid.uuid4()
+        old_claim = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (old_worker,)
+        )[0]
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE public.jas_si_agent_tasks SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE task_id=%s",
+                (task.task_id,),
+            )
+        new_claim = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (new_worker,)
+        )[0]
+        self.assertEqual(new_claim[5], old_claim[5] + 1)
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
+            (old_worker, task.task_id, old_claim[5], Jsonb({"claim":"success"})),
+        ), [(False,)])
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
+            (new_worker, task.task_id, new_claim[5], Jsonb({"claim":"success"})),
+        ), [(True,)])
+        current = self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,
+            task_id=task.task_id,
+        )
+        self.assertEqual(current.status, "awaiting_verification")
+        self.assertIsNone(current.completed_at)
+
+    def test_worker_cancellation_requires_acknowledgement(self):
+        task = self._create().task
+        worker_id = uuid.uuid4()
+        claim = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertTrue(self.store.cancel(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ))
+        self.assertEqual(self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ).status, "cancel_requested")
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,%s)",
+            (worker_id,task.task_id,claim[5]),
+        ), [(True,)])
+        self.assertEqual(self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ).status, "cancelled")
+
+    def test_worker_failure_retries_then_becomes_terminal(self):
+        task = self._create(max_attempts=2).task
+        worker_id = uuid.uuid4()
+        first = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
+            (worker_id,task.task_id,first[5],"TRANSIENT_ERROR"),
+        ), [("queued",)])
+        second = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertEqual(second[3], 2)
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
+            (worker_id,task.task_id,second[5],"TRANSIENT_ERROR"),
+        ), [("failed",)])
+        current = self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        )
+        self.assertEqual(current.status, "failed")
+        self.assertIsNotNone(current.completed_at)
+
+    def test_worker_role_cannot_be_used_without_capability_membership(self):
+        # Public callers must not be able to invoke worker routines as runtime.
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SET ROLE jas_si_runtime")
+            with self.assertRaises(psycopg.Error):
+                cursor.execute(
+                    "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
+                    (uuid.uuid4(),),
+                )
+            connection.rollback()
+
+
+
+if __name__ == "__main__":
+    unittest.main()
