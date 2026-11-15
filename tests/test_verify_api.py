@@ -614,6 +614,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
         self.assertEqual(data["required_workflows"], 2)
         self.assertFalse(data["semantic_truth_verified"])
         self.assertFalse(data["action_execution_verified"])
+        self.assertEqual(data["workflow_definition_trust"], "NOT_ESTABLISHED")
         self.assertEqual(
             {item["conclusion"] for item in data["workflow_results"]},
             {"success"},
