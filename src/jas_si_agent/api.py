@@ -1419,6 +1419,21 @@ def _get_agent_task_store(request: Request) -> PostgresAgentTaskStore:
         ) from None
 
 
+def _agent_task_api_key_context(request: Request) -> tuple[uuid.UUID, bytes]:
+    """Require a real tenant-scoped API-key proof for every task operation."""
+    key_id = getattr(request.state, "api_key_id", None)
+    digest = getattr(request.state, "api_key_candidate_digest", None)
+    if not key_id or not isinstance(digest, bytes) or len(digest) != 32:
+        raise HTTPException(
+            status_code=403,
+            detail="Tenant-scoped API key authentication is required",
+        )
+    try:
+        return uuid.UUID(key_id), digest
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=403, detail="API key identity is invalid") from None
+
+
 def _agent_task_response(task) -> dict:
     return {
         "task_id": str(task.task_id),
@@ -1450,11 +1465,12 @@ def submit_agent_task(
             status_code=503,
             detail="Agent task execution is not currently available",
         )
+    api_key_id, candidate_digest = _agent_task_api_key_context(request)
     store = _get_agent_task_store(request)
     try:
         submission = store.create(
-            api_key_id=uuid.UUID(request.state.api_key_id),
-            candidate_digest=request.state.api_key_candidate_digest,
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
             idempotency_key=(
                 request.headers.get("Idempotency-Key") or request.state.request_id
             ),
@@ -1493,11 +1509,12 @@ def get_agent_task(task_id: str, request: Request) -> dict:
         parsed_task_id = uuid.UUID(task_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="Agent task not found") from None
+    api_key_id, candidate_digest = _agent_task_api_key_context(request)
     store = _get_agent_task_store(request)
     try:
         task = store.get(
-            api_key_id=uuid.UUID(request.state.api_key_id),
-            candidate_digest=request.state.api_key_candidate_digest,
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
             task_id=parsed_task_id,
         )
     except (AgentTaskStoreError, ValueError):
@@ -1511,22 +1528,34 @@ def get_agent_task(task_id: str, request: Request) -> dict:
     "/v1/agent/tasks/{task_id}/cancel",
     dependencies=[Depends(_require_api_key)],
 )
-def cancel_agent_task(task_id: str, request: Request) -> dict:
+def cancel_agent_task(
+    task_id: str,
+    request: Request,
+    event_store: SecurityEventStore = Depends(get_security_event_store),
+) -> dict:
     try:
         parsed_task_id = uuid.UUID(task_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="Agent task not found") from None
+    api_key_id, candidate_digest = _agent_task_api_key_context(request)
     store = _get_agent_task_store(request)
     try:
         cancelled = store.cancel(
-            api_key_id=uuid.UUID(request.state.api_key_id),
-            candidate_digest=request.state.api_key_candidate_digest,
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
             task_id=parsed_task_id,
         )
     except (AgentTaskStoreError, ValueError):
         raise HTTPException(status_code=503, detail="Agent task cancellation is unavailable") from None
     if not cancelled:
         raise HTTPException(status_code=404, detail="Agent task not found or no longer cancellable")
+    if not _log_security_event(
+        "agent_task_cancellation_requested",
+        request,
+        event_store,
+        task_id=str(parsed_task_id),
+    ):
+        raise HTTPException(status_code=503, detail="Agent task cancellation audit could not be persisted")
     return {"task_id": str(parsed_task_id), "cancellation_requested": True}
 
 
