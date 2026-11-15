@@ -25,6 +25,10 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Unsafe JAS-SI agent task owner role';
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='neondb_owner') THEN
+        GRANT jas_si_agent_task_owner TO neondb_owner
+            WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_runtime')
        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_provisioner')
        OR pg_catalog.to_regclass('public.jas_si_tenants') IS NULL THEN
@@ -119,8 +123,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.jas_si_agent_tasks
     TO jas_si_agent_task_owner;
 GRANT SELECT (tenant_id,status) ON public.jas_si_tenants
     TO jas_si_agent_task_owner;
-GRANT SELECT (key_id,tenant_id,status,expires_at,scopes)
-    ON public.jas_si_api_keys TO jas_si_agent_task_owner;
+GRANT EXECUTE ON FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
+    TO jas_si_agent_task_owner;
 
 ALTER TABLE public.jas_si_agent_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_agent_tasks FORCE ROW LEVEL SECURITY;
@@ -161,17 +165,9 @@ BEGIN
         RAISE EXCEPTION 'Invalid agent task input' USING ERRCODE='22023';
     END IF;
 
-    SELECT k.tenant_id INTO v_tenant_id
-      FROM public.jas_si_api_keys k
-      JOIN public.jas_si_tenants t ON t.tenant_id=k.tenant_id
-     WHERE k.key_id=p_api_key_id
-       AND k.secret_digest=p_candidate_digest
-       AND k.pepper_version=1
-       AND k.status='active'
-       AND (k.expires_at IS NULL OR k.expires_at>clock_timestamp())
-       AND t.status='active'
-       AND 'agent:tasks:write'=ANY(k.scopes)
-     FOR SHARE OF t;
+    SELECT auth.auth_tenant_id INTO v_tenant_id
+      FROM public.jas_si_api_key_authenticate(p_api_key_id,p_candidate_digest) auth
+     WHERE 'agent:tasks:write'=ANY(auth.auth_scopes);
     IF v_tenant_id IS NULL THEN
         RAISE EXCEPTION 'Agent task API key is not authorized' USING ERRCODE='42501';
     END IF;
@@ -190,11 +186,11 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT t.task_id,t.status,t.request_hash
+    SELECT existing_task.task_id,existing_task.status,existing_task.request_hash
       INTO task_id,v_status,v_existing_hash
-      FROM public.jas_si_agent_tasks t
-     WHERE t.tenant_id=v_tenant_id
-       AND t.idempotency_key=p_idempotency_key
+      FROM public.jas_si_agent_tasks AS existing_task
+     WHERE existing_task.tenant_id=v_tenant_id
+       AND existing_task.idempotency_key=p_idempotency_key
      FOR SHARE;
     IF task_id IS NULL OR v_existing_hash IS DISTINCT FROM p_request_hash THEN
         RAISE EXCEPTION 'Idempotency key was reused with a different request'
@@ -215,13 +211,9 @@ CREATE OR REPLACE FUNCTION public.jas_si_agent_task_get(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE v_tenant_id uuid;
 BEGIN
-    SELECT k.tenant_id INTO v_tenant_id
-      FROM public.jas_si_api_keys k
-      JOIN public.jas_si_tenants t ON t.tenant_id=k.tenant_id
-     WHERE k.key_id=p_api_key_id AND k.secret_digest=p_candidate_digest
-       AND k.pepper_version=1 AND k.status='active'
-       AND (k.expires_at IS NULL OR k.expires_at>clock_timestamp())
-       AND t.status='active' AND 'agent:tasks:read'=ANY(k.scopes);
+    SELECT auth.auth_tenant_id INTO v_tenant_id
+      FROM public.jas_si_api_key_authenticate(p_api_key_id,p_candidate_digest) auth
+     WHERE 'agent:tasks:read'=ANY(auth.auth_scopes);
     IF v_tenant_id IS NULL THEN
         RAISE EXCEPTION 'Agent task API key is not authorized' USING ERRCODE='42501';
     END IF;
@@ -239,14 +231,10 @@ CREATE OR REPLACE FUNCTION public.jas_si_agent_task_cancel(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE v_tenant_id uuid; v_updated integer;
 BEGIN
-    SELECT k.tenant_id INTO v_tenant_id
-      FROM public.jas_si_api_keys k
-      JOIN public.jas_si_tenants t ON t.tenant_id=k.tenant_id
-     WHERE k.key_id=p_api_key_id AND k.secret_digest=p_candidate_digest
-       AND p_candidate_digest IS NOT NULL AND octet_length(p_candidate_digest)=32
-       AND k.pepper_version=1 AND k.status='active'
-       AND (k.expires_at IS NULL OR k.expires_at>clock_timestamp())
-       AND t.status='active' AND 'agent:tasks:write'=ANY(k.scopes);
+    SELECT auth.auth_tenant_id INTO v_tenant_id
+      FROM public.jas_si_api_key_authenticate(p_api_key_id,p_candidate_digest) auth
+     WHERE p_candidate_digest IS NOT NULL AND octet_length(p_candidate_digest)=32
+       AND 'agent:tasks:write'=ANY(auth.auth_scopes);
     IF v_tenant_id IS NULL THEN
         RAISE EXCEPTION 'Agent task API key is not authorized' USING ERRCODE='42501';
     END IF;
