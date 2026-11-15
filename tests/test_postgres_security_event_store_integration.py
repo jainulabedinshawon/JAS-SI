@@ -693,8 +693,8 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         current = self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
         )
-        self.assertEqual(current.status, "failed")
-        self.assertEqual(current.error_code, "WORKER_FAILED_AFTER_CANCEL_REQUEST")
+        self.assertEqual(current.status, "cancelled")
+        self.assertEqual(current.error_code, "CANCELLED_AFTER_WORKER_ERROR")
         self.assertIsNotNone(current.completed_at)
 
     def test_worker_failure_retries_then_becomes_terminal(self):
