@@ -609,7 +609,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["status"], "VERIFIED_SUCCESS")
+        self.assertEqual(data["status"], "GITHUB_REPORTED_SUCCESS")
         self.assertEqual(data["evidence_origin"], "github_api")
         self.assertEqual(data["required_workflows"], 2)
         self.assertFalse(data["semantic_truth_verified"])
@@ -640,7 +640,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
         response = self.perform_actions_verification(mock_stream)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "VERIFIED_FAILURE")
+        self.assertEqual(response.json()["status"], "GITHUB_REPORTED_FAILURE")
 
     @patch("jas_si_agent.verify_router.httpx.stream")
     def test_missing_required_workflow_is_inconclusive(self, mock_stream):
@@ -794,7 +794,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
         response = self.perform_actions_verification(mock_stream)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "VERIFIED_SUCCESS")
+        self.assertEqual(response.json()["status"], "GITHUB_REPORTED_SUCCESS")
         self.assertEqual(
             next(
                 item for item in response.json()["workflow_results"]
