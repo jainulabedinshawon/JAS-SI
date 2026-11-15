@@ -79,6 +79,7 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 from jas_si_agent.security_event_store_interface import SecurityEventStore
 from jas_si_agent.verification import ActionReport, VerificationEvidence
 from jas_si_agent.verify_router import router as github_verify_router
+from jas_si_agent.github_installations import is_valid_github_repository
 
 
 settings = Settings.from_env()
@@ -455,6 +456,53 @@ class AgentTaskCreateRequest(BaseModel):
     task_type: str = Field(min_length=1, max_length=64)
     input_payload: dict = Field(default_factory=dict)
     max_attempts: int = Field(default=3, ge=1, le=10)
+
+
+_GITHUB_REPOSITORY_READ_TASK = "github.read_repository"
+_GITHUB_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_GITHUB_REPOSITORY_READ_FIELDS = {"repository", "commit_sha", "paths"}
+
+
+def _validate_agent_task_input(payload: AgentTaskCreateRequest) -> None:
+    """Validate the versioned, bounded input contract for GitHub read tasks.
+
+    Other host-defined task types retain their existing contract. A GitHub
+    repository read task is restricted to immutable commit evidence and a
+    small, traversal-safe list of file paths.
+    """
+    if payload.task_type != _GITHUB_REPOSITORY_READ_TASK:
+        return
+
+    data = payload.input_payload
+    if set(data) != _GITHUB_REPOSITORY_READ_FIELDS:
+        raise HTTPException(
+            status_code=422,
+            detail="GitHub repository read input requires repository, commit_sha, and paths only",
+        )
+
+    repository = data.get("repository")
+    commit_sha = data.get("commit_sha")
+    paths = data.get("paths")
+
+    if not isinstance(repository, str) or not is_valid_github_repository(repository):
+        raise HTTPException(status_code=422, detail="Invalid GitHub repository identifier")
+    if not isinstance(commit_sha, str) or not _GITHUB_COMMIT_SHA_PATTERN.fullmatch(commit_sha):
+        raise HTTPException(status_code=422, detail="A full lowercase 40-character commit SHA is required")
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 10:
+        raise HTTPException(status_code=422, detail="Between 1 and 10 repository file paths are required")
+    if any(
+        not isinstance(path, str)
+        or not path
+        or len(path) > 500
+        or path.startswith("/")
+        or "\\" in path
+        or "\x00" in path
+        or any(part in ("", ".", "..") for part in path.split("/"))
+        for path in paths
+    ):
+        raise HTTPException(status_code=422, detail="Invalid repository file path")
+    if len(set(paths)) != len(paths):
+        raise HTTPException(status_code=422, detail="Duplicate repository file paths are not allowed")
 
 
 def _rate_limit_decision(client_ip: str):
@@ -1465,6 +1513,7 @@ def submit_agent_task(
             status_code=503,
             detail="Agent task execution is not currently available",
         )
+    _validate_agent_task_input(payload)
     api_key_id, candidate_digest = _agent_task_api_key_context(request)
     store = _get_agent_task_store(request)
     try:
