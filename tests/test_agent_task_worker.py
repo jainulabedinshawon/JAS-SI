@@ -133,7 +133,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
-            grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, signature: verify_task_grant_signature(item, _item.task_id, signature, TEST_GRANT_KEY),
+            grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY),
         )
         store = FakeStore(lease)
         outcome = self.make_worker(store, handler).run_once()
@@ -158,7 +158,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             return {"ok": True}
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
-            execute, grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, signature: verify_task_grant_signature(item, _item.task_id, signature, TEST_GRANT_KEY), simulate=simulate,
+            execute, grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY), simulate=simulate,
         )
         store = FakeStore(lease)
         outcome = self.make_worker(store, handler).run_once()
@@ -198,7 +198,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         store = LeaseLossStore(lease, cancel_ack=True)
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
-            execute, grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, signature: verify_task_grant_signature(item, _item.task_id, signature, TEST_GRANT_KEY), simulate=simulate,
+            execute, grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY), simulate=simulate,
         )
         worker = AgentTaskWorker(
             store=store, handlers={"reasoning": handler}, lease_seconds=15,
@@ -221,7 +221,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         handler = TaskHandler(
             "reasoning", "write_file", lambda _item: "src/example.py",
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
-            grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, signature: verify_task_grant_signature(item, _item.task_id, signature, TEST_GRANT_KEY),
+            grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY),
             simulate=lambda _item: SimulationResult(proceed=False, summary="Risk threshold exceeded"),
         )
         store = FakeStore(lease)
