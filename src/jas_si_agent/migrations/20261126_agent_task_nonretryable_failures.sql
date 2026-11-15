@@ -77,11 +77,14 @@ RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
 DO $block$
-DECLARE v_proc oid; v_owner text; v_acl_ok boolean; v_config_ok boolean;
+DECLARE
+    v_proc oid := 'public.jas_si_agent_task_fail(uuid,uuid,bigint,text,integer)'::regprocedure;
+    v_owner text;
+    v_security_definer boolean;
+    v_fixed_search_path boolean;
+    v_no_public_execute boolean;
 BEGIN
-    v_proc := 'public.jas_si_agent_task_fail(uuid,uuid,bigint,text,integer)'::regprocedure;
-    SELECT pg_catalog.pg_get_userbyid(p.proowner),
-           p.prosecdef,
+    SELECT pg_catalog.pg_get_userbyid(p.proowner),p.prosecdef,
            COALESCE(p.proconfig,ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog']::text[],
            NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(
@@ -89,10 +92,10 @@ BEGIN
                ) acl
                WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
            )
-      INTO v_owner,v_config_ok,v_acl_ok,v_proc
+      INTO v_owner,v_security_definer,v_fixed_search_path,v_no_public_execute
       FROM pg_catalog.pg_proc p WHERE p.oid=v_proc;
     IF v_owner<>'jas_si_agent_task_owner'
-       OR NOT v_config_ok OR NOT v_acl_ok
+       OR NOT v_security_definer OR NOT v_fixed_search_path OR NOT v_no_public_execute
        OR NOT pg_catalog.has_function_privilege(
            'jas_si_agent_worker',
            'public.jas_si_agent_task_fail(uuid,uuid,bigint,text,integer)',
