@@ -145,7 +145,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5), tenant_id=lease.tenant_id,
         )
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
             grant_for=lambda _item: grant,
             simulate=lambda _item: calls.append("simulate") or SimulationResult(True, "preflight"),
@@ -167,7 +167,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             tenant_id=uuid.uuid4(),
         )
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
             grant_for=lambda _item: grant,
             grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY),
@@ -190,7 +190,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
             grant_for=lambda _item: grant,
             grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY),
@@ -214,7 +214,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             tenant_id=lease.tenant_id,
         )
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
             grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY),
         )
@@ -241,7 +241,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             calls.append("execute")
             return {"ok": True}
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             execute, grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY), simulate=simulate,
         )
         store = FakeStore(lease)
@@ -282,7 +282,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
 
         store = LeaseLossStore(lease, cancel_ack=True)
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             execute, grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY), simulate=simulate,
         )
         worker = AgentTaskWorker(
@@ -305,7 +305,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             tenant_id=lease.tenant_id,
         )
         handler = TaskHandler(
-            "reasoning", "write_file", lambda _item: "src/example.py",
+            "reasoning", "write_file", lambda lease: scoped_resource(lease, "src/example.py"),
             lambda _item, _cancelled: calls.append("execute") or {"ok": True},
             grant_for=lambda _item: grant, grant_signature_for=lambda _item: sign_task_grant(grant, _item.task_id, TEST_GRANT_KEY), verify_grant_signature=lambda item, task_id, signature: verify_task_grant_signature(item, task_id, signature, TEST_GRANT_KEY),
             simulate=lambda _item: SimulationResult(proceed=False, summary="Risk threshold exceeded"),
@@ -331,7 +331,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         def explode(_lease, _cancelled):
             raise RuntimeError("exception details must not enter task record")
         store = FakeStore(make_lease())
-        handler = TaskHandler("reasoning", "read_repository", lambda _item: "README.md", explode)
+        handler = TaskHandler("reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"), explode)
         outcome = self.make_worker(store, handler).run_once()
         self.assertEqual(outcome.state, "failed")
         self.assertEqual(store.fail_calls[0][2], "HANDLER_EXECUTION_ERROR")
@@ -341,7 +341,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         def cooperative_handler(_lease, cancelled):
             cancelled.wait(1)
             return {"claimed_success": True}
-        handler = TaskHandler("reasoning", "read_repository", lambda _item: "README.md", cooperative_handler)
+        handler = TaskHandler("reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"), cooperative_handler)
         worker = AgentTaskWorker(
             store=store, handlers={"reasoning": handler}, lease_seconds=15,
             heartbeat_interval_seconds=0.01,
@@ -356,7 +356,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         store = FakeStore(lease, cancel_ack=True)
         store.report_result = False
         handler = TaskHandler(
-            "reasoning", "read_repository", lambda _item: "README.md",
+            "reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"),
             lambda _item, _cancelled: {"claimed_success": True},
         )
         outcome = self.make_worker(store, handler).run_once()
@@ -369,7 +369,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
         store = FakeStore(lease, cancel_ack=False)
         store.report_result = False
         handler = TaskHandler(
-            "reasoning", "read_repository", lambda _item: "README.md",
+            "reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"),
             lambda _item, _cancelled: {"claimed_success": True},
         )
         outcome = self.make_worker(store, handler).run_once()
@@ -392,7 +392,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
             return {"claimed_success": True}
 
         handler = TaskHandler(
-            "reasoning", "read_repository", lambda _item: "README.md",
+            "reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"),
             cooperative_handler,
         )
         worker = AgentTaskWorker(
@@ -406,7 +406,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
 
     def test_invalid_registration_and_heartbeat_configuration_rejected(self):
         store = FakeStore()
-        handler = TaskHandler("reasoning", "read_repository", lambda _item: "README.md", lambda _item, _cancelled: {"ok": True})
+        handler = TaskHandler("reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"), lambda _item, _cancelled: {"ok": True})
         with self.assertRaises(ValueError):
             AgentTaskWorker(store=store, handlers={}, lease_seconds=15)
         with self.assertRaises(ValueError):
@@ -420,7 +420,7 @@ class AgentTaskWorkerTests(unittest.TestCase):
                 stop.set()
                 raise AgentTaskWorkerStoreError("database unavailable")
         stop = threading.Event()
-        handler = TaskHandler("reasoning", "read_repository", lambda _item: "README.md", lambda _item, _cancelled: {"ok": True})
+        handler = TaskHandler("reasoning", "read_repository", lambda lease: scoped_resource(lease, "README.md"), lambda _item, _cancelled: {"ok": True})
         worker = AgentTaskWorker(
             store=BrokenStore(), handlers={"reasoning": handler}, lease_seconds=15,
             heartbeat_interval_seconds=14,
