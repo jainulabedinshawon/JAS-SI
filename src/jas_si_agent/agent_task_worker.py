@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import Event, Thread
 from typing import Callable, Mapping
+from uuid import UUID
 
 from jas_si_agent.authorization import (
     GRANT_REQUIRED_ACTIONS,
@@ -26,7 +27,7 @@ TaskExecutor = Callable[[AgentTaskLease, Event], Mapping[str, object]]
 ResourceResolver = Callable[[AgentTaskLease], str]
 GrantResolver = Callable[[AgentTaskLease], AuthorizationGrant | None]
 GrantSignatureResolver = Callable[[AgentTaskLease], str | None]
-GrantSignatureVerifier = Callable[[AuthorizationGrant, str], bool]
+GrantSignatureVerifier = Callable[[AuthorizationGrant, UUID, str], bool]
 SimulationResolver = Callable[[AgentTaskLease], "SimulationResult"]
 
 
@@ -183,7 +184,7 @@ class AgentTaskWorker:
             if handler.action_type in GRANT_REQUIRED_ACTIONS and grant is not None:
                 # A policy-shaped grant is not proof of human authorization.
                 # Consequential actions require a host-verified cryptographic
-                # signature before the policy gate can authorize execution.
+                # signature bound to this exact task ID before authorization.
                 if handler.grant_signature_for is None or handler.verify_grant_signature is None:
                     failure_code = "GRANT_SIGNATURE_REQUIRED"
                 else:
@@ -191,7 +192,7 @@ class AgentTaskWorker:
                         signature = handler.grant_signature_for(lease)
                         signature_valid = (
                             isinstance(signature, str)
-                            and handler.verify_grant_signature(grant, signature) is True
+                            and handler.verify_grant_signature(grant, lease.task_id, signature) is True
                         )
                     except Exception:
                         signature_valid = False
