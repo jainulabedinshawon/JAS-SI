@@ -249,7 +249,7 @@ BEGIN
                                   OR q.attempt_count>=q.max_attempts
                              THEN pg_catalog.clock_timestamp() ELSE NULL END
      WHERE q.task_id=p_task_id AND q.lease_owner=p_worker_id::text
-       AND q.lease_fence=p_lease_fence AND q.status='running'
+       AND q.lease_fence=p_lease_fence AND q.status IN ('running','cancel_requested')
        AND q.lease_expires_at>pg_catalog.clock_timestamp()
     RETURNING q.status::text INTO v_status;
     RETURN v_status;
