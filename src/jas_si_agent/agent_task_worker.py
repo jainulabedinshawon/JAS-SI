@@ -182,10 +182,16 @@ class AgentTaskWorker:
         try:
             grant = handler.grant_for(lease) if handler.grant_for else None
             if handler.action_type in GRANT_REQUIRED_ACTIONS and grant is not None:
+                # A valid signature cannot make a grant portable across tenants.
+                # Bind the grant to the database-derived tenant on the claimed lease.
+                if getattr(grant, "tenant_id", None) != lease.tenant_id:
+                    failure_code = "GRANT_TENANT_MISMATCH"
                 # A policy-shaped grant is not proof of human authorization.
                 # Consequential actions require a host-verified cryptographic
                 # signature bound to this exact task ID before authorization.
-                if handler.grant_signature_for is None or handler.verify_grant_signature is None:
+                if failure_code is not None:
+                    pass
+                elif handler.grant_signature_for is None or handler.verify_grant_signature is None:
                     failure_code = "GRANT_SIGNATURE_REQUIRED"
                 else:
                     try:
