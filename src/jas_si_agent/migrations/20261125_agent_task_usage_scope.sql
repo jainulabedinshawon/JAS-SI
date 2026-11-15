@@ -2,6 +2,20 @@
 -- The API still reserves exactly one unit; tenant and scope are derived from the authenticated key.
 -- Existing function owner, SECURITY DEFINER boundary, and runtime-only EXECUTE grant are preserved.
 
+-- The append-only usage ledger also constrains operation labels. Extend that
+-- database constraint before the SECURITY DEFINER routine starts emitting the
+-- new server-owned operation. DROP + ADD is deliberately replay-safe.
+ALTER TABLE public.jas_si_usage_events
+    DROP CONSTRAINT IF EXISTS jas_si_usage_events_operation_check;
+ALTER TABLE public.jas_si_usage_events
+    ADD CONSTRAINT jas_si_usage_events_operation_check
+    CHECK (operation IN (
+        'authorization.evaluate',
+        'outcome.submit',
+        'github.evidence.verify',
+        'agent.task.submit'
+    ));
+
 GRANT CREATE ON SCHEMA public TO jas_si_api_key_usage_owner;
 SET LOCAL ROLE jas_si_api_key_usage_owner;
 
