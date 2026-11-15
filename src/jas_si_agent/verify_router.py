@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import os
 import re
 
@@ -33,6 +34,8 @@ _MAX_ENCODED_BYTES = ((_MAX_FILE_BYTES + 2) // 3) * 4
 
 # Permit normal GitHub Base64 line wrapping, but bound whitespace too.
 _MAX_BASE64_WHITESPACE_BYTES = 16_384
+# Bound the decoded HTTP response body before JSON parsing or Base64 decoding.
+_MAX_GITHUB_RESPONSE_BYTES = _MAX_ENCODED_BYTES + _MAX_BASE64_WHITESPACE_BYTES + 65_536
 
 _TIMEOUT_SECONDS = 10.0
 
@@ -116,13 +119,40 @@ def _github_get(
     params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
-        response = httpx.get(
+        with httpx.stream(
+            "GET",
             url,
             headers=_github_headers(),
             params=params,
             timeout=_TIMEOUT_SECONDS,
             follow_redirects=False,
-        )
+        ) as response:
+            if response.status_code == 404:
+                raise _client_error(
+                    404,
+                    "GitHub commit or evidence file not found.",
+                )
+
+            if response.status_code in (401, 403, 429):
+                raise _client_error(
+                    503,
+                    "GitHub API access is unavailable or rate limited.",
+                )
+
+            if response.status_code != 200:
+                raise _client_error(
+                    502,
+                    "Unexpected GitHub API response.",
+                )
+
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                if len(body) + len(chunk) > _MAX_GITHUB_RESPONSE_BYTES:
+                    raise _client_error(
+                        413,
+                        "GitHub evidence response exceeds the size limit.",
+                    )
+                body.extend(chunk)
 
     except httpx.TimeoutException:
         raise _client_error(
@@ -136,27 +166,9 @@ def _github_get(
             "GitHub evidence service is unavailable.",
         ) from None
 
-    if response.status_code == 404:
-        raise _client_error(
-            404,
-            "GitHub commit or evidence file not found.",
-        )
-
-    if response.status_code in (401, 403, 429):
-        raise _client_error(
-            503,
-            "GitHub API access is unavailable or rate limited.",
-        )
-
-    if response.status_code != 200:
-        raise _client_error(
-            502,
-            "Unexpected GitHub API response.",
-        )
-
     try:
-        data = response.json()
-    except (ValueError, TypeError):
+        data = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
         raise _client_error(
             502,
             "Invalid GitHub API response.",
