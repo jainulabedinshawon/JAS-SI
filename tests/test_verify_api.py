@@ -191,6 +191,11 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             "VERIFIED",
         )
 
+    @patch.dict("os.environ", {"JAS_SI_GITHUB_TOKEN": "must-not-be-used"})
+    def test_evidence_lookup_never_uses_process_wide_github_token(self):
+        headers = verify_router._github_headers()
+        self.assertNotIn("Authorization", headers)
+
     def test_missing_api_key_is_rejected(self):
         response = self.client.post(
             "/v1/github/evidence",
