@@ -581,7 +581,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
             json=payload or self.actions_payload(),
         )
 
-    def run(self, run_id, path, *, status="completed", conclusion="success", run_number=1, attempt=1):
+    def workflow_run(self, run_id, path, *, status="completed", conclusion="success", run_number=1, attempt=1):
         return {
             "id": run_id,
             "run_number": run_number,
@@ -599,7 +599,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
             {
                 "total_count": 2,
                 "workflow_runs": [
-                    self.run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
                     self.run(102, ".github/workflows/security.yml"),
                 ],
             },
