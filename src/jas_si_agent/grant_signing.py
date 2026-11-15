@@ -97,10 +97,14 @@ def canonical_grant_payload(grant: AuthorizationGrant) -> bytes:
     ):
         raise GrantSigningError("Invalid allowed_resources")
 
+    if grant.tenant_id is not None and not isinstance(grant.tenant_id, UUID):
+        raise GrantSigningError("tenant_id must be a UUID when provided")
+
     payload: dict[str, Any] = {
         "version": SIGNING_VERSION,
         "algorithm": ALGORITHM,
         "grant_id": grant.grant_id,
+        "tenant_id": str(grant.tenant_id) if grant.tenant_id is not None else None,
         "approved_by": grant.approved_by,
         "human_approved": grant.human_approved,
         "allowed_actions": list(grant.allowed_actions),
