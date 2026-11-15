@@ -51,6 +51,40 @@ class PostgresAgentTaskStore:
             raise ValueError("PostgreSQL DSN is required")
         self._dsn = dsn.strip()
 
+    def verify_schema(self) -> bool:
+        """Fail closed unless the runtime can call the tenant-scoped task routines."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     pg_catalog.to_regclass('public.jas_si_agent_tasks') IS NOT NULL,
+                     pg_catalog.to_regprocedure('public.jas_si_agent_task_create(uuid,uuid,bytea,text,bytea,text,jsonb,integer)') IS NOT NULL,
+                     pg_catalog.to_regprocedure('public.jas_si_agent_task_get(uuid,bytea,uuid)') IS NOT NULL,
+                     pg_catalog.to_regprocedure('public.jas_si_agent_task_cancel(uuid,bytea,uuid)') IS NOT NULL,
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_create(uuid,uuid,bytea,text,bytea,text,jsonb,integer)',
+                       'EXECUTE'
+                     ),
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_get(uuid,bytea,uuid)',
+                       'EXECUTE'
+                     ),
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_cancel(uuid,bytea,uuid)',
+                       'EXECUTE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_tasks','SELECT'
+                     )
+                """
+            )
+            row = cursor.fetchone()
+        return bool(row and all(value is True for value in row))
+
     @staticmethod
     def _validate_request(
         *,
