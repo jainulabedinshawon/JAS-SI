@@ -22,12 +22,24 @@ BEGIN
              r.rolcanlogin OR r.rolsuper OR r.rolcreatedb OR r.rolcreaterole
              OR r.rolreplication OR r.rolbypassrls OR r.rolinherit
          )
+    ) OR EXISTS (
+        SELECT 1
+          FROM pg_catalog.pg_auth_members m
+          JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
+          JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
+         WHERE m.member=v_owner OR (m.roleid=v_owner AND NOT (
+             (member_role.rolname='neondb_owner'
+              AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)
+             OR
+             (member_role.rolname='neondb_owner'
+              AND grantor_role.rolname='cloud_admin'
+              AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+         ))
     ) THEN
         RAISE EXCEPTION 'Unsafe JAS-SI agent task owner role';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='neondb_owner') THEN
-        GRANT jas_si_agent_task_owner TO neondb_owner
-            WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+        EXECUTE 'GRANT jas_si_agent_task_owner TO neondb_owner WITH ADMIN FALSE, INHERIT FALSE, SET TRUE';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_runtime')
        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_provisioner')
@@ -121,14 +133,10 @@ $block$;
 GRANT USAGE ON SCHEMA public TO jas_si_agent_task_owner, jas_si_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.jas_si_agent_tasks
     TO jas_si_agent_task_owner;
-GRANT SELECT (tenant_id,status) ON public.jas_si_tenants
-    TO jas_si_agent_task_owner;
-GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
 SET LOCAL ROLE jas_si_api_key_auth_owner;
 GRANT EXECUTE ON FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
     TO jas_si_agent_task_owner;
 RESET ROLE;
-REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 
 ALTER TABLE public.jas_si_agent_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_agent_tasks FORCE ROW LEVEL SECURITY;
