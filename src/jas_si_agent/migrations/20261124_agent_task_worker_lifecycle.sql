@@ -86,7 +86,7 @@ BEGIN
     IF NOT pg_catalog.pg_has_role(session_user,'jas_si_agent_worker','MEMBER') THEN
         RAISE EXCEPTION 'Worker identity is not authorized' USING ERRCODE='42501';
     END IF;
-    IF p_worker_id IS NULL OR p_lease_seconds NOT BETWEEN 15 AND 300 THEN
+    IF p_worker_id IS NULL OR p_lease_seconds IS NULL OR p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 15 AND 300 THEN
         RAISE EXCEPTION 'Invalid worker claim request' USING ERRCODE='22023';
     END IF;
 
@@ -230,7 +230,7 @@ BEGIN
     END IF;
     IF p_worker_id IS NULL OR p_task_id IS NULL OR p_lease_fence IS NULL
        OR p_error_code IS NULL OR p_error_code !~ '^[A-Z0-9_]{1,64}$'
-       OR p_retry_delay_seconds NOT BETWEEN 0 AND 3600 THEN
+       OR p_retry_delay_seconds IS NULL OR p_retry_delay_seconds NOT BETWEEN 0 AND 3600 THEN
         RAISE EXCEPTION 'Invalid worker failure report' USING ERRCODE='22023';
     END IF;
     UPDATE public.jas_si_agent_tasks q
