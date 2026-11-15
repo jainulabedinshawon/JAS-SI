@@ -816,7 +816,7 @@ class CustomerTokenRequest(BaseModel):
 
 class CustomerApiKeyCreateRequest(BaseModel):
     key_name: str = Field(min_length=1, max_length=120)
-    scopes: list[str] = Field(min_length=1, max_length=4)
+    scopes: list[str] = Field(min_length=1, max_length=6)
     expires_in_days: int = Field(default=90, ge=1, le=365)
 
 
