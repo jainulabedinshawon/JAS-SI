@@ -72,11 +72,13 @@ GRANT USAGE ON SCHEMA public TO jas_si_agent_worker;
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
+DROP FUNCTION IF EXISTS public.jas_si_agent_task_claim(uuid,integer);
+
 CREATE OR REPLACE FUNCTION public.jas_si_agent_task_claim(
     p_worker_id uuid,
     p_lease_seconds integer DEFAULT 60
 ) RETURNS TABLE(
-    task_id uuid,task_type text,input_payload jsonb,attempt_count integer,
+    task_id uuid,tenant_id uuid,task_type text,input_payload jsonb,attempt_count integer,
     max_attempts integer,lease_fence bigint,lease_expires_at timestamptz
 )
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
@@ -135,7 +137,7 @@ BEGIN
            error_code=NULL
       FROM candidate c
      WHERE q.task_id=c.task_id
-    RETURNING q.task_id,q.task_type::text,q.input_payload,q.attempt_count,
+    RETURNING q.task_id,q.tenant_id,q.task_type::text,q.input_payload,q.attempt_count,
               q.max_attempts,q.lease_fence,q.lease_expires_at;
 END;
 $function$;
