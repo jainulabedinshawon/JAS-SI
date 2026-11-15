@@ -217,6 +217,9 @@ jobs:
               cur.execute("CREATE ROLE jas_si_agent_worker_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
               cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
               cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_test")
+              # The capability role is deliberately NOINHERIT; the worker
+              # process must explicitly SET ROLE to its narrowly granted API.
+              cur.execute("SET ROLE jas_si_agent_worker")
               for error_code, task_id in task_ids.items():
                   cur.execute(
                       "SELECT public.jas_si_agent_task_fail(%s,%s,1,%s,0)",
