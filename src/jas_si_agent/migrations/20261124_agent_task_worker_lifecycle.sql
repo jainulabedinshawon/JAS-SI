@@ -63,6 +63,8 @@ ALTER TABLE public.jas_si_agent_tasks
     );
 
 ALTER TABLE public.jas_si_agent_tasks
+    DROP CONSTRAINT IF EXISTS jas_si_agent_task_fence_nonnegative;
+ALTER TABLE public.jas_si_agent_tasks
     ADD CONSTRAINT jas_si_agent_task_fence_nonnegative
     CHECK (lease_fence >= 0);
 
