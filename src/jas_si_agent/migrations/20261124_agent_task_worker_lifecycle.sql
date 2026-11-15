@@ -234,18 +234,18 @@ BEGIN
        OR p_retry_delay_seconds IS NULL OR p_retry_delay_seconds NOT BETWEEN 0 AND 3600 THEN
         RAISE EXCEPTION 'Invalid worker failure report' USING ERRCODE='22023';
     END IF;
-    -- A worker error is not proof that cancellation completed. If the
-    -- tenant requested cancellation, stop retries but record a truthful
-    -- terminal failure unless the worker used the explicit ack_cancel path.
+    -- Once cancellation has been requested, a worker-reported error
+    -- acknowledges that execution has stopped. Record cancellation as the
+    -- terminal state; never requeue work after a cancellation request.
     UPDATE public.jas_si_agent_tasks q
-       SET status=CASE WHEN q.status='cancel_requested' THEN 'failed'
+       SET status=CASE WHEN q.status='cancel_requested' THEN 'cancelled'
                        WHEN q.attempt_count<q.max_attempts
                        THEN 'queued' ELSE 'failed' END,
            next_attempt_at=pg_catalog.clock_timestamp()
                + pg_catalog.make_interval(secs=>p_retry_delay_seconds),
            lease_owner=NULL,lease_expires_at=NULL,
            error_code=CASE WHEN q.status='cancel_requested'
-                           THEN 'WORKER_FAILED_AFTER_CANCEL_REQUEST'
+                           THEN 'CANCELLED_AFTER_WORKER_ERROR'
                            ELSE p_error_code END,
            updated_at=pg_catalog.clock_timestamp(),
            completed_at=CASE WHEN q.status='cancel_requested'
