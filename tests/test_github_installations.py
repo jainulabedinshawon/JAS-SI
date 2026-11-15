@@ -103,6 +103,32 @@ class TenantGitHubInstallationTests(unittest.TestCase):
                 now=self.now,
             )
 
+    def test_installation_token_lifetime_is_bounded(self):
+        long_lived = TenantGitHubInstallationCredential(
+            tenant_id=self.tenant_id,
+            installation_id=12345,
+            repository="Example/Private-Repo",
+            access_token="long-lived-token",
+            expires_at=self.now + timedelta(hours=2),
+        )
+        with self.assertRaises(GitHubCredentialResolutionError):
+            resolve_tenant_github_credential(
+                FakeProvider(long_lived),
+                tenant_id=self.tenant_id,
+                repository="Example/Private-Repo",
+                now=self.now,
+            )
+
+    def test_non_ascii_installation_token_is_rejected(self):
+        with self.assertRaises(ValueError):
+            TenantGitHubInstallationCredential(
+                tenant_id=self.tenant_id,
+                installation_id=12345,
+                repository="Example/Private-Repo",
+                access_token="token-\u2603",
+                expires_at=self.now + timedelta(minutes=5),
+            )
+
     def test_missing_installation_returns_none(self):
         self.assertIsNone(
             resolve_tenant_github_credential(
