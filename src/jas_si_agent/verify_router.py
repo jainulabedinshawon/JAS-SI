@@ -7,12 +7,18 @@ import re
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 from urllib.parse import quote
 
 import httpx
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+
+from jas_si_agent.github_installations import (
+    GitHubCredentialResolutionError,
+    resolve_tenant_github_credential,
+)
 
 router = APIRouter(
     prefix="/v1",
@@ -95,30 +101,30 @@ def _validate_request(payload: GitHubEvidenceRequest) -> None:
                 "Invalid repository file path.",
             )
 
-def _github_headers() -> dict[str, str]:
+def _github_headers(access_token: str | None = None) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "JAS-SI-Verify/0.1",
     }
 
-    # This endpoint is multi-tenant and accepts a customer-supplied
-    # repository identifier. A process-wide GitHub token could silently grant
-    # every tenant access to repositories owned by the service account.
-    # Until a tenant-bound GitHub App installation resolver is integrated,
-    # evidence lookup is deliberately limited to repositories accessible
-    # without credentials (normally public repositories).
+    # Only a request-scoped token returned by the trusted tenant installation
+    # provider may authorize private repository access. Never use process-wide
+    # service credentials for customer-supplied repository identifiers.
+    if access_token is not None:
+        headers["Authorization"] = f"Bearer {access_token}"
     return headers
 
 def _github_get(
     url: str,
     *,
     params: dict[str, str] | None = None,
+    access_token: str | None = None,
 ) -> dict[str, Any]:
     try:
         response = httpx.get(
             url,
-            headers=_github_headers(),
+            headers=_github_headers(access_token),
             params=params,
             timeout=_TIMEOUT_SECONDS,
             follow_redirects=False,
@@ -263,6 +269,9 @@ def _require_sha(value: Any, description: str) -> str:
 
 def _verify_github_evidence(
     payload: GitHubEvidenceRequest,
+    *,
+    access_token: str | None = None,
+    access_mode: str = "public_repository_only",
 ) -> dict[str, Any]:
     """
     Read-only GitHub evidence integrity verification.
@@ -282,7 +291,8 @@ def _verify_github_evidence(
     base_url = f"{_GITHUB_API}/repos/{repository}"
 
     commit_data = _github_get(
-        f"{base_url}/commits/{commit_sha}"
+        f"{base_url}/commits/{commit_sha}",
+        access_token=access_token,
     )
 
     actual_commit_sha = _require_sha(
@@ -327,6 +337,7 @@ def _verify_github_evidence(
         file_data = _github_get(
             safe_path_url,
             params={"ref": commit_sha},
+            access_token=access_token,
         )
 
         if file_data.get("type") != "file":
@@ -371,7 +382,7 @@ def _verify_github_evidence(
         "service": "JAS-SI Verify",
         "status": "EVIDENCE_INTEGRITY_VERIFIED",
         "verification_scope": "github_commit_and_file_integrity",
-        "access_mode": "public_repository_only",
+        "access_mode": access_mode,
         "repository": repository,
         "commit_sha": actual_commit_sha,
         "tree_sha": tree_sha,
@@ -431,7 +442,38 @@ def verify_github_evidence(
 ) -> dict[str, Any]:
     """Verify immutable GitHub evidence and durably audit the outcome."""
     try:
-        result = _verify_github_evidence(payload)
+        access_token = None
+        access_mode = "public_repository_only"
+        provider = getattr(request.app.state, "github_installation_provider", None)
+        if provider is not None:
+            raw_tenant_id = getattr(request.state, "tenant_id", None)
+            try:
+                tenant_id = UUID(str(raw_tenant_id))
+            except (TypeError, ValueError, AttributeError):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authenticated tenant identity is required for GitHub access",
+                ) from None
+            try:
+                credential = resolve_tenant_github_credential(
+                    provider,
+                    tenant_id=tenant_id,
+                    repository=payload.repository,
+                )
+            except GitHubCredentialResolutionError:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Tenant GitHub connection is unavailable",
+                ) from None
+            if credential is not None:
+                access_token = credential.access_token
+                access_mode = "tenant_github_app_installation"
+
+        result = _verify_github_evidence(
+            payload,
+            access_token=access_token,
+            access_mode=access_mode,
+        )
     except HTTPException as exc:
         _persist_evidence_audit_event(
             request,
