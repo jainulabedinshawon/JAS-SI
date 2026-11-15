@@ -437,6 +437,53 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             )
             self.assertEqual(cursor.fetchone(), (False,False,False))
 
+    def test_runtime_role_uses_scoped_task_routines_without_table_access(self):
+        from psycopg.types.json import Jsonb
+
+        task_id = uuid.uuid4()
+        idempotency_key = f"runtime-{uuid.uuid4().hex}"
+        payload = {"goal": "runtime role integration"}
+        request_hash = hashlib.sha256(b"runtime-role-task").digest()
+
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SET ROLE jas_si_runtime")
+            cursor.execute(
+                """SELECT task_id,status,created
+                   FROM public.jas_si_agent_task_create(
+                     %s,%s,%s,%s,%s,%s,%s,%s)""",
+                (task_id,self.key_a,self.digest_a,idempotency_key,request_hash,
+                 "agent.request",Jsonb(payload),3),
+            )
+            created = cursor.fetchone()
+            self.assertEqual(created, (task_id,"queued",True))
+
+            cursor.execute(
+                """SELECT task_id,status
+                   FROM public.jas_si_agent_task_get(%s,%s,%s)""",
+                (self.key_a,self.digest_a,task_id),
+            )
+            self.assertEqual(cursor.fetchone(), (task_id,"queued"))
+
+            cursor.execute(
+                "SELECT public.jas_si_agent_task_cancel(%s,%s,%s)",
+                (self.key_a,self.digest_a,task_id),
+            )
+            self.assertTrue(cursor.fetchone()[0])
+
+            cursor.execute(
+                """SELECT task_id,status
+                   FROM public.jas_si_agent_task_get(%s,%s,%s)""",
+                (self.key_a,self.digest_a,task_id),
+            )
+            self.assertEqual(cursor.fetchone(), (task_id,"cancelled"))
+
+            with self.assertRaises(psycopg.Error):
+                cursor.execute(
+                    "SELECT task_id FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                    (task_id,),
+                )
+            connection.rollback()
+
     def test_input_validation_rejects_non_json_and_oversized_payloads(self):
         with self.assertRaises(ValueError):
             self._create(input_payload={"bad":float("nan")})
