@@ -214,7 +214,7 @@ BEGIN
            lease_expires_at=NULL,error_code=NULL,
            updated_at=pg_catalog.clock_timestamp(),completed_at=NULL
      WHERE q.task_id=p_task_id AND q.lease_owner=p_worker_id::text
-       AND q.lease_fence=p_lease_fence AND q.status IN ('running','cancel_requested')
+       AND q.lease_fence=p_lease_fence AND q.status='running'
        AND q.lease_expires_at>pg_catalog.clock_timestamp();
     GET DIAGNOSTICS v_updated=ROW_COUNT;
     RETURN v_updated=1;

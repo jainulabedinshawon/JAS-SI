@@ -14,6 +14,7 @@ class FakeStore:
         self.lease = lease
         self.renew_result = renew_result
         self.cancel_ack = cancel_ack
+        self.report_result = True
         self.claim_calls = []
         self.renew_calls = []
         self.ack_calls = []
@@ -35,7 +36,7 @@ class FakeStore:
 
     def report(self, *, task_id, lease_fence, result_payload):
         self.report_calls.append((task_id, lease_fence, dict(result_payload)))
-        return True
+        return self.report_result
 
     def fail(self, *, task_id, lease_fence, error_code, retry_delay_seconds=0):
         self.fail_calls.append((task_id, lease_fence, error_code))
@@ -127,6 +128,31 @@ class AgentTaskWorkerTests(unittest.TestCase):
         outcome = worker.run_once()
         self.assertEqual(outcome.state, "lease_lost")
         self.assertEqual(store.report_calls, [])
+        self.assertEqual(len(store.ack_calls), 1)
+
+    def test_report_rejection_acknowledges_racing_cancellation(self):
+        lease = make_lease()
+        store = FakeStore(lease, cancel_ack=True)
+        store.report_result = False
+        handler = TaskHandler(
+            "reasoning", "read_repository", lambda _item: "README.md",
+            lambda _item, _cancelled: {"claimed_success": True},
+        )
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "cancelled")
+        self.assertEqual(len(store.report_calls), 1)
+        self.assertEqual(len(store.ack_calls), 1)
+
+    def test_report_rejection_without_cancel_ack_is_lease_lost(self):
+        lease = make_lease()
+        store = FakeStore(lease, cancel_ack=False)
+        store.report_result = False
+        handler = TaskHandler(
+            "reasoning", "read_repository", lambda _item: "README.md",
+            lambda _item, _cancelled: {"claimed_success": True},
+        )
+        outcome = self.make_worker(store, handler).run_once()
+        self.assertEqual(outcome.state, "lease_lost")
         self.assertEqual(len(store.ack_calls), 1)
 
     def test_cancel_is_acknowledged_only_after_handler_returns(self):

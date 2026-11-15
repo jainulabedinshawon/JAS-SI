@@ -633,6 +633,35 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         self.assertEqual(current.status, "awaiting_verification")
         self.assertIsNone(current.completed_at)
 
+    def test_cancel_request_racing_with_report_rejects_report(self):
+        from psycopg.types.json import Jsonb
+        task = self._create().task
+        worker_id = uuid.uuid4()
+        claim = self._worker_call(
+            "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
+        )[0]
+        self.assertTrue(self.store.cancel(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ))
+        # Simulate cancellation arriving after the worker's last successful
+        # heartbeat but before its final report is committed.
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
+            (worker_id,task.task_id,claim[5],Jsonb({"claim":"success"})),
+        ), [(False,)])
+        self.assertEqual(self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        ).status, "cancel_requested")
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,%s)",
+            (worker_id,task.task_id,claim[5]),
+        ), [(True,)])
+        current = self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
+        )
+        self.assertEqual(current.status, "cancelled")
+        self.assertIsNone(current.result_payload)
+
     def test_worker_cancellation_requires_acknowledgement(self):
         task = self._create().task
         worker_id = uuid.uuid4()

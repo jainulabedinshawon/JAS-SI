@@ -215,6 +215,22 @@ class AgentTaskWorker:
             result_payload=result,
         )
         if not reported:
+            # Cancellation can race with the final heartbeat after the handler
+            # returns. The database rejects reports for cancel_requested tasks;
+            # acknowledge only if the current fencing token still owns that
+            # cancellation. A stale worker can never turn a cancellation into
+            # a report or terminal state.
+            try:
+                acknowledged = self._store.acknowledge_cancel(
+                    task_id=lease.task_id,
+                    lease_fence=lease.lease_fence,
+                )
+            except Exception:
+                acknowledged = False
+            if acknowledged:
+                return WorkerOutcome(
+                    "cancelled", task_id, "cancellation_acknowledged_after_report_rejection"
+                )
             return WorkerOutcome("lease_lost", task_id, "report_rejected_for_stale_lease")
         return WorkerOutcome("awaiting_verification", task_id)
 
