@@ -72,6 +72,7 @@ def make_evidence():
             "path": "README.md",
             "blob_sha": "c" * 40,
             "sha256": "d" * 64,
+            "size_bytes": 123,
             "integrity": "VERIFIED",
         },),
         content_digest="62e0b41e95d976ac90506102aa1fba35b1d520113c5e5aee1e9787a81fc12af9",
