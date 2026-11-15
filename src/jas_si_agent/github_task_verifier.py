@@ -247,7 +247,6 @@ def verify_github_repository_task(
             item.get("integrity") != "VERIFIED"
             or not isinstance(item.get("blob_sha"), str)
             or len(item["blob_sha"]) != 40
-            or len(item["blob_sha"]) != 40
             or any(char not in "0123456789abcdef" for char in item["blob_sha"])
             or not isinstance(item.get("sha256"), str)
             or len(item["sha256"]) != 64
