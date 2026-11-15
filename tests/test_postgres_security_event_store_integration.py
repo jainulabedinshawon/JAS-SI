@@ -580,8 +580,9 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         )
         self.assertEqual(len(claimed), 1)
         self.assertEqual(claimed[0][0], task.task_id)
-        self.assertEqual(claimed[0][3], 1)
-        self.assertEqual(claimed[0][5], 1)
+        self.assertEqual(claimed[0][1], self.tenant_a)
+        self.assertEqual(claimed[0][4], 1)
+        self.assertEqual(claimed[0][6], 1)
         self.assertEqual(self._worker_call(
             "SELECT * FROM public.jas_si_agent_task_claim(%s,60)",
             (uuid.uuid4(),),
@@ -595,11 +596,11 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         )[0]
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_renew(%s,%s,%s,60)",
-            (worker_id, task.task_id, claimed[5]),
+            (worker_id, task.task_id, claimed[6]),
         ), [(True,)])
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_renew(%s,%s,%s,60)",
-            (worker_id, task.task_id, claimed[5] + 1),
+            (worker_id, task.task_id, claimed[6] + 1),
         ), [(False,)])
 
     def test_stale_worker_cannot_report_after_reclaim(self):
@@ -617,14 +618,14 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         new_claim = self._worker_call(
             "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (new_worker,)
         )[0]
-        self.assertEqual(new_claim[5], old_claim[5] + 1)
+        self.assertEqual(new_claim[6], old_claim[6] + 1)
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
-            (old_worker, task.task_id, old_claim[5], Jsonb({"claim":"success"})),
+            (old_worker, task.task_id, old_claim[6], Jsonb({"claim":"success"})),
         ), [(False,)])
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
-            (new_worker, task.task_id, new_claim[5], Jsonb({"claim":"success"})),
+            (new_worker, task.task_id, new_claim[6], Jsonb({"claim":"success"})),
         ), [(True,)])
         current = self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,
@@ -647,14 +648,14 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         # heartbeat but before its final report is committed.
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
-            (worker_id,task.task_id,claim[5],Jsonb({"claim":"success"})),
+            (worker_id,task.task_id,claim[6],Jsonb({"claim":"success"})),
         ), [(False,)])
         self.assertEqual(self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
         ).status, "cancel_requested")
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,%s)",
-            (worker_id,task.task_id,claim[5]),
+            (worker_id,task.task_id,claim[6]),
         ), [(True,)])
         current = self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
@@ -676,7 +677,7 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         ).status, "cancel_requested")
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,%s)",
-            (worker_id,task.task_id,claim[5]),
+            (worker_id,task.task_id,claim[6]),
         ), [(True,)])
         self.assertEqual(self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
@@ -717,7 +718,7 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         ))
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
-            (worker_id,task.task_id,claim[5],"TOOL_INTERRUPTED"),
+            (worker_id,task.task_id,claim[6],"TOOL_INTERRUPTED"),
         ), [("cancelled",)])
         current = self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
@@ -734,15 +735,15 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         )[0]
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
-            (worker_id,task.task_id,first[5],"TRANSIENT_ERROR"),
+            (worker_id,task.task_id,first[6],"TRANSIENT_ERROR"),
         ), [("queued",)])
         second = self._worker_call(
             "SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,)
         )[0]
-        self.assertEqual(second[3], 2)
+        self.assertEqual(second[4], 2)
         self.assertEqual(self._worker_call(
             "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,0)",
-            (worker_id,task.task_id,second[5],"TRANSIENT_ERROR"),
+            (worker_id,task.task_id,second[6],"TRANSIENT_ERROR"),
         ), [("failed",)])
         current = self.store.get(
             api_key_id=self.key_a,candidate_digest=self.digest_a,task_id=task.task_id,
