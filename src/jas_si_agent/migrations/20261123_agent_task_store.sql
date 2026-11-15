@@ -123,8 +123,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.jas_si_agent_tasks
     TO jas_si_agent_task_owner;
 GRANT SELECT (tenant_id,status) ON public.jas_si_tenants
     TO jas_si_agent_task_owner;
+GRANT CREATE ON SCHEMA public TO jas_si_api_key_auth_owner;
+SET LOCAL ROLE jas_si_api_key_auth_owner;
 GRANT EXECUTE ON FUNCTION public.jas_si_api_key_authenticate(uuid,bytea)
     TO jas_si_agent_task_owner;
+RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_api_key_auth_owner;
 
 ALTER TABLE public.jas_si_agent_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_agent_tasks FORCE ROW LEVEL SECURITY;
