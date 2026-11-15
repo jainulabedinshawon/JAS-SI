@@ -371,6 +371,7 @@ def _verify_github_evidence(
         "service": "JAS-SI Verify",
         "status": "EVIDENCE_INTEGRITY_VERIFIED",
         "verification_scope": "github_commit_and_file_integrity",
+        "access_mode": "public_repository_only",
         "repository": repository,
         "commit_sha": actual_commit_sha,
         "tree_sha": tree_sha,
