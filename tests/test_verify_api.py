@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import tempfile
 import unittest
 
@@ -35,8 +36,14 @@ class FakeGitHubResponse:
         self.status_code = status_code
         self._payload = payload
 
-    def json(self):
-        return self._payload
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def iter_bytes(self):
+        yield json.dumps(self._payload).encode("utf-8")
 
 class TestGitHubEvidenceAPI(unittest.TestCase):
 
@@ -117,7 +124,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             json=self.payload,
         )
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_valid_github_evidence(self, mock_get):
         mock_get.side_effect = [
             self.commit_response(),
@@ -163,7 +170,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
                 call.kwargs["follow_redirects"]
             )
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_base64_content_with_newlines_is_verified(self, mock_get):
         encoded = base64.b64encode(FILE_CONTENT).decode("ascii")
         wrapped = encoded[:8] + "\n" + encoded[8:]
@@ -223,7 +230,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_blob_tampering_is_rejected(self, mock_get):
         mock_get.side_effect = [
             self.commit_response(),
@@ -238,7 +245,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("integrity", response.text.lower())
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_missing_github_commit_returns_404(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             404,
@@ -249,7 +256,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_github_rate_limit_fails_closed(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             403,
@@ -299,7 +306,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_malformed_base64_is_rejected(self, mock_get):
         invalid_response = FakeGitHubResponse(
             200,
@@ -321,7 +328,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertIn("Base64", response.text)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_oversized_payload_is_rejected_before_base64_decode(
         self,
         mock_get,
@@ -359,7 +366,20 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
         mock_decode.assert_not_called()
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_oversized_github_response_is_rejected_while_streaming(self, mock_get):
+        class OversizedResponse(FakeGitHubResponse):
+            def iter_bytes(self):
+                yield b" " * (verify_router._MAX_GITHUB_RESPONSE_BYTES + 1)
+
+        mock_get.return_value = OversizedResponse(200, {})
+
+        response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("response exceeds", response.text.lower())
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_github_timeout_returns_504(self, mock_get):
         mock_get.side_effect = httpx.TimeoutException(
             "simulated timeout"
@@ -370,7 +390,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 504)
         self.assertNotIn("simulated timeout", response.text)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_github_connection_error_returns_502(self, mock_get):
         mock_get.side_effect = httpx.ConnectError(
             "simulated connection failure"
@@ -384,7 +404,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             response.text,
         )
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_unexpected_github_status_returns_502(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             500,
@@ -395,7 +415,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_unexpected_commit_sha_is_rejected(self, mock_get):
         bad_commit = FakeGitHubResponse(
             200,
@@ -415,13 +435,19 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_invalid_github_json_is_rejected(self, mock_get):
         class InvalidJsonResponse:
             status_code = 200
 
-            def json(self):
-                raise ValueError("invalid JSON")
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def iter_bytes(self):
+                yield b"{invalid json"
 
         mock_get.return_value = InvalidJsonResponse()
 
@@ -429,7 +455,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_non_file_github_resource_is_rejected(self, mock_get):
         directory_response = FakeGitHubResponse(
             200,
@@ -448,7 +474,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_unsupported_github_encoding_is_rejected(self, mock_get):
         unsupported_response = FakeGitHubResponse(
             200,
@@ -469,7 +495,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_successful_evidence_verification_is_persisted(self, mock_get):
         mock_get.side_effect = [
             self.commit_response(),
@@ -496,7 +522,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertNotIn("content", event)
         self.assertNotIn("token", str(event).lower())
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_rejected_evidence_verification_is_persisted(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             404,
@@ -517,7 +543,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(evidence_events[0]["outcome"], "rejected")
         self.assertEqual(evidence_events[0]["status_code"], 404)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_evidence_result_fails_closed_when_audit_persistence_fails(
         self, mock_get
     ):
