@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS public.jas_si_agent_tasks (
     CONSTRAINT jas_si_agent_task_type_nonempty
         CHECK (length(btrim(task_type)) BETWEEN 1 AND 64),
     CONSTRAINT jas_si_agent_task_status_check
-        CHECK (status IN ('queued','running','succeeded','failed','cancelled')),
+        CHECK (status IN ('queued','running','cancel_requested','succeeded','failed','cancelled')),
     CONSTRAINT jas_si_agent_task_attempts_check
         CHECK (attempt_count >= 0 AND max_attempts BETWEEN 1 AND 10
                AND attempt_count <= max_attempts),
@@ -93,14 +93,15 @@ CREATE TABLE IF NOT EXISTS public.jas_si_agent_tasks (
     CONSTRAINT jas_si_agent_task_error_code
         CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),
     CONSTRAINT jas_si_agent_task_lease_consistency
-        CHECK ((status='running' AND lease_owner IS NOT NULL
-                AND lease_expires_at IS NOT NULL)
-            OR (status<>'running' AND lease_owner IS NULL
-                AND lease_expires_at IS NULL)),
+        CHECK ((status IN ('running','cancel_requested')
+                AND lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)
+            OR (status NOT IN ('running','cancel_requested')
+                AND lease_owner IS NULL AND lease_expires_at IS NULL)),
     CONSTRAINT jas_si_agent_task_completion_consistency
         CHECK ((status IN ('succeeded','failed','cancelled')
                 AND completed_at IS NOT NULL)
-            OR (status IN ('queued','running') AND completed_at IS NULL))
+            OR (status IN ('queued','running','cancel_requested')
+                AND completed_at IS NULL))
 );
 
 CREATE INDEX IF NOT EXISTS jas_si_agent_tasks_tenant_created_idx
@@ -263,10 +264,19 @@ BEGIN
     IF v_tenant_id IS NULL THEN
         RAISE EXCEPTION 'Agent task API key is not authorized' USING ERRCODE='42501';
     END IF;
+    -- Queued work can be cancelled immediately. Running work only receives
+    -- a cancellation request; its lease remains owned until the worker
+    -- acknowledges cancellation, preventing a false terminal status.
     UPDATE public.jas_si_agent_tasks q
-       SET status='cancelled',lease_owner=NULL,lease_expires_at=NULL,
-           error_code='CANCELLED_BY_TENANT',updated_at=clock_timestamp(),
-           completed_at=clock_timestamp()
+       SET status=CASE WHEN q.status='queued' THEN 'cancelled'
+                       ELSE 'cancel_requested' END,
+           lease_owner=CASE WHEN q.status='queued' THEN NULL ELSE q.lease_owner END,
+           lease_expires_at=CASE WHEN q.status='queued' THEN NULL ELSE q.lease_expires_at END,
+           error_code=CASE WHEN q.status='queued' THEN 'CANCELLED_BY_TENANT'
+                           ELSE 'CANCEL_REQUESTED_BY_TENANT' END,
+           updated_at=clock_timestamp(),
+           completed_at=CASE WHEN q.status='queued' THEN clock_timestamp()
+                             ELSE NULL END
      WHERE q.tenant_id=v_tenant_id AND q.task_id=p_task_id
        AND q.status IN ('queued','running');
     GET DIAGNOSTICS v_updated=ROW_COUNT;
