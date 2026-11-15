@@ -707,6 +707,106 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
         self.assertEqual(response.status_code, 422)
         mock_stream.assert_not_called()
 
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_successful_actions_evidence_is_persisted(self, mock_stream):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 2,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(102, ".github/workflows/security.yml"),
+                ],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        events = JsonlSecurityEventStore(
+            Path(self.temp_dir.name) / "security-events.jsonl"
+        ).load_events()
+        evidence_events = [
+            event for event in events
+            if event.get("event_type") == "github_actions_evidence_verification"
+        ]
+        self.assertEqual(len(evidence_events), 1)
+        self.assertEqual(evidence_events[0]["outcome"], "verified_success")
+        self.assertEqual(evidence_events[0]["repository"], "owner/project")
+        self.assertEqual(evidence_events[0]["commit_sha"], COMMIT_SHA)
+        self.assertEqual(evidence_events[0]["required_workflow_count"], 2)
+        self.assertNotIn("token", str(evidence_events[0]).lower())
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_actions_evidence_fails_closed_when_audit_persistence_fails(
+        self, mock_stream
+    ):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 2,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(102, ".github/workflows/security.yml"),
+                ],
+            },
+        )
+
+        with patch.object(
+            self.client.app.state.security_event_store,
+            "append",
+            side_effect=OSError("simulated audit store failure"),
+        ):
+            response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("securely audited", response.text.lower())
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_actions_endpoint_queries_exact_commit_and_latest_attempt(
+        self, mock_stream
+    ):
+        earlier = self.workflow_run(
+            201,
+            ".github/workflows/tests.yml",
+            run_number=10,
+            attempt=1,
+        )
+        retry = self.workflow_run(
+            202,
+            ".github/workflows/tests.yml",
+            run_number=10,
+            attempt=2,
+        )
+        security = self.workflow_run(
+            203,
+            ".github/workflows/security.yml",
+            run_number=11,
+        )
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 3,
+                "workflow_runs": [earlier, retry, security],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "VERIFIED_SUCCESS")
+        self.assertEqual(
+            next(
+                item for item in response.json()["workflow_results"]
+                if item["path"] == ".github/workflows/tests.yml"
+            )["id"],
+            202,
+        )
+        self.assertEqual(
+            mock_stream.call_args.kwargs["params"]["head_sha"],
+            COMMIT_SHA,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
