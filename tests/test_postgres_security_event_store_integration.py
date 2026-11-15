@@ -322,6 +322,7 @@ class TestPostgresAuditIntegration(unittest.TestCase):
         ), [(False,)])
 
     def test_stale_worker_cannot_report_after_reclaim(self):
+        from psycopg.types.json import Jsonb
         task = self._create().task
         old_worker, new_worker = uuid.uuid4(), uuid.uuid4()
         old_claim = self._worker_call(
