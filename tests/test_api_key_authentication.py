@@ -139,6 +139,25 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 403)
 
+    def test_github_actions_evidence_requires_github_evidence_scope(self):
+        payload = {
+            "repository": "owner/project",
+            "commit_sha": "a" * 40,
+            "required_workflow_paths": [".github/workflows/tests.yml"],
+        }
+        with patch.object(api, "PostgresApiKeyRegistry") as registry:
+            registry.return_value.authenticate.return_value = self._auth_result(
+                ["outcomes:submit"]
+            )
+            with patch("jas_si_agent.verify_router.httpx.stream") as github:
+                response = self.client.post(
+                    "/v1/github/actions/evidence",
+                    headers={"X-API-Key": self.token},
+                    json=payload,
+                )
+        self.assertEqual(response.status_code, 403)
+        github.assert_not_called()
+
     def test_usage_history_requires_usage_read_scope(self):
         with patch.object(api, "PostgresApiKeyRegistry") as registry:
             registry.return_value.authenticate.return_value = self._auth_result(
