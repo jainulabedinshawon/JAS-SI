@@ -25,6 +25,8 @@ from jas_si_agent.agent_task_worker_store import (
 TaskExecutor = Callable[[AgentTaskLease, Event], Mapping[str, object]]
 ResourceResolver = Callable[[AgentTaskLease], str]
 GrantResolver = Callable[[AgentTaskLease], AuthorizationGrant | None]
+GrantSignatureResolver = Callable[[AgentTaskLease], str | None]
+GrantSignatureVerifier = Callable[[AuthorizationGrant, str], bool]
 SimulationResolver = Callable[[AgentTaskLease], "SimulationResult"]
 
 
@@ -44,6 +46,8 @@ class TaskHandler:
     execute: TaskExecutor
     grant_for: GrantResolver | None = None
     simulate: SimulationResolver | None = None
+    grant_signature_for: GrantSignatureResolver | None = None
+    verify_grant_signature: GrantSignatureVerifier | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +99,8 @@ class AgentTaskWorker:
                 or not callable(handler.execute)
                 or (handler.grant_for is not None and not callable(handler.grant_for))
                 or (handler.simulate is not None and not callable(handler.simulate))
+                or (handler.grant_signature_for is not None and not callable(handler.grant_signature_for))
+                or (handler.verify_grant_signature is not None and not callable(handler.verify_grant_signature))
             ):
                 raise ValueError("Invalid task handler registration")
             validated[key] = handler
@@ -174,6 +180,23 @@ class AgentTaskWorker:
         failure_code: str | None = None
         try:
             grant = handler.grant_for(lease) if handler.grant_for else None
+            if handler.action_type in GRANT_REQUIRED_ACTIONS and grant is not None:
+                # A policy-shaped grant is not proof of human authorization.
+                # Consequential actions require a host-verified cryptographic
+                # signature before the policy gate can authorize execution.
+                if handler.grant_signature_for is None or handler.verify_grant_signature is None:
+                    failure_code = "GRANT_SIGNATURE_REQUIRED"
+                else:
+                    try:
+                        signature = handler.grant_signature_for(lease)
+                        signature_valid = (
+                            isinstance(signature, str)
+                            and handler.verify_grant_signature(grant, signature) is True
+                        )
+                    except Exception:
+                        signature_valid = False
+                    if not signature_valid:
+                        failure_code = "GRANT_SIGNATURE_INVALID"
             decision = self._gate.evaluate(
                 ActionRequest(
                     action_id=task_id,
@@ -182,7 +205,9 @@ class AgentTaskWorker:
                 ),
                 grant=grant,
             )
-            if decision.allowed is not True:
+            if failure_code is not None:
+                pass
+            elif decision.allowed is not True:
                 failure_code = "ACTION_NOT_AUTHORIZED"
             elif handler.action_type in GRANT_REQUIRED_ACTIONS and handler.simulate is None:
                 # Consequential actions must have an explicit host simulation
