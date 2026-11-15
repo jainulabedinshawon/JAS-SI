@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import httpx
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from jas_si_agent import api
@@ -220,7 +221,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         provider = Provider()
         tenant_id = uuid.uuid4()
 
-        def authenticated_tenant(request):
+        def authenticated_tenant(request: Request):
             request.state.tenant_id = str(tenant_id)
 
         with patch.dict(
@@ -256,7 +257,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
                     expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
                 )
 
-        def authenticated_tenant(request):
+        def authenticated_tenant(request: Request):
             request.state.tenant_id = str(uuid.uuid4())
 
         with patch.dict(
