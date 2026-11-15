@@ -949,11 +949,12 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
 
 
 
-    def test_general_runtime_and_provisioner_have_no_effective_identity_table_privileges(self):
+    def test_general_runtime_and_provisioner_have_no_effective_customer_table_privileges(self):
         protected = (
             "jas_si_customer_accounts",
             "jas_si_customer_auth_tokens",
             "jas_si_customer_sessions",
+            "jas_si_customer_rate_limits",
         )
         table_privileges = (
             "SELECT", "INSERT", "UPDATE", "DELETE",
