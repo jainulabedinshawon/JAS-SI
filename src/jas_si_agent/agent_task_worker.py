@@ -24,7 +24,23 @@ from jas_si_agent.agent_task_worker_store import (
 )
 
 TaskExecutor = Callable[[AgentTaskLease, Event], Mapping[str, object]]
-ResourceResolver = Callable[[AgentTaskLease], str]
+
+
+@dataclass(frozen=True)
+class TenantScopedResource:
+    """A resource resolved inside one tenant's trusted integration boundary."""
+
+    tenant_id: UUID
+    resource: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tenant_id, UUID):
+            raise ValueError("resource tenant_id must be a UUID")
+        if not isinstance(self.resource, str) or not self.resource.strip():
+            raise ValueError("resource identifier must be a non-empty string")
+
+
+ResourceResolver = Callable[[AgentTaskLease], TenantScopedResource]
 GrantResolver = Callable[[AgentTaskLease], AuthorizationGrant | None]
 GrantSignatureResolver = Callable[[AgentTaskLease], str | None]
 GrantSignatureVerifier = Callable[[AuthorizationGrant, UUID, str], bool]
@@ -204,11 +220,20 @@ class AgentTaskWorker:
                         signature_valid = False
                     if not signature_valid:
                         failure_code = "GRANT_SIGNATURE_INVALID"
+            scoped_resource = handler.resource_for(lease)
+            if not isinstance(scoped_resource, TenantScopedResource):
+                failure_code = "RESOURCE_TENANT_BINDING_REQUIRED"
+                resource_name = ""
+            elif scoped_resource.tenant_id != lease.tenant_id:
+                failure_code = "RESOURCE_TENANT_MISMATCH"
+                resource_name = ""
+            else:
+                resource_name = scoped_resource.resource
             decision = self._gate.evaluate(
                 ActionRequest(
                     action_id=task_id,
                     action_type=handler.action_type,
-                    resource=handler.resource_for(lease),
+                    resource=resource_name,
                 ),
                 grant=grant,
             )
