@@ -104,7 +104,7 @@ class AgentTaskWorker:
         stop: Event,
         cancelled: Event,
         lease_lost: Event,
-        cancellation_acknowledged: Event,
+        renewal_rejected: Event,
     ) -> None:
         while not stop.wait(self._heartbeat_interval):
             try:
@@ -119,17 +119,10 @@ class AgentTaskWorker:
                 return
             if renewed:
                 continue
-            try:
-                acknowledged = self._store.acknowledge_cancel(
-                    task_id=lease.task_id,
-                    lease_fence=lease.lease_fence,
-                )
-            except Exception:
-                acknowledged = False
-            if acknowledged:
-                cancellation_acknowledged.set()
-            else:
-                lease_lost.set()
+            # A false renewal may mean cancellation or a stale lease. Signal
+            # cooperative shutdown first; never acknowledge cancellation while
+            # the task handler may still be performing side effects.
+            renewal_rejected.set()
             cancelled.set()
             return
 
@@ -152,10 +145,10 @@ class AgentTaskWorker:
         cancelled = Event()
         heartbeat_stop = Event()
         lease_lost = Event()
-        cancellation_acknowledged = Event()
+        renewal_rejected = Event()
         heartbeat = Thread(
             target=self._heartbeat,
-            args=(lease, heartbeat_stop, cancelled, lease_lost, cancellation_acknowledged),
+            args=(lease, heartbeat_stop, cancelled, lease_lost, renewal_rejected),
             name=f"jas-si-task-lease-{task_id}",
             daemon=True,
         )
@@ -186,8 +179,19 @@ class AgentTaskWorker:
             heartbeat_stop.set()
             heartbeat.join()
 
-        if cancellation_acknowledged.is_set():
-            return WorkerOutcome("cancelled", task_id, "cancellation_acknowledged")
+        if renewal_rejected.is_set() and not lease_lost.is_set():
+            # The executor has now returned, so a successful DB acknowledgement
+            # means its cooperative stop was observed before terminal cancel.
+            try:
+                acknowledged = self._store.acknowledge_cancel(
+                    task_id=lease.task_id,
+                    lease_fence=lease.lease_fence,
+                )
+            except Exception:
+                acknowledged = False
+            if acknowledged:
+                return WorkerOutcome("cancelled", task_id, "cancellation_acknowledged")
+            lease_lost.set()
         if lease_lost.is_set():
             return WorkerOutcome("lease_lost", task_id, "lease_ownership_not_confirmed")
         if cancelled.is_set():
