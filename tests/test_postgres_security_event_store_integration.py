@@ -425,6 +425,35 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             task_id=submission.task.task_id,
         ))
 
+    def test_running_task_cancellation_is_request_not_false_completion(self):
+        submission = self._create()
+        worker_id = f"worker-{uuid.uuid4().hex}"
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE public.jas_si_agent_tasks
+                      SET status='running',attempt_count=1,
+                          lease_owner=%s,lease_expires_at=clock_timestamp()+interval '2 minutes'
+                    WHERE task_id=%s""",
+                (worker_id, submission.task.task_id),
+            )
+
+        self.assertTrue(self.store.cancel(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,
+            task_id=submission.task.task_id,
+        ))
+        task = self.store.get(
+            api_key_id=self.key_a,candidate_digest=self.digest_a,
+            task_id=submission.task.task_id,
+        )
+        self.assertEqual(task.status, "cancel_requested")
+        self.assertIsNone(task.completed_at)
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT lease_owner,lease_expires_at IS NOT NULL FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                (submission.task.task_id,),
+            )
+            self.assertEqual(cursor.fetchone(), (worker_id, True))
+
     def test_invalid_or_inactive_key_is_rejected(self):
         with self.assertRaises(AgentTaskStoreError):
             self._create(candidate_digest=b"x" * 32)
