@@ -153,6 +153,24 @@ class TestIndependentVerification(unittest.TestCase):
             "UNKNOWN_OBSERVED_STATE",
         )
 
+    def test_non_string_observed_state_is_inconclusive(self) -> None:
+        # Runtime callers can bypass dataclass type hints. Unhashable values
+        # must produce a fail-closed result rather than raising TypeError.
+        for invalid_state in (None, 1, True, [], {}):
+            with self.subTest(observed_state=invalid_state):
+                result = verify_report(
+                    self.report(),
+                    self.evidence(invalid_state),  # type: ignore[arg-type]
+                )
+                self.assertEqual(
+                    result.status,
+                    VerificationStatus.INCONCLUSIVE,
+                )
+                self.assertEqual(
+                    result.reason,
+                    "INVALID_OBSERVED_STATE",
+                )
+
     def test_none_report_is_inconclusive(self) -> None:
         result = verify_report(None, None)  # type: ignore[arg-type]
 
