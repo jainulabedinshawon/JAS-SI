@@ -344,16 +344,22 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
 
     def test_invalid_repository_is_rejected(self):
-        payload = dict(self.payload)
-        payload["repository"] = "https://example.com/repo"
-
-        response = self.client.post(
-            "/v1/github/evidence",
-            headers=self.headers,
-            json=payload,
-        )
-
-        self.assertEqual(response.status_code, 422)
+        for repository in (
+            "https://example.com/repo",
+            "../private",
+            "owner/..",
+            "owner/.",
+            "bad_owner/repo",
+        ):
+            with self.subTest(repository=repository):
+                payload = dict(self.payload)
+                payload["repository"] = repository
+                response = self.client.post(
+                    "/v1/github/evidence",
+                    headers=self.headers,
+                    json=payload,
+                )
+                self.assertEqual(response.status_code, 422)
 
     def test_path_traversal_is_rejected(self):
         payload = dict(self.payload)
