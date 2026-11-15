@@ -346,9 +346,9 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
                 cursor.execute(
                     """INSERT INTO public.jas_si_api_keys
                        (key_id,tenant_id,key_name,key_prefix,secret_digest,scopes,created_by)
-                       VALUES (%s,%s,'task integration','tasktest',%s,
+                       VALUES (%s,%s,'task integration',%s,%s,
                          ARRAY['agent:tasks:read','agent:tasks:write'],'ci')""",
-                    (key_id, tenant_id, digest),
+                    (key_id, tenant_id, f"tasktest_{uuid.uuid4().hex}", digest),
                 )
 
     def _create(self, **overrides):
