@@ -587,7 +587,8 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
             "run_number": run_number,
             "run_attempt": attempt,
             "head_sha": COMMIT_SHA,
-            "path": path,
+            # Match the documented GitHub Actions Runs API response format.
+            "path": f"{path}@refs/heads/main",
             "status": status,
             "conclusion": conclusion,
         }
