@@ -732,7 +732,7 @@ class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
             if event.get("event_type") == "github_actions_evidence_verification"
         ]
         self.assertEqual(len(evidence_events), 1)
-        self.assertEqual(evidence_events[0]["outcome"], "verified_success")
+        self.assertEqual(evidence_events[0]["outcome"], "github_reported_success")
         self.assertEqual(evidence_events[0]["repository"], "owner/project")
         self.assertEqual(evidence_events[0]["commit_sha"], COMMIT_SHA)
         self.assertEqual(evidence_events[0]["required_workflow_count"], 2)
