@@ -158,7 +158,11 @@ CREATE OR REPLACE FUNCTION public.jas_si_agent_task_create(
     p_task_type text,
     p_input_payload jsonb,
     p_max_attempts integer DEFAULT 3
-) RETURNS TABLE(task_id uuid,status text,created boolean)
+) RETURNS TABLE(
+    task_id uuid,status text,created boolean,task_type text,input_payload jsonb,
+    result_payload jsonb,error_code text,attempt_count integer,max_attempts integer,
+    created_at timestamptz,updated_at timestamptz,completed_at timestamptz
+)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE
     v_tenant_id uuid;
@@ -194,7 +198,11 @@ BEGIN
     ON CONFLICT (tenant_id,idempotency_key) DO NOTHING;
 
     IF FOUND THEN
-        RETURN QUERY SELECT p_task_id,'queued'::text,true;
+        RETURN QUERY SELECT q.task_id,q.status::text,true,q.task_type::text,
+            q.input_payload,q.result_payload,q.error_code::text,q.attempt_count,
+            q.max_attempts,q.created_at,q.updated_at,q.completed_at
+          FROM public.jas_si_agent_tasks q
+         WHERE q.tenant_id=v_tenant_id AND q.task_id=p_task_id;
         RETURN;
     END IF;
 
@@ -208,7 +216,11 @@ BEGIN
         RAISE EXCEPTION 'Idempotency key was reused with a different request'
             USING ERRCODE='22023';
     END IF;
-    RETURN QUERY SELECT task_id,v_status,false;
+    RETURN QUERY SELECT q.task_id,q.status::text,false,q.task_type::text,
+        q.input_payload,q.result_payload,q.error_code::text,q.attempt_count,
+        q.max_attempts,q.created_at,q.updated_at,q.completed_at
+      FROM public.jas_si_agent_tasks q
+     WHERE q.tenant_id=v_tenant_id AND q.task_id=task_id;
 END;
 $function$;
 
