@@ -14,7 +14,6 @@ from jas_si_agent.authorization import ActionRequest, AuthorizationGate, Authori
 from jas_si_agent.agent_task_worker_store import (
     AgentTaskLease,
     AgentTaskWorkerStoreError,
-    PostgresAgentTaskWorkerStore,
 )
 
 TaskExecutor = Callable[[AgentTaskLease, Event], Mapping[str, object]]
@@ -56,8 +55,11 @@ class AgentTaskWorker:
         lease_seconds: int = 60,
         heartbeat_interval_seconds: float | None = None,
     ) -> None:
-        if not isinstance(store, PostgresAgentTaskWorkerStore):
-            raise TypeError("store must be a PostgresAgentTaskWorkerStore")
+        # Depend on the narrow store contract, not a concrete connection
+        # class, so deterministic in-memory stores can exercise the lifecycle.
+        required_store_methods = ("claim", "renew", "acknowledge_cancel", "report", "fail")
+        if any(not callable(getattr(store, name, None)) for name in required_store_methods):
+            raise TypeError("store does not implement the agent task worker store contract")
         if not isinstance(handlers, Mapping) or not handlers:
             raise ValueError("At least one explicitly registered task handler is required")
         if isinstance(lease_seconds, bool) or not isinstance(lease_seconds, int):
