@@ -50,6 +50,25 @@ class TenantGitHubInstallationTests(unittest.TestCase):
             provider.calls, [(self.tenant_id, "example/private-repo")]
         )
 
+    def test_repository_path_segments_reject_traversal_and_invalid_owners(self):
+        for repository in (
+            "../private",
+            "owner/..",
+            "owner/.",
+            "owner/../other",
+            "bad_owner/repo",
+            "owner/" + "a" * 101,
+            "owner/repo/extra",
+        ):
+            with self.subTest(repository=repository):
+                with self.assertRaises(GitHubCredentialResolutionError):
+                    resolve_tenant_github_credential(
+                        FakeProvider(None),
+                        tenant_id=self.tenant_id,
+                        repository=repository,
+                        now=self.now,
+                    )
+
     def test_cross_tenant_credential_is_rejected(self):
         with self.assertRaises(GitHubCredentialResolutionError):
             resolve_tenant_github_credential(
