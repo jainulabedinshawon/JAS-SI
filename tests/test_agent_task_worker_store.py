@@ -80,17 +80,26 @@ class AgentTaskWorkerStoreTests(unittest.TestCase):
         expires = datetime.now(timezone.utc)
         capture = []
         context, _ = self.install_fake_psycopg(
-            (task_id, "reasoning", {"prompt": "test"}, 1, 3, 7, expires),
+            (task_id, uuid.UUID("00000000-0000-0000-0000-000000000099"), "reasoning", {"prompt": "test"}, 1, 3, 7, expires),
             capture,
         )
         with context:
             lease = self.make_store().claim(lease_seconds=45)
 
         self.assertEqual(
-            lease, AgentTaskLease(task_id, "reasoning", {"prompt": "test"}, 1, 3, 7, expires)
+            lease, AgentTaskLease(task_id, uuid.UUID("00000000-0000-0000-0000-000000000099"), "reasoning", {"prompt": "test"}, 1, 3, 7, expires)
         )
         self.assertEqual(capture[0][1], (self.worker_id, 45))
+        self.assertEqual(lease.tenant_id, uuid.UUID("00000000-0000-0000-0000-000000000099"))
+        self.assertIn("tenant_id", capture[0][0])
         self.assertIn("jas_si_agent_task_claim", capture[0][0])
+
+    def test_lease_rejects_missing_or_invalid_tenant_identity(self):
+        with self.assertRaises(ValueError):
+            AgentTaskLease(
+                uuid.uuid4(), None, "reasoning", {}, 1, 2, 1,
+                datetime.now(timezone.utc),
+            )
 
     def test_claim_returns_none_for_empty_queue(self):
         capture = []
