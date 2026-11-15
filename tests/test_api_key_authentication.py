@@ -181,7 +181,7 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
         self.assertEqual(len(self.fake_meter.calls), 1)
         self.assertEqual(
             self.fake_meter.calls[0]["operation"],
-            "github.actions.evidence",
+            "github.evidence.verify",
         )
         self.assertEqual(
             self.fake_meter.calls[0]["required_scope"],
