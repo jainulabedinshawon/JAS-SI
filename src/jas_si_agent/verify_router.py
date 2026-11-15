@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from jas_si_agent.github_installations import (
     GitHubCredentialResolutionError,
+    is_valid_github_repository,
     resolve_tenant_github_credential,
 )
 
@@ -28,10 +29,6 @@ router = APIRouter(
 _GITHUB_API = "https://api.github.com"
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-_REPO_PATTERN = re.compile(
-    r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
-)
-
 _MAX_FILES = 10
 _MAX_FILE_BYTES = 1_000_000
 _MAX_ENCODED_BYTES = ((_MAX_FILE_BYTES + 2) // 3) * 4
@@ -59,7 +56,7 @@ def _client_error(status_code: int, detail: str) -> HTTPException:
     )
 
 def _validate_request(payload: GitHubEvidenceRequest) -> None:
-    if not _REPO_PATTERN.fullmatch(payload.repository):
+    if not is_valid_github_repository(payload.repository):
         raise _client_error(
             422,
             "Invalid GitHub repository format.",
