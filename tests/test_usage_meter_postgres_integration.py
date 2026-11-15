@@ -46,6 +46,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                     "20261115_api_key_auth_boundary.sql",
                     "20261116_api_key_bound_usage_routines.sql",
                     "20261117_runtime_usage_routine_only.sql",
+                    "20261125_agent_task_usage_scope.sql",
                 ):
                     path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                     cur.execute(path.read_text(encoding="utf-8"))
@@ -69,6 +70,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
             "authorization.evaluate": "authorization:check",
             "outcome.submit": "outcomes:submit",
             "github.evidence.verify": "github:evidence:verify",
+            "agent.task.submit": "agent:tasks:write",
         }
         return self.meter.record_authenticated(
             api_key_id=api_key_id,
@@ -106,7 +108,7 @@ class TestPostgresUsageMeter(unittest.TestCase):
                             secret_digest, scopes, created_by)
                            VALUES (%s,%s,'integration',%s,%s,%s,'ci')""",
                         (key_id, tenant_id, prefix, b"x" * 32,
-                         ["authorization:check", "outcomes:submit", "github:evidence:verify", "usage:read"] if key_id != self.key_c else ["authorization:check"]),
+                         ["authorization:check", "outcomes:submit", "github:evidence:verify", "usage:read", "agent:tasks:write"] if key_id != self.key_c else ["authorization:check"]),
                     )
 
     def test_api_key_usage_routine_readiness_verifies_owner_and_grants(self):
@@ -156,6 +158,25 @@ class TestPostgresUsageMeter(unittest.TestCase):
                         "TO jas_si_api_key_usage_owner"
                     )
         self.assertTrue(self.meter.verify_api_key_usage_routines())
+
+    def test_agent_task_submission_usage_requires_task_write_scope(self):
+        result = self._record(
+            tenant_id=self.tenant_a,
+            api_key_id=self.key_a,
+            request_id="task-usage-1",
+            idempotency_key="task-usage-1",
+            operation="agent.task.submit",
+        )
+        self.assertEqual(result["operation"], "agent.task.submit")
+        self.assertEqual(result["used_units"], 1)
+        with self.assertRaises(UsageMeterError):
+            self._record(
+                tenant_id=self.tenant_a,
+                api_key_id=self.key_c,
+                request_id="task-usage-denied",
+                idempotency_key="task-usage-denied",
+                operation="agent.task.submit",
+            )
 
     def test_api_key_bound_usage_routines_validate_digest_and_scope(self):
         import psycopg
