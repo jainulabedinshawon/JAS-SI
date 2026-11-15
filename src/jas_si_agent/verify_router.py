@@ -532,6 +532,15 @@ def _verify_github_actions_evidence(
         path = run.get("path")
         if not isinstance(path, str):
             raise _client_error(502, "GitHub returned a workflow run without a path.")
+        # GitHub's Actions Runs API returns paths as
+        # ".github/workflows/name.yml@refs/heads/branch", not just the
+        # repository-relative workflow filename. Compare the filename while
+        # retaining exact-commit matching through head_sha above.
+        workflow_path, separator, workflow_ref = path.rpartition("@")
+        if separator:
+            if not workflow_ref:
+                raise _client_error(502, "GitHub returned a malformed workflow path.")
+            path = workflow_path
         if path not in payload.required_workflow_paths:
             continue
         run_number = run.get("run_number")
