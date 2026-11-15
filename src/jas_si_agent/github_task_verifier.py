@@ -190,8 +190,8 @@ def verify_github_repository_task(
     ):
         return inconclusive("INVALID_WORKER_REPORT")
 
-    # The report must identify the same immutable request. Its file hashes,
-    # success flags, and evidence claims are not trusted.
+    # The report must identify the same immutable request. Its evidence is
+    # still untrusted until every material field is compared with a fresh read.
     if (
         report.result_payload.get("task_type") != task.task_type
         or report.result_payload.get("repository") != request.repository
@@ -267,6 +267,43 @@ def verify_github_repository_task(
     ).encode("utf-8")
     if hashlib.sha256(canonical).hexdigest() != evidence.content_digest:
         return inconclusive("INDEPENDENT_EVIDENCE_DIGEST_MISMATCH")
+
+    reported_evidence = report.result_payload.get("evidence_integrity")
+    if not isinstance(reported_evidence, Mapping):
+        return inconclusive("WORKER_EVIDENCE_REPORT_MISSING")
+    if (
+        reported_evidence.get("status") != "EVIDENCE_INTEGRITY_VERIFIED"
+        or reported_evidence.get("verification_scope")
+        != "github_commit_and_file_integrity"
+        or reported_evidence.get("repository") != evidence.repository
+        or reported_evidence.get("commit_sha") != evidence.commit_sha
+        or reported_evidence.get("tree_sha") != evidence.tree_sha
+        or reported_evidence.get("files_verified") != len(evidence.files)
+        or reported_evidence.get("read_only") is not True
+        or reported_evidence.get("semantic_truth_verified") is not False
+    ):
+        return inconclusive("WORKER_EVIDENCE_REPORT_MISMATCH")
+
+    reported_files = reported_evidence.get("files")
+    if not isinstance(reported_files, list) or len(reported_files) != len(evidence.files):
+        return inconclusive("WORKER_EVIDENCE_FILE_SET_MISMATCH")
+    reported_by_path = {
+        str(item.get("path")): item
+        for item in reported_files
+        if isinstance(item, Mapping)
+    }
+    if set(reported_by_path) != set(request.paths):
+        return inconclusive("WORKER_EVIDENCE_FILE_SET_MISMATCH")
+    for path in request.paths:
+        reported = reported_by_path[path]
+        observed = observed_paths[path]
+        if (
+            reported.get("integrity") != "VERIFIED"
+            or reported.get("blob_sha") != observed.get("blob_sha")
+            or reported.get("sha256") != observed.get("sha256")
+            or reported.get("size_bytes") != observed.get("size_bytes")
+        ):
+            return inconclusive("WORKER_EVIDENCE_FILE_MISMATCH")
 
     return TaskVerificationDecision(
         status=VerificationStatus.VERIFIED_SUCCESS,
