@@ -325,6 +325,8 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
                     cursor.execute(f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT')
             for name in migrations:
                 cursor.execute((migration_dir / name).read_text(encoding="utf-8"))
+            # The task-store migration must be safe to replay without losing data.
+            cursor.execute((migration_dir / "20261123_agent_task_store.sql").read_text(encoding="utf-8"))
         cls.store = PostgresAgentTaskStore(cls.dsn)
 
     def setUp(self):
