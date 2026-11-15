@@ -20,12 +20,19 @@ class AgentTaskWorkerStoreError(RuntimeError):
 @dataclass(frozen=True)
 class AgentTaskLease:
     task_id: uuid.UUID
+    tenant_id: uuid.UUID
     task_type: str
     input_payload: dict[str, Any]
     attempt_count: int
     max_attempts: int
     lease_fence: int
     lease_expires_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.task_id, uuid.UUID):
+            raise ValueError("task_id must be a UUID")
+        if not isinstance(self.tenant_id, uuid.UUID):
+            raise ValueError("tenant_id must be a UUID")
 
 
 class PostgresAgentTaskWorkerStore:
@@ -64,7 +71,7 @@ class PostgresAgentTaskWorkerStore:
 
             with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT task_id,task_type,input_payload,attempt_count,max_attempts,"
+                    "SELECT task_id,tenant_id,task_type,input_payload,attempt_count,max_attempts,"
                     "lease_fence,lease_expires_at "
                     "FROM public.jas_si_agent_task_claim(%s,%s)",
                     (self._worker_id, lease_seconds),
@@ -74,12 +81,13 @@ class PostgresAgentTaskWorkerStore:
                 return None
             return AgentTaskLease(
                 task_id=row[0],
-                task_type=row[1],
-                input_payload=row[2],
-                attempt_count=row[3],
-                max_attempts=row[4],
-                lease_fence=row[5],
-                lease_expires_at=row[6],
+                tenant_id=row[1],
+                task_type=row[2],
+                input_payload=row[3],
+                attempt_count=row[4],
+                max_attempts=row[5],
+                lease_fence=row[6],
+                lease_expires_at=row[7],
             )
         except (ImportError, ValueError):
             raise
