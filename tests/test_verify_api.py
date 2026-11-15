@@ -137,6 +137,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(data["commit_sha"], COMMIT_SHA)
         self.assertEqual(data["tree_sha"], TREE_SHA)
         self.assertEqual(data["files_verified"], 1)
+        self.assertEqual(data["access_mode"], "public_repository_only")
 
         self.assertEqual(
             data["files"][0]["integrity"],
