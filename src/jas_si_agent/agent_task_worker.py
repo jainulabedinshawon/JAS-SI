@@ -14,6 +14,7 @@ from jas_si_agent.authorization import ActionRequest, AuthorizationGate, Authori
 from jas_si_agent.agent_task_worker_store import (
     AgentTaskLease,
     AgentTaskWorkerStoreError,
+    PostgresAgentTaskWorkerStore,
 )
 
 TaskExecutor = Callable[[AgentTaskLease, Event], Mapping[str, object]]
