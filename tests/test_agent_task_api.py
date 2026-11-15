@@ -195,3 +195,67 @@ class TestAgentTaskAPI(TestCase):
         self.assertEqual(self.store.cancelled[0]["api_key_id"], __import__("uuid").UUID(
             "00000000-0000-0000-0000-000000000022"
         ))
+
+
+    def test_github_repository_read_task_accepts_only_bounded_immutable_input(self):
+        valid = {
+            "task_type": "github.read_repository",
+            "input_payload": {
+                "repository": "example/project",
+                "commit_sha": "a" * 40,
+                "paths": ["README.md", "src/main.py"],
+            },
+        }
+        response = self.client.post("/v1/agent/tasks", json=valid)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.store.created[-1]["task_type"], "github.read_repository")
+        self.assertEqual(self.store.created[-1]["input_payload"], valid["input_payload"])
+
+    def test_github_repository_read_task_rejects_malformed_or_unbounded_input(self):
+        base = {
+            "task_type": "github.read_repository",
+            "input_payload": {
+                "repository": "example/project",
+                "commit_sha": "a" * 40,
+                "paths": ["README.md"],
+            },
+        }
+        invalid_payloads = []
+
+        missing_field = dict(base["input_payload"])
+        missing_field.pop("commit_sha")
+        invalid_payloads.append(missing_field)
+
+        invalid_sha = dict(base["input_payload"], commit_sha="not-a-full-sha")
+        invalid_payloads.append(invalid_sha)
+
+        traversal = dict(base["input_payload"], paths=["../secrets.txt"])
+        invalid_payloads.append(traversal)
+
+        duplicate_paths = dict(base["input_payload"], paths=["README.md", "README.md"])
+        invalid_payloads.append(duplicate_paths)
+
+        too_many_paths = dict(
+            base["input_payload"],
+            paths=[f"file-{index}.txt" for index in range(11)],
+        )
+        invalid_payloads.append(too_many_paths)
+
+        unknown_field = dict(base["input_payload"], command="arbitrary")
+        invalid_payloads.append(unknown_field)
+
+        invalid_repository = dict(base["input_payload"], repository="example/../private")
+        invalid_payloads.append(invalid_repository)
+
+        for input_payload in invalid_payloads:
+            with self.subTest(input_payload=input_payload):
+                response = self.client.post(
+                    "/v1/agent/tasks",
+                    json=dict(base, input_payload=input_payload),
+                )
+                self.assertEqual(response.status_code, 422)
+
+        self.assertEqual(self.store.created, [])
+        self.assertFalse(
+            any(event.get("event_type") == "agent_task_submitted" for event in self.events.events)
+        )
