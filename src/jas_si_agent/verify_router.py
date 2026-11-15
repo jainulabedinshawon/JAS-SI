@@ -517,6 +517,7 @@ def _verify_github_actions_evidence(
             "workflow_runs_collected": len(runs),
             "semantic_truth_verified": False,
             "action_execution_verified": False,
+            "workflow_definition_trust": "NOT_ESTABLISHED",
         }
 
     latest_by_path: dict[str, dict[str, Any]] = {}
@@ -561,24 +562,24 @@ def _verify_github_actions_evidence(
             }
 
     collected = []
-    overall = "VERIFIED_SUCCESS"
+    overall = "GITHUB_REPORTED_SUCCESS"
     for path in payload.required_workflow_paths:
         run = latest_by_path.get(path)
         if run is None:
-            overall = "INCONCLUSIVE" if overall != "VERIFIED_FAILURE" else overall
+            overall = "INCONCLUSIVE" if overall != "GITHUB_REPORTED_FAILURE" else overall
             collected.append({"path": path, "status": "MISSING", "conclusion": None})
             continue
         collected.append(run)
         if run["status"] != "completed":
-            if overall != "VERIFIED_FAILURE":
+            if overall != "GITHUB_REPORTED_FAILURE":
                 overall = "INCONCLUSIVE"
         elif run["conclusion"] == "success":
             pass
         elif run["conclusion"] in {
             "failure", "cancelled", "timed_out", "action_required", "startup_failure"
         }:
-            overall = "VERIFIED_FAILURE"
-        elif overall != "VERIFIED_FAILURE":
+            overall = "GITHUB_REPORTED_FAILURE"
+        elif overall != "GITHUB_REPORTED_FAILURE":
             overall = "INCONCLUSIVE"
 
     return {
@@ -592,6 +593,7 @@ def _verify_github_actions_evidence(
         "workflow_results": collected,
         "semantic_truth_verified": False,
         "action_execution_verified": False,
+        "workflow_definition_trust": "NOT_ESTABLISHED",
         "read_only": True,
     }
 
