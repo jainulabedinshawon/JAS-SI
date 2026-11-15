@@ -203,22 +203,29 @@ class AgentTaskWorker:
                     elif simulation.proceed is not True:
                         failure_code = "SIMULATION_REJECTED"
                 if failure_code is None:
-                    result = handler.execute(lease, cancelled)
-                    if not isinstance(result, Mapping):
-                        failure_code = "INVALID_HANDLER_RESULT"
+                    # The lease heartbeat may reject ownership while a grant
+                    # resolver or simulation is running. Re-check immediately
+                    # before invoking the executor so a cancelled/stale task
+                    # cannot begin a consequential side effect.
+                    if lease_lost.is_set() or cancelled.is_set():
                         result = None
-                    elif simulation is not None:
-                        if "jas_si_pre_action_simulation" in result:
-                            failure_code = "RESERVED_RESULT_FIELD_COLLISION"
+                    else:
+                        result = handler.execute(lease, cancelled)
+                        if not isinstance(result, Mapping):
+                            failure_code = "INVALID_HANDLER_RESULT"
                             result = None
-                        else:
-                            result = {
-                                **dict(result),
-                                "jas_si_pre_action_simulation": {
-                                    "proceed": simulation.proceed,
-                                    "summary": simulation.summary,
-                                },
-                            }
+                        elif simulation is not None:
+                            if "jas_si_pre_action_simulation" in result:
+                                failure_code = "RESERVED_RESULT_FIELD_COLLISION"
+                                result = None
+                            else:
+                                result = {
+                                    **dict(result),
+                                    "jas_si_pre_action_simulation": {
+                                        "proceed": simulation.proceed,
+                                        "summary": simulation.summary,
+                                    },
+                                }
         except Exception:
             failure_code = "HANDLER_EXECUTION_ERROR"
         finally:
