@@ -309,7 +309,7 @@ BEGIN
              OR pg_catalog.has_table_privilege(r.rolname,'public.jas_si_agent_tasks','DELETE')
              OR pg_catalog.has_any_column_privilege(r.rolname,'public.jas_si_agent_tasks','SELECT')
              OR pg_catalog.has_any_column_privilege(r.rolname,'public.jas_si_agent_tasks','INSERT')
-             OR pg_catalog.has_any_column_privilege(r.rolname,'public.jas_si_agent_tasks','UPDATE')) THEN
+             OR pg_catalog.has_any_column_privilege(r.rolname,'public.jas_si_agent_tasks','UPDATE'))) THEN
         RAISE EXCEPTION 'Application role retains direct agent task table access';
     END IF;
 END
