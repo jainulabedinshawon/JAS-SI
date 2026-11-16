@@ -84,9 +84,10 @@ jobs:
               "20261117_runtime_usage_routine_only.sql",
               "20261118_shared_api_rate_limits.sql",
           )
-          # ACL hardening migrations are appended when present, preserving
-          # canonical dependency order for clean replay and repeat application.
-          for optional_acl_migration in (
+          # These security and agent migrations are required for this branch's
+          # complete schema chain. Missing files must fail replay rather than
+          # silently reducing the migration set being tested.
+          required_acl_migrations = (
               "20261119_general_runtime_customer_identity_acl.sql",
               "20261120_api_key_auth_runtime_tenant_acl.sql",
               "20261121_security_audit_writer_boundary.sql",
@@ -100,9 +101,17 @@ jobs:
               "20261128_agent_task_verifier_claims.sql",
               "20261129_agent_runtime_default_acl_boundary.sql",
               "20261130_customer_tenant_active_guard_reassert.sql",
-          ):
-              if migration_dir.joinpath(optional_acl_migration).is_file():
-                  migrations = migrations + (optional_acl_migration,)
+          )
+          missing_acl_migrations = [
+              name for name in required_acl_migrations
+              if not migration_dir.joinpath(name).is_file()
+          ]
+          if missing_acl_migrations:
+              raise SystemExit(
+                  "Missing required security/agent migrations: "
+                  + ", ".join(missing_acl_migrations)
+              )
+          migrations = migrations + required_acl_migrations
 
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
           with psycopg.connect(dsn) as conn, conn.cursor() as cur:
@@ -127,8 +136,7 @@ jobs:
               cur.execute(
                   "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
                   "GRANT SELECT, USAGE, UPDATE ON SEQUENCES TO jas_si_agent_worker_login"
-              )
-              cur.execute(
+              )              cur.execute(
                   "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
                   "GRANT SELECT ON TABLES TO jas_si_agent_verifier_login"
               )
