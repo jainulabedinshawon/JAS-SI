@@ -67,67 +67,67 @@ jobs:
                       with conn.cursor() as cur:
                           cur.execute("SET TRANSACTION READ ONLY")
                           cur.execute("SET LOCAL statement_timeout = '10s'")
-                      cur.execute("""
-                          SELECT current_user, current_database(),
-                                 current_setting('server_version_num'),
-                                 pg_catalog.pg_has_role(session_user, %s, 'MEMBER'),
-                                 pg_catalog.pg_has_role(session_user, %s, 'MEMBER')
-                      """, (capability, forbidden_capability))
-                      login, database, version, is_member, is_forbidden = cur.fetchone()
-
-                      if login != expected_login:
-                          raise SystemExit(
-                              f"FAIL: {env_name} authenticated as an unexpected login role"
-                          )
-                      if not is_member or is_forbidden:
-                          raise SystemExit(
-                              f"FAIL: {expected_login} capability membership is incorrect"
-                          )
-
-                      cur.execute("""
-                          SELECT rolsuper, rolcreatedb, rolcreaterole,
-                                 rolreplication, rolbypassrls
-                            FROM pg_catalog.pg_roles
-                           WHERE rolname = current_user
-                      """)
-                      attrs = cur.fetchone()
-                      if attrs is None or any(attrs):
-                          raise SystemExit(
-                              f"FAIL: {expected_login} has an elevated PostgreSQL role attribute"
-                          )
-
-                      for routine in routines:
-                          signature = "public." + routine
-                          cur.execute(
-                              "SELECT pg_catalog.to_regprocedure(%s) IS NOT NULL, "
-                              "pg_catalog.has_function_privilege(session_user, %s, 'EXECUTE')",
-                              (signature, signature),
-                          )
-                          exists, can_execute = cur.fetchone()
-                          if not exists or not can_execute:
+                          cur.execute("""
+                              SELECT current_user, current_database(),
+                                     current_setting('server_version_num'),
+                                     pg_catalog.pg_has_role(session_user, %s, 'MEMBER'),
+                                     pg_catalog.pg_has_role(session_user, %s, 'MEMBER')
+                          """, (capability, forbidden_capability))
+                          login, database, version, is_member, is_forbidden = cur.fetchone()
+    
+                          if login != expected_login:
                               raise SystemExit(
-                                  f"FAIL: required routine grant missing for {expected_login}"
+                                  f"FAIL: {env_name} authenticated as an unexpected login role"
                               )
-
-                      for table, privileges in table_privileges.items():
-                          cur.execute(
-                              "SELECT pg_catalog.to_regclass(%s) IS NOT NULL",
-                              ("public." + table,),
-                          )
-                          if not cur.fetchone()[0]:
+                          if not is_member or is_forbidden:
                               raise SystemExit(
-                                  f"FAIL: required Staging table missing for {expected_login}"
+                                  f"FAIL: {expected_login} capability membership is incorrect"
                               )
-                          for privilege in privileges:
+    
+                          cur.execute("""
+                              SELECT rolsuper, rolcreatedb, rolcreaterole,
+                                     rolreplication, rolbypassrls
+                                FROM pg_catalog.pg_roles
+                               WHERE rolname = current_user
+                          """)
+                          attrs = cur.fetchone()
+                          if attrs is None or any(attrs):
+                              raise SystemExit(
+                                  f"FAIL: {expected_login} has an elevated PostgreSQL role attribute"
+                              )
+    
+                          for routine in routines:
+                              signature = "public." + routine
                               cur.execute(
-                                  "SELECT pg_catalog.has_table_privilege(session_user, %s, %s)",
-                                  ("public." + table, privilege),
+                                  "SELECT pg_catalog.to_regprocedure(%s) IS NOT NULL, "
+                                  "pg_catalog.has_function_privilege(session_user, %s, 'EXECUTE')",
+                                  (signature, signature),
                               )
-                              if cur.fetchone()[0]:
+                              exists, can_execute = cur.fetchone()
+                              if not exists or not can_execute:
                                   raise SystemExit(
-                                      f"FAIL: unexpected direct table privilege for {expected_login}"
+                                      f"FAIL: required routine grant missing for {expected_login}"
                                   )
-
+    
+                          for table, privileges in table_privileges.items():
+                              cur.execute(
+                                  "SELECT pg_catalog.to_regclass(%s) IS NOT NULL",
+                                  ("public." + table,),
+                              )
+                              if not cur.fetchone()[0]:
+                                  raise SystemExit(
+                                      f"FAIL: required Staging table missing for {expected_login}"
+                                  )
+                              for privilege in privileges:
+                                  cur.execute(
+                                      "SELECT pg_catalog.has_table_privilege(session_user, %s, %s)",
+                                      ("public." + table, privilege),
+                                  )
+                                  if cur.fetchone()[0]:
+                                      raise SystemExit(
+                                          f"FAIL: unexpected direct table privilege for {expected_login}"
+                                      )
+    
               print(
                   f"PASS: {expected_login}; database={database}; PostgreSQL={version}; "
                   f"{len(routines)} routine grants; direct table access denied."
