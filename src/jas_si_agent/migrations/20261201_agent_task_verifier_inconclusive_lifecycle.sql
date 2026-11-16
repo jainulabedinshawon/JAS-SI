@@ -179,10 +179,44 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.jas_si_agent_task_review_metadata(
+    p_api_key_id uuid,
+    p_candidate_digest bytea,
+    p_task_id uuid
+) RETURNS TABLE(
+    review_required boolean,
+    verification_status text,
+    verification_reason_code text
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
+DECLARE v_tenant_id uuid;
+BEGIN
+    IF p_api_key_id IS NULL OR p_candidate_digest IS NULL
+       OR pg_catalog.octet_length(p_candidate_digest)<>32 OR p_task_id IS NULL THEN
+        RAISE EXCEPTION 'Invalid task review metadata request' USING ERRCODE='22023';
+    END IF;
+    SELECT auth.auth_tenant_id INTO v_tenant_id
+      FROM public.jas_si_api_key_authenticate(p_api_key_id,p_candidate_digest) auth
+     WHERE 'agent:tasks:read'=ANY(auth.auth_scopes);
+    IF v_tenant_id IS NULL THEN
+        RAISE EXCEPTION 'Agent task API key is not authorized' USING ERRCODE='42501';
+    END IF;
+
+    RETURN QUERY
+    SELECT q.status='human_review_required',
+           CASE WHEN q.status='human_review_required' THEN q.verifier_last_status END,
+           CASE WHEN q.status='human_review_required' THEN q.verifier_last_reason END
+      FROM public.jas_si_agent_tasks q
+     WHERE q.task_id=p_task_id AND q.tenant_id=v_tenant_id;
+END;
+$function$;
+
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_verification_claim(integer,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.jas_si_agent_task_review_metadata(uuid,bytea,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_verification_claim(integer,integer) TO jas_si_agent_verifier;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text) TO jas_si_agent_verifier;
+GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_review_metadata(uuid,bytea,uuid) TO jas_si_runtime;
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
@@ -192,7 +226,8 @@ DECLARE v_proc oid; v_owner text;
 BEGIN
     FOREACH v_proc IN ARRAY ARRAY[
         'public.jas_si_agent_task_verification_claim(integer,integer)'::regprocedure::oid,
-        'public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text)'::regprocedure::oid
+        'public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text)'::regprocedure::oid,
+        'public.jas_si_agent_task_review_metadata(uuid,bytea,uuid)'::regprocedure::oid
     ] LOOP
         SELECT pg_catalog.pg_get_userbyid(p.proowner) INTO v_owner
           FROM pg_catalog.pg_proc p WHERE p.oid=v_proc;
