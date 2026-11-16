@@ -3,7 +3,7 @@
 -- it is never converted into success or failure without independent evidence.
 
 ALTER TABLE public.jas_si_agent_tasks
-    ADD COLUMN IF NOT EXISTS verifier_next_attempt_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+    ADD COLUMN IF NOT EXISTS verifier_next_attempt_at timestamptz DEFAULT pg_catalog.clock_timestamp(),
     ADD COLUMN IF NOT EXISTS verifier_last_status varchar(32),
     ADD COLUMN IF NOT EXISTS verifier_last_reason varchar(64);
 
