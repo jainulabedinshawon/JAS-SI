@@ -136,7 +136,8 @@ jobs:
               cur.execute(
                   "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
                   "GRANT SELECT, USAGE, UPDATE ON SEQUENCES TO jas_si_agent_worker_login"
-              )              cur.execute(
+              )
+              cur.execute(
                   "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
                   "GRANT SELECT ON TABLES TO jas_si_agent_verifier_login"
               )
