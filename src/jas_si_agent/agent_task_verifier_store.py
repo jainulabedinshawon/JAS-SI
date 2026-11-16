@@ -222,9 +222,9 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("Persisted task is required")
         if not isinstance(task.task_id, uuid.UUID) or not isinstance(task.tenant_id, uuid.UUID):
             raise ValueError("Persisted task and tenant IDs must be UUIDs")
+        payload, digest, collected_at = self._evidence_payload(task, decision)
         if not isinstance(task.verifier_claim_token, uuid.UUID):
             raise ValueError("Current verifier claim token is required")
-        payload, digest, collected_at = self._evidence_payload(task, decision)
         evidence_id = uuid.uuid4()
         try:
             import psycopg
