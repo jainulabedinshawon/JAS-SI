@@ -48,4 +48,8 @@ jobs:
             tests/test_agent_task_store.py \
             tests/test_agent_task_verifier.py \
             tests/test_agent_task_verifier_store.py \
-            tests/test_agent_task_verifier_supervisor.py
+            tests/test_agent_task_verifier_supervisor.py \\
+            tests/test_agent_task_worker.py \\
+            tests/test_agent_task_worker_runtime.py \\
+            tests/test_agent_task_worker_store.py \\
+            tests/test_agent_task_worker_supervisor.py
