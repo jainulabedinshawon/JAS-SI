@@ -19,6 +19,10 @@ A read-only Production Vercel environment metadata check found no `JAS_SI_CUSTOM
 
 No secrets were decrypted. No customer registration request, email, or test account was created during these checks.
 
+### Current Preview configuration snapshot (2026-11-15)
+
+Read-only Vercel metadata now shows the dedicated customer identity DSN, customer API-key DSN, and customer session pepper scoped to Preview only. No customer SMTP host/sender/credential variables are configured. These partial Preview settings do not establish that email verification or login works. Production still has none of the dedicated customer identity/key variables. Do not enable customer signup or invite customers until SMTP, role boundaries, the complete journey, and independent staging checks pass.
+
 ## What is merged into main
 
 - Customer registration, email verification, magic-link login, and secure session cookies.

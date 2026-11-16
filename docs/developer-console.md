@@ -10,7 +10,7 @@ The root route serves a static, responsive developer landing page. The page read
 - Usage values are technical units, not money, invoices, paid credit or payment status. Billing remains disconnected until a reviewed payment and entitlement implementation is enabled.
 - Quickstart examples use the currently implemented `X-API-Key` header and `/v1/authorize` schema.
 - The API evaluates authorization and verifies outcomes; it does not execute actions.
-- No production environment, database, secret, deployment, or existing API route is modified by this feature branch.
+- This document describes the developer-console feature boundary; it is not a deployment attestation. Use the current customer onboarding activation checklist and live evidence before claiming that a production route or customer workflow is ready.
 
 ## Developer quickstart
 

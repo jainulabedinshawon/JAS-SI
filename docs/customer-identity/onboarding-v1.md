@@ -1,6 +1,6 @@
 # Standalone customer identity and onboarding v1
 
-**Status:** Implementation branch; not merged or deployed. PostgreSQL 16 branch CI verifies the customer identity and session-bound API-key routines. Staging/production migrations, deployment secrets, SMTP and live customer journey remain separate approval/configuration gates.
+**Status (2026-11-15):** Customer identity, session, usage-read, and API-key self-service code is merged into `main` and included in the Vercel application. Customer activation is **not ready**: Production has no dedicated customer identity/key DSNs, customer session pepper, or SMTP configuration. Preview has dedicated customer DSNs and a session pepper, but SMTP is not configured. Code presence and deployment readiness do not prove a working customer journey.
 
 ## Customer journey implemented in this phase
 
@@ -49,20 +49,31 @@ GRANT jas_si_customer_key_runtime TO jas_si_customer_key_login;
 
 Configure each DSN to assume its NOLOGIN group role on connection (for example, PostgreSQL connection option `options=-c role=jas_si_customer_runtime` or `options=-c role=jas_si_customer_key_runtime`, correctly URL-encoded). Verify from the application connection that `current_user` is exactly the expected group role, and that it is neither SUPERUSER nor BYPASSRLS. The login principal must not be a member of `jas_si_provisioner`, `jas_si_runtime`, an owner role, or any other privileged role. Do not share either login credential between services.
 
-Apply the migrations in this exact order used by the PostgreSQL 16 integration fixture:
+Apply the current `main` migrations in the canonical dependency order used by `.github/workflows/migration-chain-replay.yml`:
 
 1. Core migrations `001`–`006`, in numeric order.
-2. `007_customer_api_key_self_service.sql` after the tenant, API-key, audit-chain and provisioning tables exist.
-3. `20261110_customer_identity.sql` (creates the identity tables and the NOLOGIN runtime group roles).
-4. `20261112_customer_identity_routines.sql` (requires the base identity migration and 007; creates the identity routine owner and session-bound identity routines).
-5. `20261113_customer_api_key_routines.sql` (requires 007 and 20261112; installs the separate session-bound API-key routines).
-6. `20261110_customer_rate_limits.sql` (requires the identity runtime role from step 3).
-7. `20261110_usage_metering.sql` (requires tenant and API-key tables).
-8. `20261110_usage_idempotency_fingerprint.sql` (requires the usage-events table from step 7).
-9. `20261111_usage_append_only_role_grants.sql` (requires the usage-events table from step 7).
-10. `20261114_customer_usage_read_routines.sql` (requires the identity owner/routines from step 4 and usage-events table from step 7).
+2. `007_customer_api_key_self_service.sql`.
+3. `20261110_customer_identity.sql`.
+4. `20261112_customer_identity_routines.sql`.
+5. `20261113_customer_api_key_routines.sql`.
+6. `20261110_customer_rate_limits.sql`.
+7. `20261110_usage_metering.sql`.
+8. `20261110_usage_idempotency_fingerprint.sql`.
+9. `20261111_usage_append_only_role_grants.sql`.
+10. `20261114_customer_usage_read_routines.sql`.
+11. `20261115_api_key_auth_boundary.sql`.
+12. `20261116_api_key_bound_usage_routines.sql`.
+13. `20261117_runtime_usage_routine_only.sql`.
+14. `20261118_shared_api_rate_limits.sql`.
+15. `20261119_general_runtime_customer_identity_acl.sql` (optional ACL migration when present).
+16. `20261120_api_key_auth_runtime_tenant_acl.sql` (optional ACL migration when present).
 
-The numbered order above is the order exercised by the branch's PostgreSQL 16 integration fixture; it is not proof that any external database has these migrations. Before applying to an environment, inspect its actual schema, extensions, role attributes/memberships, ownership, grants and RLS policies. `IF NOT EXISTS` clauses make some DDL repeatable but do not prove that a pre-existing object has the expected definition. Use a migration/admin role for all DDL; never run migrations from an HTTP request or application startup.
+Pending, unmerged hardening migrations must be treated separately:
+- PR #71 adds `20261115z_api_key_auth_tenant_lock_reassert.sql` for the staging tenant-suspension serialization boundary.
+- PR #72 adds `20261121_security_audit_writer_boundary.sql`.
+- PR #73 is stacked on PR #72 and adds `20261122_customer_rate_limit_owner_boundary.sql`.
+
+These pending migrations are not yet in `main`. Draft PR #75 updates the migration-chain replay workflow to include the #71–#73 migrations as optional entries and replay them twice in dependency order whenever the files are present. Because the PR #75 branch itself does not contain the pending migration files, that updated workflow still needs to be merged/rebased onto the migration branch and run there before clean replay-twice coverage is accepted. Do not apply these pending migrations to Production or describe them as deployed.
 
 **Rollback and recovery:** this migration set has no paired, tested down-migration sequence. Do not improvise `DROP TABLE`, role deletion or blanket privilege restoration as rollback. If a staging migration fails, keep customer endpoints disabled, preserve the database state and logs, and have the database owner prepare a reviewed corrective migration or restore plan from the pre-migration backup/snapshot. Validate that recovery plan on a disposable database before any production change.
 
@@ -85,8 +96,8 @@ Do not run these commands against Production until the user explicitly approves 
 - `POST /v1/customer/api-keys`: issue a scoped API key; token is returned once and expires within 1–365 days.
 - `POST /v1/customer/api-keys/{key_id}/revoke`: revoke only a key belonging to the signed-in tenant; CSRF header required.
 
-Registration and login email-triggering endpoints use a shared PostgreSQL-backed abuse limiter. It stores an HMAC-SHA256 digest of the client IP (not the raw address), coordinates requests across serverless instances, and fails closed when its database table or connection is unavailable. On Vercel, it trusts the platform-preserved `x-vercel-forwarded-for` header first and the Vercel-edge-overwritten `x-forwarded-for` header second; malformed preferred values and missing trusted proxy headers in Preview/Production fail closed. The shared limiter migration must be applied before these endpoints are enabled. Other `/v1/` routes continue to use the API's general rate limiter. The rate-limit table retains one row per observed IP digest; retention cleanup is operator-managed because the application role has no DELETE privilege.
+Registration and login email-triggering endpoints use a shared PostgreSQL-backed abuse limiter. It stores an HMAC-SHA256 digest of the client IP (not the raw address), coordinates requests across serverless instances, and fails closed when its database table or connection is unavailable. On Vercel, it trusts the platform-preserved `x-vercel-forwarded-for` header first and the Vercel-edge-overwritten `x-forwarded-for` header second; malformed preferred values and missing trusted proxy headers in Preview/Production fail closed. The shared limiter migration must be applied before these endpoints are enabled. Other `/v1/` routes continue to use the API's general rate limiter. The dedicated customer identity runtime role has no DELETE privilege on the customer rate-limit table; expired-bucket cleanup remains operator-managed until the pending database-owned retention migration in PR #73 is reviewed, merged, and independently verified.
 
 ## Explicitly not included yet
 
-The API-key self-service endpoints, PostgreSQL RLS migration, customer usage endpoint and portal controls are implemented on this branch, but remain unmerged and not deployed. Billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Customer API-key self-service remains disabled until the dedicated database role, migration and pepper are configured and reviewed. Customer registration/login also remain unavailable until the dedicated identity role, identity + shared rate-limit migrations, token pepper and SMTP delivery are configured and verified.
+Customer identity/session routes, customer API-key self-service, customer usage endpoints and portal controls are merged into `main` and included in the Vercel application. They are not customer-activated: Preview has the dedicated customer identity/key DSNs and session pepper, but SMTP is not configured; Production lacks the dedicated customer identity/key DSNs, session pepper and SMTP configuration. Customer API-key self-service also remains configuration-gated on the dedicated customer key runtime role, migration state and pepper. Billing plan changes, checkout, manual TrxID intake/reconciliation, payment gateway, invoices, and JAS Platform linking are not implemented by this phase. Paid plans remain non-purchasable.
