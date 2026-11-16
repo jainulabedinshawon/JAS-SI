@@ -68,6 +68,8 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261114_customer_usage_read_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
                 "20261119_general_runtime_customer_identity_acl.sql",
+                "20261121_security_audit_writer_boundary.sql",
+                "20261122_customer_rate_limit_owner_boundary.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
@@ -249,13 +251,42 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         self.assertEqual(len(key), 32)
         self.assertNotIn(ip.encode("ascii"), key)
         self.assertTrue(limiter.check(ip, limit=5, window_seconds=60)[0])
-        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT bucket_key FROM jas_si_customer_rate_limits WHERE bucket_key=%s",
                 (key,),
             )
             row = cur.fetchone()
         self.assertIsNotNone(row)
+
+    def test_rate_limit_cleanup_removes_old_buckets_in_bounded_batches(self):
+        limiter = PostgresCustomerRateLimiter(
+            self.dsn, b"customer-rate-limit-test-pepper-32-bytes-minimum"
+        )
+        stale_key = uuid.uuid4().bytes + uuid.uuid4().bytes
+        active_ip = "198.51.100.24"
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO public.jas_si_customer_rate_limits
+                       (bucket_key,window_started_at,request_count,updated_at)
+                   VALUES (%s,NOW()-INTERVAL '15 days',1,NOW()-INTERVAL '15 days')""",
+                (stale_key,),
+            )
+        self.assertTrue(limiter.check(active_ip, limit=5, window_seconds=60)[0])
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM public.jas_si_customer_rate_limits WHERE bucket_key=%s",
+                (stale_key,),
+            )
+            self.assertIsNone(cur.fetchone())
+
+    def test_customer_rate_limit_runtime_cannot_access_table_directly(self):
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+                cur.execute("SELECT * FROM public.jas_si_customer_rate_limits LIMIT 1")
+        with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+            with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM public.jas_si_customer_rate_limits WHERE false")
 
     def test_identity_routines_are_database_owned_and_ready(self):
         self.assertTrue(self.store.verify_security_boundary())
@@ -387,10 +418,16 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'SELECT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'INSERT'),
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'UPDATE'),
-                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'DELETE')"""
+                     has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'DELETE'),
+                     has_function_privilege('jas_si_customer_runtime',
+                         'public.jas_si_customer_rate_limit_check(bytea,integer,integer)', 'EXECUTE')"""
             )
             privileges = cur.fetchone()
-        self.assertEqual(privileges, (False, False, False, False, False, False, False, False, False, True, True, True, False))
+        self.assertEqual(
+            privileges,
+            (False, False, False, False, False, False, False, False, False,
+             False, False, False, False, True),
+        )
 
     def test_customer_usage_reads_are_session_bound_and_not_directly_selectable(self):
         from datetime import datetime, timezone
@@ -912,11 +949,12 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
 
 
 
-    def test_general_runtime_and_provisioner_have_no_effective_identity_table_privileges(self):
+    def test_general_runtime_and_provisioner_have_no_effective_customer_table_privileges(self):
         protected = (
             "jas_si_customer_accounts",
             "jas_si_customer_auth_tokens",
             "jas_si_customer_sessions",
+            "jas_si_customer_rate_limits",
         )
         table_privileges = (
             "SELECT", "INSERT", "UPDATE", "DELETE",

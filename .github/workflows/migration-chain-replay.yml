@@ -80,15 +80,26 @@ jobs:
               "20261111_usage_append_only_role_grants.sql",
               "20261114_customer_usage_read_routines.sql",
               "20261115_api_key_auth_boundary.sql",
+          )
+          # This reassertion depends on the auth boundary and must run before
+          # later usage routines when the migration is present on a PR branch.
+          optional_tenant_lock_migration = "20261115z_api_key_auth_tenant_lock_reassert.sql"
+          if migration_dir.joinpath(optional_tenant_lock_migration).is_file():
+              migrations = migrations + (optional_tenant_lock_migration,)
+
+          migrations = migrations + (
               "20261116_api_key_bound_usage_routines.sql",
               "20261117_runtime_usage_routine_only.sql",
               "20261118_shared_api_rate_limits.sql",
           )
-          # ACL hardening migrations are appended when present, preserving
-          # canonical dependency order for clean replay and repeat application.
+          # Later ACL and database-owned write-boundary migrations are optional
+          # until their corresponding PRs land, but must be replayed twice when
+          # present. This keeps clean-replay CI aligned with the actual branch.
           for optional_acl_migration in (
               "20261119_general_runtime_customer_identity_acl.sql",
               "20261120_api_key_auth_runtime_tenant_acl.sql",
+              "20261121_security_audit_writer_boundary.sql",
+              "20261122_customer_rate_limit_owner_boundary.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
@@ -143,6 +154,29 @@ jobs:
               """)
               if cur.fetchone()[0]:
                   raise SystemExit("jas_si_runtime regained direct tenant-table/column access")
+
+              cur.execute("""
+                  SELECT EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                      CROSS JOIN (VALUES
+                        ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                        ('TRUNCATE'),('REFERENCES'),('TRIGGER')
+                      ) privileges(privilege)
+                     WHERE pg_catalog.has_table_privilege(
+                       role_name,'public.jas_si_customer_rate_limits',privilege)
+                  ) OR EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                      CROSS JOIN (VALUES
+                        ('SELECT'),('INSERT'),('UPDATE'),('REFERENCES')
+                      ) privileges(privilege)
+                     WHERE pg_catalog.has_any_column_privilege(
+                       role_name,'public.jas_si_customer_rate_limits',privilege)
+                  )
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("General runtime/provisioner regained direct customer rate-limit table/column access")
 
               cur.execute("""
                   SELECT count(*),

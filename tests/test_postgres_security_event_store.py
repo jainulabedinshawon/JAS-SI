@@ -19,7 +19,6 @@ from jas_si_agent.postgres_security_event_store import (
 from jas_si_agent.security_event_store import (
     MAX_EVENT_BYTES,
     SecurityEventStoreError,
-    _event_hash,
 )
 
 
@@ -28,6 +27,7 @@ class FakeCursor:
         self.last_hash = last_hash
         self.calls = []
         self.next_fetchone = None
+        self.raise_on_execute = None
 
     def __enter__(self):
         return self
@@ -37,6 +37,8 @@ class FakeCursor:
 
     def execute(self, query, params=None):
         self.calls.append((query, params))
+        if self.raise_on_execute is not None:
+            raise self.raise_on_execute
 
         if "SELECT %s::jsonb" in query:
             self.next_fetchone = (params[0].obj,)
@@ -98,7 +100,7 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             PostgresSecurityEventStore(" ")
 
-    def test_append_persists_event_and_updates_checkpoint(self):
+    def test_append_delegates_to_database_owned_writer(self):
         event = {
             "event_type": "authorization_evaluated",
             "allowed": True,
@@ -107,54 +109,21 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
         with patch.dict(sys.modules, self.modules):
             self.store.append(event)
 
-        self.assertEqual(len(self.cursor.calls), 5)
+        self.assertEqual(len(self.cursor.calls), 1)
+        query, params = self.cursor.calls[0]
+        self.assertIn("public.jas_si_audit_append_event", query)
+        self.assertEqual(params[0].obj, event)
 
-        insert_call = self.cursor.calls[3]
-        update_call = self.cursor.calls[4]
-
-        self.assertIn(
-            "INSERT INTO jas_si_audit_events",
-            insert_call[0],
-        )
-        self.assertIn(
-            "UPDATE jas_si_audit_chain_state",
-            update_call[0],
-        )
-
-        expected_hash = _event_hash(event, GENESIS_HASH)
-
-        self.assertEqual(
-            insert_call[1][1],
-            GENESIS_HASH,
-        )
-        self.assertEqual(
-            insert_call[1][2],
-            expected_hash,
-        )
-        self.assertEqual(
-            update_call[1][0],
-            expected_hash,
-        )
-
-    def test_append_uses_existing_checkpoint(self):
-        previous_hash = "a" * 64
-        self.cursor.last_hash = previous_hash
-
-        event = {"event_type": "second_event"}
-
+    def test_append_in_transaction_uses_same_database_writer(self):
+        event = {"event_type": "same_transaction"}
         with patch.dict(sys.modules, self.modules):
-            self.store.append(event)
-
-        insert_call = self.cursor.calls[3]
-
-        self.assertEqual(
-            insert_call[1][1],
-            previous_hash,
-        )
-        self.assertEqual(
-            insert_call[1][2],
-            _event_hash(event, previous_hash),
-        )
+            PostgresSecurityEventStore.append_in_transaction(
+                self.connection,
+                event,
+            )
+        self.assertEqual(len(self.cursor.calls), 1)
+        self.assertIn("public.jas_si_audit_append_event", self.cursor.calls[0][0])
+        self.assertEqual(self.cursor.calls[0][1][0].obj, event)
 
     def test_rejects_non_mapping_event(self):
         with self.assertRaises(SecurityEventStoreError):
@@ -178,16 +147,14 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
                 "data": "x" * MAX_EVENT_BYTES
             })
 
-    def test_rejects_missing_checkpoint(self):
-        self.cursor.fetchone = lambda: None
-
+    def test_database_writer_rejects_invalid_checkpoint(self):
+        self.cursor.raise_on_execute = RuntimeError("invalid audit checkpoint")
         with patch.dict(sys.modules, self.modules):
             with self.assertRaises(SecurityEventStoreError):
                 self.store.append({"event_type": "test"})
 
-    def test_rejects_invalid_checkpoint(self):
-        self.cursor.last_hash = "INVALID"
-
+    def test_database_writer_rejects_missing_checkpoint(self):
+        self.cursor.raise_on_execute = RuntimeError("audit checkpoint unavailable")
         with patch.dict(sys.modules, self.modules):
             with self.assertRaises(SecurityEventStoreError):
                 self.store.append({"event_type": "test"})

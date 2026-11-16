@@ -45,6 +45,11 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             "20261110_usage_metering.sql",
             "20261110_usage_idempotency_fingerprint.sql",
             "007_customer_api_key_self_service.sql",
+            "20261110_customer_identity.sql",
+            "20261112_customer_identity_routines.sql",
+            "20261113_customer_api_key_routines.sql",
+            "20261115_api_key_auth_boundary.sql",
+            "20261121_security_audit_writer_boundary.sql",
         )
         with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
             for role in roles:
@@ -77,10 +82,8 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             raise AssertionError("Customer API-key DSN did not assume the dedicated RLS role")
         if PostgresApiKeyRegistry(DATABASE_URL, cls.pepper).verify_customer_runtime_role():
             raise AssertionError("Administrative test DSN unexpectedly passed the customer role guard")
-        if cls.registry.verify_customer_audit_isolation():
-            raise AssertionError(
-                "Expected the current migration's direct audit grants to be detected until the hardened migration replaces them"
-            )
+        if not cls.registry.verify_customer_audit_isolation():
+            raise AssertionError("Customer API-key runtime must not have direct audit-table privileges")
 
     @classmethod
     def tearDownClass(cls):
@@ -127,64 +130,33 @@ class TestCustomerApiKeyRls(unittest.TestCase):
             [str(issued.key_id)],
         )
 
-    def test_customer_key_lifecycle_fails_closed_while_audit_grants_are_unsafe(self):
-        """Customer lifecycle stays unavailable until DB-owned audit routines replace direct grants."""
-        from jas_si_agent.api_key_registry import ApiKeyError
+    def test_customer_key_lifecycle_readiness_uses_database_owned_routines(self):
+        """Customer key lifecycle is exposed through session-bound SECURITY DEFINER routines."""
+        self.assertTrue(self.registry.verify_customer_audit_isolation())
+        self.assertTrue(self.registry.verify_customer_key_table_isolation())
+        self.assertTrue(self.registry.verify_customer_key_routines())
 
-        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
-            self.registry.issue_key_with_audit(
-                tenant_id=self.tenant_a,
-                key_name="customer-owned-key",
-                scopes=["authorization:check"],
-                created_by=f"customer:{uuid.uuid4()}",
-                provisioning_run_id=f"customer-api:{uuid.uuid4()}",
-                expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-                tenant_scope=self.tenant_a,
-            )
-
-        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
-            self.registry.list_tenant_keys(
-                self.tenant_a, tenant_scope=self.tenant_a
-            )
-
-        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
-            self.registry.revoke_key_with_audit(
-                uuid.uuid4(),
-                revoked_by=f"customer:{uuid.uuid4()}",
-                revocation_run_id=f"customer-revoke:{uuid.uuid4()}",
-                tenant_scope=self.tenant_a,
-            )
-
-    def test_known_guc_spoofing_exposure_is_reproducible_until_secure_routines_land(self):
-        """Document the current RLS trust-boundary flaw; this is not a security pass.
-
-        The customer role can set its own custom GUC. This test intentionally
-        proves that the current direct-table design then exposes Tenant B rows.
-        Replace this test with a denial assertion when session-derived,
-        database-owned key routines are implemented.
-        """
+    def test_custom_guc_cannot_bypass_customer_table_boundary(self):
+        """A caller-controlled tenant GUC cannot grant direct API-key table access."""
         with psycopg.connect(self.customer_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT set_config('jas_si.tenant_id', %s, true)",
                 (str(self.tenant_b),),
             )
-            cur.execute(
-                "SELECT key_id FROM jas_si_api_keys WHERE tenant_id = %s",
-                (self.tenant_b,),
-            )
-            visible_ids = {str(row[0]) for row in cur.fetchall()}
-        self.assertTrue(
-            visible_ids,
-            "Expected the current mutable-GUC design to expose the foreign tenant fixture",
-        )
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                cur.execute(
+                    "SELECT key_id FROM jas_si_api_keys WHERE tenant_id = %s",
+                    (self.tenant_b,),
+                )
 
-    def test_customer_role_cannot_issue_or_revoke_for_another_tenant(self):
+    def test_legacy_direct_lifecycle_path_is_denied_to_customer_runtime(self):
+        """Customer runtime cannot use legacy tenant-ID/direct-table operator methods."""
         from jas_si_agent.api_key_registry import ApiKeyError
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(ApiKeyError):
             self.registry.issue_key_with_audit(
-                tenant_id=self.tenant_b,
-                key_name="cross-tenant",
+                tenant_id=self.tenant_a,
+                key_name="legacy-direct-path",
                 scopes=["authorization:check"],
                 created_by="customer",
                 provisioning_run_id=f"customer-api:{uuid.uuid4()}",
@@ -195,7 +167,7 @@ class TestCustomerApiKeyRls(unittest.TestCase):
         foreign = admin_registry.issue_key(
             self.tenant_b, "foreign-owned", ["authorization:check"], "operator"
         )
-        with self.assertRaisesRegex(ApiKeyError, "audit isolation is not configured"):
+        with self.assertRaises(ApiKeyError):
             self.registry.revoke_key_with_audit(
                 foreign.key_id,
                 revoked_by="customer",
