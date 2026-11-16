@@ -59,13 +59,14 @@ jobs:
               if not dsn:
                   raise SystemExit(f"FAIL: required repository secret {env_name} is empty")
 
-              # Enforce read-only transactions at the PostgreSQL session level.
-              with psycopg.connect(
-                  dsn,
-                  connect_timeout=10,
-                  options="-c default_transaction_read_only=on -c statement_timeout=10000",
-              ) as conn:
-                  with conn.cursor() as cur:
+              # Neon poolers reject statement_timeout in startup options.
+              # Start a transaction first, then enforce read-only + timeout with
+              # transaction-local settings before running any inspection query.
+              with psycopg.connect(dsn, connect_timeout=10) as conn:
+                  with conn.transaction():
+                      with conn.cursor() as cur:
+                          cur.execute("SET TRANSACTION READ ONLY")
+                          cur.execute("SET LOCAL statement_timeout = '10s'")
                       cur.execute("""
                           SELECT current_user, current_database(),
                                  current_setting('server_version_num'),
