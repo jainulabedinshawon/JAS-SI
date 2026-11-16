@@ -68,20 +68,22 @@ class AgentTaskVerifier:
         inconclusive = 0
         lost_race = 0
         for task, report in pending:
-            completed = False
-            try:
-                decision = verify_github_repository_task(task, report, collector=self._collector)
-                if decision.status is not VerificationStatus.VERIFIED_SUCCESS:
-                    inconclusive += 1
-                    continue
-                if self._store.finalize_success(task=task, decision=decision):
-                    finalized += 1
-                    completed = True
-                else:
-                    lost_race += 1
-            finally:
-                if not completed:
-                    self._store.release_claim(task=task)
+            decision = verify_github_repository_task(task, report, collector=self._collector)
+            if decision.status is not VerificationStatus.VERIFIED_SUCCESS:
+                # Keep the claim until its bounded lease expires. Releasing an
+                # inconclusive claim immediately would make a permanently
+                # inaccessible/private repository get retried every poll cycle.
+                # Lease expiry provides bounded retry backoff without a schema
+                # mutation; a later verifier can reclaim the task safely.
+                inconclusive += 1
+                continue
+            if self._store.finalize_success(task=task, decision=decision):
+                finalized += 1
+            else:
+                # A lost finalization race is safe to release: the database
+                # routine already proved this token no longer owns the task.
+                lost_race += 1
+                self._store.release_claim(task=task)
         return VerifierBatchResult(
             scanned=len(pending), finalized=finalized, inconclusive=inconclusive,
             lost_finalization_race=lost_race,
