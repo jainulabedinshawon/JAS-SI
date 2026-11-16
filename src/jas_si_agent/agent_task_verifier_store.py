@@ -39,6 +39,8 @@ class PostgresAgentTaskVerifierStore:
     ) -> tuple[dict[str, Any], bytes, datetime]:
         if not isinstance(task, PersistedTask):
             raise ValueError("Persisted task is required")
+        if task.task_type != "github.read_repository" or not isinstance(task.input_payload, dict):
+            raise ValueError("Only a persisted GitHub repository-read task can be finalized")
         if not isinstance(decision, TaskVerificationDecision):
             raise ValueError("Trusted verification decision is required")
         if decision.task_id != task.task_id:
@@ -117,6 +119,8 @@ class PostgresAgentTaskVerifierStore:
         decision: TaskVerificationDecision,
     ) -> bool:
         """Atomically persist the evidence and finalize only its bound task."""
+        if not isinstance(task, PersistedTask):
+            raise ValueError("Persisted task is required")
         if not isinstance(task.task_id, uuid.UUID) or not isinstance(task.tenant_id, uuid.UUID):
             raise ValueError("Persisted task and tenant IDs must be UUIDs")
         payload, digest, collected_at = self._evidence_payload(task, decision)
