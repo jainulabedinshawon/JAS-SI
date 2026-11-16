@@ -581,6 +581,9 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
     def _verifier_call(self, sql, params):
         with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
             cursor.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+            # The verifier test login is NOINHERIT by design; explicitly assume
+            # the granted capability role while preserving session_user identity.
+            cursor.execute("SET ROLE jas_si_agent_verifier")
             cursor.execute(sql, params)
             return cursor.fetchall()
 
