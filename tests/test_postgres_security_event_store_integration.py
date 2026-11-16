@@ -619,6 +619,26 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)", (task_id, self.tenant_a, token),
         ), [(False,)])
 
+    def test_concurrent_verifier_claims_assign_one_task_to_only_one_verifier(self):
+        task_id = self._awaiting_github_task()
+        barrier = threading.Barrier(2)
+
+        def claim():
+            barrier.wait(timeout=10)
+            return self._verifier_call(
+                "SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)",
+                (),
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(claim) for _ in range(2)]
+            results = [future.result(timeout=30) for future in futures]
+
+        claimed_rows = [row for result in results for row in result]
+        self.assertEqual(len(claimed_rows), 1)
+        self.assertEqual(claimed_rows[0][0], task_id)
+        self.assertIsInstance(claimed_rows[0][-1], uuid.UUID)
+
     def test_expired_verifier_claim_is_reclaimed_with_new_fence(self):
         task_id = self._awaiting_github_task()
         first = self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ())[0]
