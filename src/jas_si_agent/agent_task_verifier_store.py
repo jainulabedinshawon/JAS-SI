@@ -16,6 +16,7 @@ from typing import Any
 from jas_si_agent.github_task_verifier import (
     PersistedTask,
     TaskVerificationDecision,
+    WorkerTaskReport,
 )
 from jas_si_agent.verification import VerificationStatus
 
@@ -31,6 +32,59 @@ class PostgresAgentTaskVerifierStore:
         if not isinstance(dsn, str) or not dsn.strip():
             raise ValueError("Dedicated verifier PostgreSQL DSN is required")
         self._dsn = dsn.strip()
+
+    def list_awaiting_verification(
+        self, *, limit: int = 10
+    ) -> list[tuple[PersistedTask, WorkerTaskReport]]:
+        """Load a bounded batch of persisted task reports for independent verification."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("verification batch limit must be between 1 and 20")
+        try:
+            import psycopg
+
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT task_id,tenant_id,task_type,input_payload,result_payload,reported_at "
+                    "FROM public.jas_si_agent_task_verification_list(%s)",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+            items: list[tuple[PersistedTask, WorkerTaskReport]] = []
+            for row in rows:
+                task_id, tenant_id, task_type, input_payload, result_payload, _reported_at = row
+                if (
+                    not isinstance(task_id, uuid.UUID)
+                    or not isinstance(tenant_id, uuid.UUID)
+                    or task_type != "github.read_repository"
+                    or not isinstance(input_payload, dict)
+                    or not isinstance(result_payload, dict)
+                ):
+                    raise AgentTaskVerifierStoreError(
+                        "Verifier queue returned an invalid persisted task"
+                    )
+                task = PersistedTask(
+                    task_id=task_id,
+                    tenant_id=tenant_id,
+                    task_type=task_type,
+                    input_payload=input_payload,
+                )
+                # Only tasks in awaiting_verification are returned by the
+                # database-owned routine, so a persisted result means the
+                # worker completed its handler. Its evidence claims remain
+                # untrusted and are cross-checked by the independent collector.
+                report = WorkerTaskReport(
+                    task_id=task_id,
+                    claimed_success=True,
+                    result_payload=result_payload,
+                )
+                items.append((task, report))
+            return items
+        except (ImportError, ValueError, AgentTaskVerifierStoreError):
+            raise
+        except Exception as exc:
+            raise AgentTaskVerifierStoreError(
+                "Unable to load pending agent task verification records"
+            ) from exc
 
     @staticmethod
     def _evidence_payload(
