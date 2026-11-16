@@ -79,6 +79,8 @@ BEGIN
            verifier_claimed_at=NULL,
            verifier_lease_expires_at=NULL,
            verifier_next_attempt_at=NULL,
+           verifier_last_status='INCONCLUSIVE',
+           verifier_last_reason='VERIFIER_LEASE_EXPIRED_AFTER_RETRY_LIMIT',
            error_code='VERIFICATION_RETRY_EXHAUSTED',
            updated_at=v_now
      WHERE q.status='awaiting_verification'
