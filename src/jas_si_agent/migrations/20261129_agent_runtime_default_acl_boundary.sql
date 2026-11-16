@@ -26,7 +26,7 @@ BEGIN
              || 'REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES '
              || 'FROM jas_si_agent_worker_login';
         EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public '
-             || 'REVOKE SELECT, INSERT, UPDATE, DELETE ON SEQUENCES '
+             || 'REVOKE SELECT, USAGE, UPDATE ON SEQUENCES '
              || 'FROM jas_si_agent_worker_login';
     END IF;
 
