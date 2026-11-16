@@ -1,6 +1,8 @@
 name: JAS-SI Staging Agent DSN Preflight
 
 on:
+  workflow_dispatch:
+
   push:
     branches:
       - ops/staging-dsn-preflight
