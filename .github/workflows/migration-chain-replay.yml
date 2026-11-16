@@ -100,6 +100,7 @@ jobs:
               "20261128_agent_task_verifier_claims.sql",
               "20261129_agent_runtime_default_acl_boundary.sql",
               "20261130_customer_tenant_active_guard_reassert.sql",
+              "20261130_customer_tenant_active_guard_reassert.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
