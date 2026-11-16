@@ -99,21 +99,43 @@ jobs:
               "20261127_agent_task_evidence_finalization.sql",
               "20261128_agent_task_verifier_claims.sql",
               "20261129_agent_runtime_default_acl_boundary.sql",
+              "20261130_customer_tenant_active_guard_reassert.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
 
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
           with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-              # These three core service roles are platform bootstrap inputs,
-              # not customer migrations. Create them explicitly on the empty DB.
-              for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
+              for role in (
+                  "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
+                  "neondb_owner", "jas_si_agent_worker_login",
+                  "jas_si_agent_verifier_login",
+              ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
                       cur.execute(
                           f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
+
+              # Seed the known-bad future-object grants so the ACL boundary
+              # migration proves it removes them on every clean replay.
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO jas_si_agent_worker_login"
+              )
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT, USAGE, UPDATE ON SEQUENCES TO jas_si_agent_worker_login"
+              )
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT ON TABLES TO jas_si_agent_verifier_login"
+              )
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT ON SEQUENCES TO jas_si_agent_verifier_login"
+              )
 
               for replay in (1, 2):
                   for name in migrations:
