@@ -172,7 +172,7 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
         self.assertEqual(report.task_id, task_id)
         self.assertEqual(report.result_payload["repository"], "owner/project")
         self.assertIn("jas_si_agent_task_verification_claim", capture[0][0])
-        self.assertEqual(capture[0][1], (5,))
+        self.assertEqual(capture[0][1], (5, 120))
 
     def test_verification_list_rejects_invalid_limit_before_database(self):
         for limit in (0, 21, True, 1.5):
