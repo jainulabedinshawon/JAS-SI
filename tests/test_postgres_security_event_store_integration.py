@@ -625,8 +625,10 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
         old_token = first[-1]
         with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE public.jas_si_agent_tasks SET verifier_lease_expires_at="
-                "clock_timestamp()-interval '1 second' WHERE task_id=%s", (task_id,),
+                "UPDATE public.jas_si_agent_tasks SET "
+                "verifier_claimed_at=clock_timestamp()-interval '2 seconds', "
+                "verifier_lease_expires_at=clock_timestamp()-interval '1 second' "
+                "WHERE task_id=%s", (task_id,),
             )
         second = self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ())
         self.assertEqual(len(second), 1)
