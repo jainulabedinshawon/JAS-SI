@@ -82,7 +82,7 @@ class AgentTaskVerifierTests(unittest.TestCase):
 
     def test_inconclusive_result_remains_pending(self):
         store = Mock()
-        store.list_awaiting_verification.return_value = [make_item()]
+        store.claim_awaiting_verification.return_value = [make_item()]
 
         with patch(
             "jas_si_agent.agent_task_verifier.verify_github_repository_task",
@@ -98,7 +98,7 @@ class AgentTaskVerifierTests(unittest.TestCase):
 
     def test_stale_task_finalization_is_counted_as_lost_race(self):
         store = Mock()
-        store.list_awaiting_verification.return_value = [make_item()]
+        store.claim_awaiting_verification.return_value = [make_item()]
         store.finalize_success.return_value = False
 
         with patch(
@@ -113,7 +113,7 @@ class AgentTaskVerifierTests(unittest.TestCase):
 
     def test_empty_queue_is_a_noop(self):
         store = Mock()
-        store.list_awaiting_verification.return_value = []
+        store.claim_awaiting_verification.return_value = []
 
         result = self.make_verifier(store).run_once()
 

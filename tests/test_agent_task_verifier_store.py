@@ -29,6 +29,7 @@ def make_task():
         task_id=TASK,
         tenant_id=TENANT,
         task_type="github.read_repository",
+        verifier_claim_token=uuid.UUID("00000000-0000-0000-0000-000000000043"),
         input_payload={
             "repository": "owner/project",
             "commit_sha": SHA,
@@ -201,12 +202,12 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
             task.verifier_claim_token,
             "trusted-github-collector-v1",
         ))
-        self.assertEqual(len(params[4]), 32)
-        self.assertIsInstance(params[5], Jsonb)
-        self.assertEqual(params[5].obj["task_id"], str(TASK))
-        self.assertEqual(params[5].obj["tenant_id"], str(TENANT))
+        self.assertEqual(len(params[5]), 32)
+        self.assertIsInstance(params[6], Jsonb)
+        self.assertEqual(params[6].obj["task_id"], str(TASK))
+        self.assertEqual(params[6].obj["tenant_id"], str(TENANT))
         self.assertEqual(
-            params[5].obj["evidence_digest"],
+            params[6].obj["evidence_digest"],
             decision.evidence.content_digest,
         )
 
