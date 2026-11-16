@@ -22,7 +22,7 @@ BEGIN
          )
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_auth_members m
-         WHERE m.member=v_role
+         WHERE m.member=v_role OR m.roleid=v_role
     ) THEN
         RAISE EXCEPTION 'Unsafe JAS-SI verifier capability role';
     END IF;
@@ -67,6 +67,22 @@ CREATE TABLE IF NOT EXISTS public.jas_si_agent_evidence_records (
 
 CREATE INDEX IF NOT EXISTS jas_si_agent_evidence_tenant_created_idx
     ON public.jas_si_agent_evidence_records(tenant_id,created_at DESC,evidence_id);
+
+DO $block$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint
+         WHERE conname='jas_si_agent_task_verifier_evidence_fk'
+           AND conrelid='public.jas_si_agent_tasks'::regclass
+    ) THEN
+        ALTER TABLE public.jas_si_agent_tasks
+            ADD CONSTRAINT jas_si_agent_task_verifier_evidence_fk
+            FOREIGN KEY (verifier_evidence_id)
+            REFERENCES public.jas_si_agent_evidence_records(evidence_id)
+            ON UPDATE RESTRICT ON DELETE RESTRICT;
+    END IF;
+END
+$block$;
 
 REVOKE ALL PRIVILEGES ON TABLE public.jas_si_agent_evidence_records
     FROM PUBLIC,jas_si_runtime,jas_si_provisioner,jas_si_agent_worker,jas_si_agent_verifier;
