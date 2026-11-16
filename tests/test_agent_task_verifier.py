@@ -91,10 +91,26 @@ class AgentTaskVerifierTests(unittest.TestCase):
             result = self.make_verifier(store).run_once()
 
         store.finalize_success.assert_not_called()
-        store.release_claim.assert_called_once()
+        # Keep the claim until its 120-second lease expires so the supervisor
+        # cannot hot-loop on permanently inconclusive evidence.
+        store.release_claim.assert_not_called()
         self.assertEqual(result.scanned, 1)
         self.assertEqual(result.finalized, 0)
         self.assertEqual(result.inconclusive, 1)
+
+    def test_verification_exception_keeps_claim_until_lease_expiry(self):
+        store = Mock()
+        store.claim_awaiting_verification.return_value = [make_item()]
+
+        with patch(
+            "jas_si_agent.agent_task_verifier.verify_github_repository_task",
+            side_effect=RuntimeError("collector unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "collector unavailable"):
+                self.make_verifier(store).run_once()
+
+        store.finalize_success.assert_not_called()
+        store.release_claim.assert_not_called()
 
     def test_stale_task_finalization_is_counted_as_lost_race(self):
         store = Mock()
