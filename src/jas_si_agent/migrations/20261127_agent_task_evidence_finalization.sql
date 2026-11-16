@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS public.jas_si_agent_evidence_records (
         CHECK (jsonb_typeof(evidence_payload)='object'
                AND octet_length(evidence_payload::text)<=65536),
     CONSTRAINT jas_si_agent_evidence_task_digest_unique
-        UNIQUE (task_id,evidence_digest)
+        UNIQUE (task_id,evidence_digest),
+    CONSTRAINT jas_si_agent_evidence_binding_unique
+        UNIQUE (evidence_id,task_id,tenant_id)
 );
 
 CREATE INDEX IF NOT EXISTS jas_si_agent_evidence_tenant_created_idx
@@ -77,8 +79,8 @@ BEGIN
     ) THEN
         ALTER TABLE public.jas_si_agent_tasks
             ADD CONSTRAINT jas_si_agent_task_verifier_evidence_fk
-            FOREIGN KEY (verifier_evidence_id)
-            REFERENCES public.jas_si_agent_evidence_records(evidence_id)
+            FOREIGN KEY (verifier_evidence_id,task_id,tenant_id)
+            REFERENCES public.jas_si_agent_evidence_records(evidence_id,task_id,tenant_id)
             ON UPDATE RESTRICT ON DELETE RESTRICT;
     END IF;
 END
