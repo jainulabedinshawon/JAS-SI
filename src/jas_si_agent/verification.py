@@ -91,6 +91,9 @@ def verify_report(
     if not evidence.evidence_ref.strip():
         return inconclusive("EVIDENCE_REFERENCE_MISSING")
 
+    if not isinstance(evidence.observed_state, str):
+        return inconclusive("INVALID_OBSERVED_STATE")
+
     if evidence.observed_state not in {"success", "failure"}:
         return inconclusive("UNKNOWN_OBSERVED_STATE")
 
