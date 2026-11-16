@@ -53,18 +53,61 @@ class PostgresAgentTaskVerifierStore:
         if (
             not isinstance(evidence.collector_id, str)
             or not evidence.collector_id.strip()
+            or len(evidence.collector_id) > 128
             or not isinstance(evidence.collected_at, datetime)
             or evidence.collected_at.tzinfo is None
             or evidence.collected_at.utcoffset() is None
             or evidence.collected_at > datetime.now(timezone.utc)
+            or not isinstance(evidence.repository, str)
             or evidence.repository.casefold()
             != str(task.input_payload.get("repository", "")).casefold()
+            or not isinstance(evidence.commit_sha, str)
             or evidence.commit_sha != task.input_payload.get("commit_sha")
+            or not isinstance(evidence.tree_sha, str)
+            or len(evidence.tree_sha) != 40
+            or any(char not in "0123456789abcdef" for char in evidence.tree_sha)
             or not isinstance(evidence.content_digest, str)
             or len(evidence.content_digest) != 64
             or any(char not in "0123456789abcdef" for char in evidence.content_digest)
+            or not isinstance(evidence.files, tuple)
         ):
             raise ValueError("Independent evidence is not bound to the persisted task")
+        requested_paths = task.input_payload.get("paths")
+        if (
+            not isinstance(requested_paths, list)
+            or not requested_paths
+            or len(evidence.files) != len(requested_paths)
+            or len({item.get("path") for item in evidence.files if isinstance(item, dict)})
+            != len(evidence.files)
+        ):
+            raise ValueError("Independent evidence file set is invalid")
+        observed_paths = set()
+        for item in evidence.files:
+            if not isinstance(item, dict):
+                raise ValueError("Independent evidence file record is invalid")
+            path = item.get("path")
+            blob_sha = item.get("blob_sha")
+            sha256 = item.get("sha256")
+            size_bytes = item.get("size_bytes")
+            if (
+                not isinstance(path, str)
+                or not path
+                or path not in requested_paths
+                or item.get("integrity") != "VERIFIED"
+                or not isinstance(blob_sha, str)
+                or len(blob_sha) != 40
+                or any(char not in "0123456789abcdef" for char in blob_sha)
+                or not isinstance(sha256, str)
+                or len(sha256) != 64
+                or any(char not in "0123456789abcdef" for char in sha256)
+                or isinstance(size_bytes, bool)
+                or not isinstance(size_bytes, int)
+                or size_bytes < 0
+            ):
+                raise ValueError("Independent evidence file integrity is invalid")
+            observed_paths.add(path)
+        if observed_paths != set(requested_paths):
+            raise ValueError("Independent evidence does not cover the requested files")
         try:
             digest = bytes.fromhex(evidence.content_digest)
         except ValueError as exc:
