@@ -105,6 +105,33 @@ CREATE POLICY jas_si_agent_evidence_owner_all
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
+CREATE OR REPLACE FUNCTION public.jas_si_agent_task_verification_list(
+    p_limit integer DEFAULT 10
+) RETURNS TABLE(
+    task_id uuid,tenant_id uuid,task_type text,input_payload jsonb,
+    result_payload jsonb,reported_at timestamptz
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
+BEGIN
+    IF NOT pg_catalog.pg_has_role(session_user,'jas_si_agent_verifier','MEMBER') THEN
+        RAISE EXCEPTION 'Verifier identity is not authorized' USING ERRCODE='42501';
+    END IF;
+    IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 20 THEN
+        RAISE EXCEPTION 'Invalid verification batch limit' USING ERRCODE='22023';
+    END IF;
+    RETURN QUERY
+    SELECT q.task_id,q.tenant_id,q.task_type::text,q.input_payload,
+           q.result_payload,q.reported_at
+      FROM public.jas_si_agent_tasks q
+     WHERE q.status='awaiting_verification'
+       AND q.task_type='github.read_repository'
+       AND q.result_payload IS NOT NULL
+       AND q.reported_at IS NOT NULL
+     ORDER BY q.reported_at,q.task_id
+     LIMIT p_limit;
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.jas_si_agent_task_finalize_success(
     p_evidence_id uuid,
     p_task_id uuid,
@@ -175,6 +202,8 @@ $function$;
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_finalize_success(
     uuid,uuid,uuid,text,bytea,jsonb,timestamptz
 ) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_verification_list(integer)
+    TO jas_si_agent_verifier;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_finalize_success(
     uuid,uuid,uuid,text,bytea,jsonb,timestamptz
 ) TO jas_si_agent_verifier;
@@ -185,6 +214,22 @@ REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 DO $block$
 DECLARE v_proc oid; v_owner text;
 BEGIN
+    v_proc := 'public.jas_si_agent_task_verification_list(integer)'::regprocedure;
+    SELECT pg_catalog.pg_get_userbyid(p.proowner) INTO v_owner
+      FROM pg_catalog.pg_proc p WHERE p.oid=v_proc;
+    IF v_owner<>'jas_si_agent_task_owner'
+       OR NOT (SELECT p.prosecdef FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
+       OR NOT (SELECT COALESCE(p.proconfig,ARRAY[]::text[])
+                  @> ARRAY['search_path=pg_catalog']::text[]
+                 FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
+       OR EXISTS (
+           SELECT 1 FROM pg_catalog.aclexplode(
+               COALESCE((SELECT p.proacl FROM pg_catalog.pg_proc p WHERE p.oid=v_proc),
+                        pg_catalog.acldefault('f',(SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)))
+           ) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+       ) THEN
+        RAISE EXCEPTION 'Verifier queue routine security boundary invalid';
+    END IF;
     v_proc := 'public.jas_si_agent_task_finalize_success(uuid,uuid,uuid,text,bytea,jsonb,timestamptz)'::regprocedure;
     SELECT pg_catalog.pg_get_userbyid(p.proowner) INTO v_owner
       FROM pg_catalog.pg_proc p WHERE p.oid=v_proc;
