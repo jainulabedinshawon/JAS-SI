@@ -203,6 +203,9 @@ BEGIN
     IF v_tenant_id IS NULL THEN
         RAISE EXCEPTION 'Agent task API key is not authorized' USING ERRCODE='42501';
     END IF;
+    IF NOT pg_catalog.pg_has_role(session_user,'jas_si_runtime','MEMBER') THEN
+        RAISE EXCEPTION 'Agent task runtime identity is not authorized' USING ERRCODE='42501';
+    END IF;
 
     RETURN QUERY
     SELECT q.status='human_review_required',
@@ -218,7 +221,7 @@ REVOKE ALL ON FUNCTION public.jas_si_agent_task_verification_record_inconclusive
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_review_metadata(uuid,bytea,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_verification_claim(integer,integer) TO jas_si_agent_verifier;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text) TO jas_si_agent_verifier;
-GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_review_metadata(uuid,bytea,uuid) TO jas_si_runtime;
+GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_review_metadata(uuid,bytea,uuid) TO jas_si_agent_task_owner;
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
