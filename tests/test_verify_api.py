@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import tempfile
 import unittest
 
@@ -35,8 +36,14 @@ class FakeGitHubResponse:
         self.status_code = status_code
         self._payload = payload
 
-    def json(self):
-        return self._payload
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def iter_bytes(self):
+        yield json.dumps(self._payload).encode("utf-8")
 
 class TestGitHubEvidenceAPI(unittest.TestCase):
 
@@ -117,7 +124,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             json=self.payload,
         )
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_valid_github_evidence(self, mock_get):
         mock_get.side_effect = [
             self.commit_response(),
@@ -163,7 +170,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
                 call.kwargs["follow_redirects"]
             )
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_base64_content_with_newlines_is_verified(self, mock_get):
         encoded = base64.b64encode(FILE_CONTENT).decode("ascii")
         wrapped = encoded[:8] + "\n" + encoded[8:]
@@ -223,7 +230,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_blob_tampering_is_rejected(self, mock_get):
         mock_get.side_effect = [
             self.commit_response(),
@@ -238,7 +245,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("integrity", response.text.lower())
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_missing_github_commit_returns_404(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             404,
@@ -249,7 +256,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_github_rate_limit_fails_closed(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             403,
@@ -299,7 +306,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_malformed_base64_is_rejected(self, mock_get):
         invalid_response = FakeGitHubResponse(
             200,
@@ -321,7 +328,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertIn("Base64", response.text)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_oversized_payload_is_rejected_before_base64_decode(
         self,
         mock_get,
@@ -359,7 +366,20 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
         mock_decode.assert_not_called()
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_oversized_github_response_is_rejected_while_streaming(self, mock_get):
+        class OversizedResponse(FakeGitHubResponse):
+            def iter_bytes(self):
+                yield b" " * (verify_router._MAX_GITHUB_RESPONSE_BYTES + 1)
+
+        mock_get.return_value = OversizedResponse(200, {})
+
+        response = self.perform_verification(mock_get)
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("response exceeds", response.text.lower())
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_github_timeout_returns_504(self, mock_get):
         mock_get.side_effect = httpx.TimeoutException(
             "simulated timeout"
@@ -370,7 +390,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 504)
         self.assertNotIn("simulated timeout", response.text)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_github_connection_error_returns_502(self, mock_get):
         mock_get.side_effect = httpx.ConnectError(
             "simulated connection failure"
@@ -384,7 +404,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
             response.text,
         )
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_unexpected_github_status_returns_502(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             500,
@@ -395,7 +415,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_unexpected_commit_sha_is_rejected(self, mock_get):
         bad_commit = FakeGitHubResponse(
             200,
@@ -415,13 +435,19 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_invalid_github_json_is_rejected(self, mock_get):
         class InvalidJsonResponse:
             status_code = 200
 
-            def json(self):
-                raise ValueError("invalid JSON")
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def iter_bytes(self):
+                yield b"{invalid json"
 
         mock_get.return_value = InvalidJsonResponse()
 
@@ -429,7 +455,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_non_file_github_resource_is_rejected(self, mock_get):
         directory_response = FakeGitHubResponse(
             200,
@@ -448,7 +474,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_unsupported_github_encoding_is_rejected(self, mock_get):
         unsupported_response = FakeGitHubResponse(
             200,
@@ -469,7 +495,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_successful_evidence_verification_is_persisted(self, mock_get):
         mock_get.side_effect = [
             self.commit_response(),
@@ -496,7 +522,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertNotIn("content", event)
         self.assertNotIn("token", str(event).lower())
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_rejected_evidence_verification_is_persisted(self, mock_get):
         mock_get.return_value = FakeGitHubResponse(
             404,
@@ -517,7 +543,7 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
         self.assertEqual(evidence_events[0]["outcome"], "rejected")
         self.assertEqual(evidence_events[0]["status_code"], 404)
 
-    @patch("jas_si_agent.verify_router.httpx.get")
+    @patch("jas_si_agent.verify_router.httpx.stream")
     def test_evidence_result_fails_closed_when_audit_persistence_fails(
         self, mock_get
     ):
@@ -534,6 +560,255 @@ class TestGitHubEvidenceAPI(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertIn("securely audited", response.text.lower())
+
+
+class TestGitHubActionsEvidenceAPI(TestGitHubEvidenceAPI):
+
+    def actions_payload(self):
+        return {
+            "repository": "owner/project",
+            "commit_sha": COMMIT_SHA,
+            "required_workflow_paths": [
+                ".github/workflows/tests.yml",
+                ".github/workflows/security.yml",
+            ],
+        }
+
+    def perform_actions_verification(self, mock_stream, payload=None):
+        return self.client.post(
+            "/v1/github/actions/evidence",
+            headers=self.headers,
+            json=payload or self.actions_payload(),
+        )
+
+    def workflow_run(self, run_id, path, *, status="completed", conclusion="success", run_number=1, attempt=1):
+        return {
+            "id": run_id,
+            "run_number": run_number,
+            "run_attempt": attempt,
+            "head_sha": COMMIT_SHA,
+            # Match the documented GitHub Actions Runs API response format.
+            "path": f"{path}@refs/heads/main",
+            "status": status,
+            "conclusion": conclusion,
+        }
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_all_required_workflows_are_collected_from_github(self, mock_stream):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 2,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(102, ".github/workflows/security.yml"),
+                ],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "GITHUB_REPORTED_SUCCESS")
+        self.assertEqual(data["evidence_origin"], "github_api")
+        self.assertEqual(data["required_workflows"], 2)
+        self.assertFalse(data["semantic_truth_verified"])
+        self.assertFalse(data["action_execution_verified"])
+        self.assertEqual(data["workflow_definition_trust"], "NOT_ESTABLISHED")
+        self.assertEqual(
+            {item["conclusion"] for item in data["workflow_results"]},
+            {"success"},
+        )
+        self.assertEqual(mock_stream.call_count, 1)
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_failed_workflow_is_reported_as_verified_failure(self, mock_stream):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 2,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(
+                        102,
+                        ".github/workflows/security.yml",
+                        conclusion="failure",
+                    ),
+                ],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "GITHUB_REPORTED_FAILURE")
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_missing_required_workflow_is_inconclusive(self, mock_stream):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 1,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                ],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "INCONCLUSIVE")
+        self.assertEqual(data["workflow_results"][1]["status"], "MISSING")
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_workflow_result_truncation_is_inconclusive(self, mock_stream):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 101,
+                "workflow_runs": [],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "INCONCLUSIVE")
+        self.assertEqual(
+            response.json()["reason"],
+            "WORKFLOW_RESULT_SET_TRUNCATED",
+        )
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_wrong_commit_workflow_is_never_counted(self, mock_stream):
+        run = self.workflow_run(101, ".github/workflows/tests.yml")
+        run["head_sha"] = "c" * 40
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 1,
+                "workflow_runs": [run],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "INCONCLUSIVE")
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_invalid_workflow_path_is_rejected(self, mock_stream):
+        payload = self.actions_payload()
+        payload["required_workflow_paths"] = ["../secrets.yml"]
+
+        response = self.perform_actions_verification(mock_stream, payload)
+
+        self.assertEqual(response.status_code, 422)
+        mock_stream.assert_not_called()
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_successful_actions_evidence_is_persisted(self, mock_stream):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 2,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(102, ".github/workflows/security.yml"),
+                ],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        events = JsonlSecurityEventStore(
+            Path(self.temp_dir.name) / "security-events.jsonl"
+        ).load_events()
+        evidence_events = [
+            event for event in events
+            if event.get("event_type") == "github_actions_evidence_verification"
+        ]
+        self.assertEqual(len(evidence_events), 1)
+        self.assertEqual(evidence_events[0]["outcome"], "github_reported_success")
+        self.assertEqual(evidence_events[0]["repository"], "owner/project")
+        self.assertEqual(evidence_events[0]["commit_sha"], COMMIT_SHA)
+        self.assertEqual(evidence_events[0]["required_workflow_count"], 2)
+        self.assertNotIn("token", str(evidence_events[0]).lower())
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_actions_evidence_fails_closed_when_audit_persistence_fails(
+        self, mock_stream
+    ):
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 2,
+                "workflow_runs": [
+                    self.workflow_run(101, ".github/workflows/tests.yml"),
+                    self.workflow_run(102, ".github/workflows/security.yml"),
+                ],
+            },
+        )
+
+        with patch.object(
+            self.client.app.state.security_event_store,
+            "append",
+            side_effect=OSError("simulated audit store failure"),
+        ):
+            response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("securely audited", response.text.lower())
+
+    @patch("jas_si_agent.verify_router.httpx.stream")
+    def test_actions_endpoint_queries_exact_commit_and_latest_attempt(
+        self, mock_stream
+    ):
+        earlier = self.workflow_run(
+            201,
+            ".github/workflows/tests.yml",
+            run_number=10,
+            attempt=1,
+        )
+        retry = self.workflow_run(
+            202,
+            ".github/workflows/tests.yml",
+            run_number=10,
+            attempt=2,
+        )
+        security = self.workflow_run(
+            203,
+            ".github/workflows/security.yml",
+            run_number=11,
+        )
+        mock_stream.return_value = FakeGitHubResponse(
+            200,
+            {
+                "total_count": 3,
+                "workflow_runs": [earlier, retry, security],
+            },
+        )
+
+        response = self.perform_actions_verification(mock_stream)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "GITHUB_REPORTED_SUCCESS")
+        self.assertEqual(
+            next(
+                item for item in response.json()["workflow_results"]
+                if item["path"] == ".github/workflows/tests.yml"
+            )["id"],
+            202,
+        )
+        self.assertEqual(
+            mock_stream.call_args.kwargs["params"]["head_sha"],
+            COMMIT_SHA,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
