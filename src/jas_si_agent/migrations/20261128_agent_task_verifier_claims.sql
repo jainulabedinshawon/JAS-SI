@@ -114,7 +114,7 @@ BEGIN
            OR NOT (SELECT p.prosecdef FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
            OR NOT (SELECT COALESCE(p.proconfig,ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog']::text[] FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
            OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE((SELECT p.proacl FROM pg_catalog.pg_proc p WHERE p.oid=v_proc),
-                    pg_catalog.acldefault('f',(SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid=v_proc))) acl
+                    pg_catalog.acldefault('f',(SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)))) acl
                     WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') THEN
             RAISE EXCEPTION 'Verifier routine security boundary invalid';
         END IF;
