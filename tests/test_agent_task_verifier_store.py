@@ -149,7 +149,7 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
             )
 
         self.assertTrue(result)
-        query, params = capture[0][0]
+        query, params = capture[0]
         self.assertIn("jas_si_agent_task_finalize_success", query)
         self.assertEqual(params[1:4], (
             TASK,
