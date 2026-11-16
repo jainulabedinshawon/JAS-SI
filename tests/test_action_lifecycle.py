@@ -154,7 +154,7 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         )
         self.assertEqual(result.reason, "ACTION_NOT_AUTHORIZED")
 
-    def test_authorized_matching_success_is_verified(self) -> None:
+    def test_authorized_success_claim_is_inconclusive_without_trusted_collector(self) -> None:
         decision = self.coordinator.authorize(self.request())
         result = self.coordinator.verify_outcome(
             decision,
@@ -165,8 +165,12 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
             result.status,
             VerificationStatus.INCONCLUSIVE,
         )
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
+        )
 
-    def test_false_success_is_detected(self) -> None:
+    def test_false_success_claim_is_inconclusive_without_trusted_collector(self) -> None:
         decision = self.coordinator.authorize(self.request())
         result = self.coordinator.verify_outcome(
             decision,
@@ -176,6 +180,10 @@ class TestActionLifecycleCoordinator(unittest.TestCase):
         self.assertEqual(
             result.status,
             VerificationStatus.INCONCLUSIVE,
+        )
+        self.assertEqual(
+            result.reason,
+            "TRUSTED_EVIDENCE_COLLECTOR_NOT_CONFIGURED",
         )
 
     def test_action_id_mismatch_is_inconclusive(self) -> None:
