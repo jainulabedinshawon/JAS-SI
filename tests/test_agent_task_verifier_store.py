@@ -91,6 +91,9 @@ class FakeCursor:
     def fetchone(self):
         return self.row
 
+    def fetchall(self):
+        return self.row
+
 
 class FakeConnection:
     def __init__(self, row, capture):
@@ -135,6 +138,44 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
             "psycopg.types.json": psycopg_json,
         }
         return patch.dict(sys.modules, modules), Jsonb
+
+    def test_lists_persisted_awaiting_verification_tasks(self):
+        task_id = uuid.uuid4()
+        tenant_id = uuid.uuid4()
+        reported_at = datetime.now(timezone.utc)
+        row = (
+            task_id,
+            tenant_id,
+            "github.read_repository",
+            {"repository": "owner/project", "commit_sha": SHA, "paths": ["README.md"]},
+            {
+                "task_type": "github.read_repository",
+                "repository": "owner/project",
+                "commit_sha": SHA,
+                "evidence_integrity": {"status": "EVIDENCE_INTEGRITY_VERIFIED"},
+            },
+            reported_at,
+        )
+        capture = []
+        context, _ = self.install_fake_psycopg([row], capture)
+        with context:
+            items = self.make_store().list_awaiting_verification(limit=5)
+
+        self.assertEqual(len(items), 1)
+        task, report = items[0]
+        self.assertEqual(task.task_id, task_id)
+        self.assertEqual(task.tenant_id, tenant_id)
+        self.assertTrue(report.claimed_success)
+        self.assertEqual(report.task_id, task_id)
+        self.assertEqual(report.result_payload["repository"], "owner/project")
+        self.assertIn("jas_si_agent_task_verification_list", capture[0][0])
+        self.assertEqual(capture[0][1], (5,))
+
+    def test_verification_list_rejects_invalid_limit_before_database(self):
+        for limit in (0, 21, True, 1.5):
+            with self.subTest(limit=limit):
+                with self.assertRaises(ValueError):
+                    self.make_store().list_awaiting_verification(limit=limit)
 
     def test_persists_independent_evidence_and_calls_atomic_finalizer(self):
         capture = []
