@@ -52,6 +52,10 @@ jobs:
               "jas_si_agent_task_verification_release(uuid,uuid,uuid)",
               "jas_si_agent_task_finalize_success(uuid,uuid,uuid,uuid,text,bytea,jsonb,timestamptz)",
           )
+          NO_DIRECT_TABLE_PRIVILEGES = (
+              "SELECT", "INSERT", "UPDATE", "DELETE",
+              "TRUNCATE", "REFERENCES", "TRIGGER",
+          )
 
           def check_dsn(env_name, expected_login, capability, forbidden_capability,
                         routines, table_privileges):
@@ -74,7 +78,7 @@ jobs:
                                      pg_catalog.pg_has_role(session_user, %s, 'MEMBER')
                           """, (capability, forbidden_capability))
                           login, database, version, is_member, is_forbidden = cur.fetchone()
-    
+
                           if login != expected_login:
                               raise SystemExit(
                                   f"FAIL: {env_name} authenticated as an unexpected login role"
@@ -83,7 +87,7 @@ jobs:
                               raise SystemExit(
                                   f"FAIL: {expected_login} capability membership is incorrect"
                               )
-    
+
                           cur.execute("""
                               SELECT rolsuper, rolcreatedb, rolcreaterole,
                                      rolreplication, rolbypassrls
@@ -95,7 +99,7 @@ jobs:
                               raise SystemExit(
                                   f"FAIL: {expected_login} has an elevated PostgreSQL role attribute"
                               )
-    
+
                           for routine in routines:
                               signature = "public." + routine
                               cur.execute(
@@ -108,7 +112,7 @@ jobs:
                                   raise SystemExit(
                                       f"FAIL: required routine grant missing for {expected_login}"
                                   )
-    
+
                           for table, privileges in table_privileges.items():
                               cur.execute(
                                   "SELECT pg_catalog.to_regclass(%s) IS NOT NULL",
@@ -127,7 +131,7 @@ jobs:
                                       raise SystemExit(
                                           f"FAIL: unexpected direct table privilege for {expected_login}"
                                       )
-    
+
               print(
                   f"PASS: {expected_login}; database={database}; PostgreSQL={version}; "
                   f"{len(routines)} routine grants; direct table access denied."
@@ -140,8 +144,8 @@ jobs:
               "jas_si_agent_verifier",
               WORKER_ROUTINES,
               {
-                  "jas_si_agent_tasks": ("SELECT", "INSERT", "UPDATE", "DELETE"),
-                  "jas_si_agent_evidence_records": ("SELECT", "INSERT"),
+                  "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
+                  "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
               },
           )
           check_dsn(
@@ -151,8 +155,8 @@ jobs:
               "jas_si_agent_worker",
               VERIFIER_ROUTINES,
               {
-                  "jas_si_agent_tasks": ("SELECT", "UPDATE"),
-                  "jas_si_agent_evidence_records": ("SELECT", "INSERT"),
+                  "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
+                  "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
               },
           )
           PY
