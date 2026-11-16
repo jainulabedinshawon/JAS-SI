@@ -39,6 +39,24 @@ class P10HeldoutVFLTests(unittest.TestCase):
         }
         self.assertTrue(training.isdisjoint(heldout))
 
+    def test_training_evidence_ids_must_be_unique_across_seeds(self):
+        seeds = [dict(item) for item in self.fixture["seeds"]]
+        seeds[1]["training_evidence_id"] = seeds[0]["training_evidence_id"]
+        with self.assertRaisesRegex(ValueError, "Training evidence IDs must be unique"):
+            p10_runner.validate_seed_collection(seeds)
+
+    def test_heldout_evidence_ids_must_be_unique_across_seeds(self):
+        seeds = [dict(item) for item in self.fixture["seeds"]]
+        seeds[1]["heldout_evidence_id"] = seeds[0]["heldout_evidence_id"]
+        with self.assertRaisesRegex(ValueError, "Held-out evidence IDs must be unique"):
+            p10_runner.validate_seed_collection(seeds)
+
+    def test_training_and_heldout_evidence_must_be_disjoint_across_seeds(self):
+        seeds = [dict(item) for item in self.fixture["seeds"]]
+        seeds[1]["heldout_evidence_id"] = seeds[0]["training_evidence_id"]
+        with self.assertRaisesRegex(ValueError, "Training/held-out evidence leakage"):
+            p10_runner.validate_seed_collection(seeds)
+
     def test_all_feedback_is_verified(self):
         for seed in self.fixture["seeds"]:
             with self.subTest(seed=seed["seed"]):
