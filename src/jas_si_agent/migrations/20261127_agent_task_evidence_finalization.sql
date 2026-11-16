@@ -202,6 +202,8 @@ $function$;
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_finalize_success(
     uuid,uuid,uuid,text,bytea,jsonb,timestamptz
 ) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.jas_si_agent_task_verification_list(integer)
+    FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_verification_list(integer)
     TO jas_si_agent_verifier;
 GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_finalize_success(

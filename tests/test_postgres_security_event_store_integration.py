@@ -317,6 +317,7 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             "20261123_agent_task_store.sql",
             "20261123_agent_task_scope_allowlist.sql",
             "20261124_agent_task_worker_lifecycle.sql",
+            "20261127_agent_task_evidence_finalization.sql",
         )
         with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
             for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
