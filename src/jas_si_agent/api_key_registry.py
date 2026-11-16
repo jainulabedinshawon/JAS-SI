@@ -186,8 +186,38 @@ class PostgresApiKeyRegistry:
             )
             row = cursor.fetchone()
 
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     pg_catalog.has_column_privilege(
+                         'jas_si_api_key_auth_owner',
+                         'public.jas_si_tenants',
+                         'provisioning_lock_version',
+                         'UPDATE'
+                     ),
+                     EXISTS (
+                         SELECT 1 FROM pg_catalog.pg_policies
+                          WHERE schemaname='public'
+                            AND tablename='jas_si_tenants'
+                            AND policyname='jas_si_tenants_auth_owner_lock'
+                            AND cmd='UPDATE'
+                            AND 'jas_si_api_key_auth_owner'=ANY(roles)
+                     ),
+                     pg_catalog.strpos(
+                         pg_catalog.pg_get_functiondef(
+                             'public.jas_si_api_key_authenticate(uuid,bytea)'::regprocedure
+                         ),
+                         'FOR SHARE OF t'
+                     ) > 0"""
+            )
+            tenant_lock_row = cursor.fetchone()
+
         return bool(
-            row
+            tenant_lock_row
+            and tenant_lock_row[0] is True
+            and tenant_lock_row[1] is True
+            and tenant_lock_row[2] is True
+            and row
             and row[0] is True
             and row[1] == ["search_path=pg_catalog"]
             and row[2] == "jas_si_api_key_auth_owner"
