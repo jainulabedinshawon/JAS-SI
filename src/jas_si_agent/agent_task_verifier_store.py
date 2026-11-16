@@ -33,58 +33,60 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("Dedicated verifier PostgreSQL DSN is required")
         self._dsn = dsn.strip()
 
-    def list_awaiting_verification(
-        self, *, limit: int = 10
-    ) -> list[tuple[PersistedTask, WorkerTaskReport]]:
-        """Load a bounded batch of persisted task reports for independent verification."""
+    def claim_awaiting_verification(self, *, limit: int = 10, lease_seconds: int = 120) -> list[tuple[PersistedTask, WorkerTaskReport]]:
+        """Atomically claim a bounded verifier batch with expiring fencing tokens."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
             raise ValueError("verification batch limit must be between 1 and 20")
+        if isinstance(lease_seconds, bool) or not isinstance(lease_seconds, int) or not 5 <= lease_seconds <= 300:
+            raise ValueError("verifier lease must be between 5 and 300 seconds")
         try:
             import psycopg
-
             with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT task_id,tenant_id,task_type,input_payload,result_payload,reported_at "
-                    "FROM public.jas_si_agent_task_verification_list(%s)",
-                    (limit,),
+                    "SELECT task_id,tenant_id,task_type,input_payload,result_payload,reported_at,verifier_claim_token "
+                    "FROM public.jas_si_agent_task_verification_claim(%s,%s)",
+                    (limit, lease_seconds),
                 )
                 rows = cursor.fetchall()
             items: list[tuple[PersistedTask, WorkerTaskReport]] = []
             for row in rows:
-                task_id, tenant_id, task_type, input_payload, result_payload, _reported_at = row
-                if (
-                    not isinstance(task_id, uuid.UUID)
-                    or not isinstance(tenant_id, uuid.UUID)
-                    or task_type != "github.read_repository"
-                    or not isinstance(input_payload, dict)
-                    or not isinstance(result_payload, dict)
-                ):
-                    raise AgentTaskVerifierStoreError(
-                        "Verifier queue returned an invalid persisted task"
-                    )
+                task_id, tenant_id, task_type, input_payload, result_payload, _reported_at, claim_token = row
+                if (not isinstance(task_id, uuid.UUID) or not isinstance(tenant_id, uuid.UUID)
+                    or not isinstance(claim_token, uuid.UUID) or task_type != "github.read_repository"
+                    or not isinstance(input_payload, dict) or not isinstance(result_payload, dict)):
+                    raise AgentTaskVerifierStoreError("Verifier claim routine returned an invalid persisted task")
                 task = PersistedTask(
-                    task_id=task_id,
-                    tenant_id=tenant_id,
-                    task_type=task_type,
-                    input_payload=input_payload,
+                    task_id=task_id, tenant_id=tenant_id, task_type=task_type,
+                    input_payload=input_payload, verifier_claim_token=claim_token,
                 )
-                # Only tasks in awaiting_verification are returned by the
-                # database-owned routine, so a persisted result means the
-                # worker completed its handler. Its evidence claims remain
-                # untrusted and are cross-checked by the independent collector.
-                report = WorkerTaskReport(
-                    task_id=task_id,
-                    claimed_success=True,
-                    result_payload=result_payload,
-                )
+                report = WorkerTaskReport(task_id=task_id, claimed_success=True, result_payload=result_payload)
                 items.append((task, report))
             return items
         except (ImportError, ValueError, AgentTaskVerifierStoreError):
             raise
         except Exception as exc:
-            raise AgentTaskVerifierStoreError(
-                "Unable to load pending agent task verification records"
-            ) from exc
+            raise AgentTaskVerifierStoreError("Unable to claim pending agent task verification records") from exc
+
+    def release_claim(self, *, task: PersistedTask) -> bool:
+        """Release only the matching, still-pending verifier claim."""
+        if (not isinstance(task, PersistedTask) or not isinstance(task.task_id, uuid.UUID)
+            or not isinstance(task.tenant_id, uuid.UUID) or not isinstance(task.verifier_claim_token, uuid.UUID)):
+            raise ValueError("A task with a verifier claim token is required")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)",
+                    (task.task_id, task.tenant_id, task.verifier_claim_token),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise AgentTaskVerifierStoreError("Verifier claim release returned no result")
+            return bool(row[0])
+        except (ImportError, ValueError, AgentTaskVerifierStoreError):
+            raise
+        except Exception as exc:
+            raise AgentTaskVerifierStoreError("Unable to release verifier claim") from exc
 
     @staticmethod
     def _evidence_payload(
@@ -220,6 +222,8 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("Persisted task is required")
         if not isinstance(task.task_id, uuid.UUID) or not isinstance(task.tenant_id, uuid.UUID):
             raise ValueError("Persisted task and tenant IDs must be UUIDs")
+        if not isinstance(task.verifier_claim_token, uuid.UUID):
+            raise ValueError("Current verifier claim token is required")
         payload, digest, collected_at = self._evidence_payload(task, decision)
         evidence_id = uuid.uuid4()
         try:
@@ -229,12 +233,13 @@ class PostgresAgentTaskVerifierStore:
             with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT public.jas_si_agent_task_finalize_success(
-                         %s,%s,%s,%s,%s,%s,%s
+                         %s,%s,%s,%s,%s,%s,%s,%s
                        )""",
                     (
                         evidence_id,
                         task.task_id,
                         task.tenant_id,
+                        task.verifier_claim_token,
                         payload["collector_id"],
                         digest,
                         Jsonb(payload),

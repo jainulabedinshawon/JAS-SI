@@ -19,7 +19,10 @@ from jas_si_agent.verification import VerificationStatus
 
 
 class AgentTaskVerifierStore(Protocol):
-    def list_awaiting_verification(self, *, limit: int = 10):
+    def claim_awaiting_verification(self, *, limit: int = 10, lease_seconds: int = 120):
+        ...
+
+    def release_claim(self, *, task) -> bool:
         ...
 
     def finalize_success(self, *, task, decision) -> bool:
@@ -44,8 +47,10 @@ class AgentTaskVerifier:
         collector: GitHubEvidenceCollector,
         batch_size: int = 10,
     ) -> None:
-        if store is None or not callable(getattr(store, "list_awaiting_verification", None)):
+        if store is None or not callable(getattr(store, "claim_awaiting_verification", None)):
             raise ValueError("A trusted persisted-task verifier store is required")
+        if not callable(getattr(store, "release_claim", None)):
+            raise ValueError("A verifier claim releaser is required")
         if not callable(getattr(store, "finalize_success", None)):
             raise ValueError("A trusted task finalizer is required")
         if collector is None or not callable(getattr(collector, "collect", None)):
@@ -57,30 +62,28 @@ class AgentTaskVerifier:
         self._batch_size = batch_size
 
     def run_once(self) -> VerifierBatchResult:
-        """Process at most batch_size records; inconclusive tasks remain pending."""
-        pending = self._store.list_awaiting_verification(limit=self._batch_size)
+        """Atomically claim and process a bounded batch; abandoned claims expire."""
+        pending = self._store.claim_awaiting_verification(limit=self._batch_size, lease_seconds=120)
         finalized = 0
         inconclusive = 0
         lost_race = 0
         for task, report in pending:
-            decision = verify_github_repository_task(
-                task,
-                report,
-                collector=self._collector,
-            )
-            if decision.status is not VerificationStatus.VERIFIED_SUCCESS:
-                inconclusive += 1
-                continue
-            if self._store.finalize_success(task=task, decision=decision):
-                finalized += 1
-            else:
-                # Another verifier may have finalized or the task may have
-                # changed state while independent evidence was being collected.
-                lost_race += 1
+            completed = False
+            try:
+                decision = verify_github_repository_task(task, report, collector=self._collector)
+                if decision.status is not VerificationStatus.VERIFIED_SUCCESS:
+                    inconclusive += 1
+                    continue
+                if self._store.finalize_success(task=task, decision=decision):
+                    finalized += 1
+                    completed = True
+                else:
+                    lost_race += 1
+            finally:
+                if not completed:
+                    self._store.release_claim(task=task)
         return VerifierBatchResult(
-            scanned=len(pending),
-            finalized=finalized,
-            inconclusive=inconclusive,
+            scanned=len(pending), finalized=finalized, inconclusive=inconclusive,
             lost_finalization_race=lost_race,
         )
 

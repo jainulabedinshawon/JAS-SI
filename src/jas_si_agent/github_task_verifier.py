@@ -34,6 +34,7 @@ class PersistedTask:
     tenant_id: UUID
     task_type: str
     input_payload: Mapping[str, Any]
+    verifier_claim_token: UUID | None = None
 
 
 @dataclass(frozen=True)

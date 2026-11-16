@@ -318,6 +318,7 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             "20261123_agent_task_scope_allowlist.sql",
             "20261124_agent_task_worker_lifecycle.sql",
             "20261127_agent_task_evidence_finalization.sql",
+            "20261128_agent_task_verifier_claims.sql",
         )
         with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
             for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
@@ -330,6 +331,11 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             cursor.execute((migration_dir / "20261123_agent_task_store.sql").read_text(encoding="utf-8"))
         with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
             cursor.execute("GRANT jas_si_agent_worker TO jas_si")
+        with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_agent_verifier_test'")
+            if cursor.fetchone() is None:
+                cursor.execute("CREATE ROLE jas_si_agent_verifier_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
+            cursor.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test")
         cls.store = PostgresAgentTaskStore(cls.dsn)
 
     def setUp(self):
@@ -571,6 +577,60 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             cursor.execute("SET ROLE jas_si_agent_worker")
             cursor.execute(sql, params)
             return cursor.fetchall()
+
+    def _verifier_call(self, sql, params):
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+            cursor.execute(sql, params)
+            return cursor.fetchall()
+
+    def _awaiting_github_task(self):
+        from psycopg.types.json import Jsonb
+        submission = self._create(task_type="github.read_repository", input_payload={
+            "repository": "owner/project", "commit_sha": "a" * 40, "paths": ["README.md"],
+        })
+        worker_id = uuid.uuid4()
+        claim = self._worker_call("SELECT * FROM public.jas_si_agent_task_claim(%s,60)", (worker_id,))[0]
+        self.assertEqual(claim[0], submission.task.task_id)
+        self.assertEqual(self._worker_call(
+            "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
+            (worker_id, submission.task.task_id, claim[6],
+             Jsonb({"task_type":"github.read_repository","repository":"owner/project","commit_sha":"a" * 40})),
+        ), [(True,)])
+        return submission.task.task_id
+
+    def test_verifier_claim_is_atomic_and_release_is_token_scoped(self):
+        task_id = self._awaiting_github_task()
+        first = self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ())
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0][0], task_id)
+        self.assertEqual(self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ()), [])
+        token = first[0][-1]
+        self.assertEqual(self._verifier_call(
+            "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)", (task_id, self.tenant_a, token),
+        ), [(True,)])
+        second = self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ())
+        self.assertEqual(len(second), 1)
+        self.assertNotEqual(second[0][-1], token)
+        self.assertEqual(self._verifier_call(
+            "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)", (task_id, self.tenant_a, token),
+        ), [(False,)])
+
+    def test_expired_verifier_claim_is_reclaimed_with_new_fence(self):
+        task_id = self._awaiting_github_task()
+        first = self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ())[0]
+        old_token = first[-1]
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE public.jas_si_agent_tasks SET verifier_lease_expires_at="
+                "clock_timestamp()-interval '1 second' WHERE task_id=%s", (task_id,),
+            )
+        second = self._verifier_call("SELECT * FROM public.jas_si_agent_task_verification_claim(1,60)", ())
+        self.assertEqual(len(second), 1)
+        self.assertNotEqual(second[0][-1], old_token)
+        self.assertEqual(self._verifier_call(
+            "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)", (task_id, self.tenant_a, old_token),
+        ), [(False,)])
 
     def test_worker_claim_is_atomic_and_fenced(self):
         task = self._create().task

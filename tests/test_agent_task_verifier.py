@@ -22,6 +22,7 @@ def make_item():
         task_id=TASK_ID,
         tenant_id=TENANT_ID,
         task_type="github.read_repository",
+        verifier_claim_token=uuid.UUID("00000000-0000-0000-0000-000000000053"),
         input_payload={
             "repository": "owner/project",
             "commit_sha": "a" * 40,
@@ -59,7 +60,7 @@ class AgentTaskVerifierTests(unittest.TestCase):
 
     def test_verified_success_is_finalized(self):
         store = Mock()
-        store.list_awaiting_verification.return_value = [make_item()]
+        store.claim_awaiting_verification.return_value = [make_item()]
         store.finalize_success.return_value = True
         collector = Mock()
         decision = make_decision()
@@ -71,8 +72,9 @@ class AgentTaskVerifierTests(unittest.TestCase):
             result = self.make_verifier(store, collector).run_once()
 
         verify.assert_called_once()
-        store.list_awaiting_verification.assert_called_once_with(limit=4)
+        store.claim_awaiting_verification.assert_called_once_with(limit=4, lease_seconds=120)
         store.finalize_success.assert_called_once()
+        store.release_claim.assert_not_called()
         self.assertEqual(result.scanned, 1)
         self.assertEqual(result.finalized, 1)
         self.assertEqual(result.inconclusive, 0)
@@ -89,6 +91,7 @@ class AgentTaskVerifierTests(unittest.TestCase):
             result = self.make_verifier(store).run_once()
 
         store.finalize_success.assert_not_called()
+        store.release_claim.assert_called_once()
         self.assertEqual(result.scanned, 1)
         self.assertEqual(result.finalized, 0)
         self.assertEqual(result.inconclusive, 1)
@@ -106,6 +109,7 @@ class AgentTaskVerifierTests(unittest.TestCase):
 
         self.assertEqual(result.finalized, 0)
         self.assertEqual(result.lost_finalization_race, 1)
+        store.release_claim.assert_called_once()
 
     def test_empty_queue_is_a_noop(self):
         store = Mock()

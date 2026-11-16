@@ -95,6 +95,7 @@ jobs:
               "20261125_agent_task_usage_scope.sql",
               "20261126_agent_task_nonretryable_failures.sql",
               "20261127_agent_task_evidence_finalization.sql",
+              "20261128_agent_task_verifier_claims.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)

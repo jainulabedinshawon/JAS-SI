@@ -139,7 +139,7 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
         }
         return patch.dict(sys.modules, modules), Jsonb
 
-    def test_lists_persisted_awaiting_verification_tasks(self):
+    def test_claims_persisted_awaiting_verification_tasks(self):
         task_id = uuid.uuid4()
         tenant_id = uuid.uuid4()
         reported_at = datetime.now(timezone.utc)
@@ -155,27 +155,29 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
                 "evidence_integrity": {"status": "EVIDENCE_INTEGRITY_VERIFIED"},
             },
             reported_at,
+            uuid.uuid4(),
         )
         capture = []
         context, _ = self.install_fake_psycopg([row], capture)
         with context:
-            items = self.make_store().list_awaiting_verification(limit=5)
+            items = self.make_store().claim_awaiting_verification(limit=5)
 
         self.assertEqual(len(items), 1)
         task, report = items[0]
         self.assertEqual(task.task_id, task_id)
         self.assertEqual(task.tenant_id, tenant_id)
+        self.assertIsInstance(task.verifier_claim_token, uuid.UUID)
         self.assertTrue(report.claimed_success)
         self.assertEqual(report.task_id, task_id)
         self.assertEqual(report.result_payload["repository"], "owner/project")
-        self.assertIn("jas_si_agent_task_verification_list", capture[0][0])
+        self.assertIn("jas_si_agent_task_verification_claim", capture[0][0])
         self.assertEqual(capture[0][1], (5,))
 
     def test_verification_list_rejects_invalid_limit_before_database(self):
         for limit in (0, 21, True, 1.5):
             with self.subTest(limit=limit):
                 with self.assertRaises(ValueError):
-                    self.make_store().list_awaiting_verification(limit=limit)
+                    self.make_store().claim_awaiting_verification(limit=limit)
 
     def test_persists_independent_evidence_and_calls_atomic_finalizer(self):
         capture = []
@@ -192,9 +194,11 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
         self.assertTrue(result)
         query, params = capture[0]
         self.assertIn("jas_si_agent_task_finalize_success", query)
-        self.assertEqual(params[1:4], (
+        self.assertEqual(len(params), 8)
+        self.assertEqual(params[1:5], (
             TASK,
             TENANT,
+            task.verifier_claim_token,
             "trusted-github-collector-v1",
         ))
         self.assertEqual(len(params[4]), 32)
