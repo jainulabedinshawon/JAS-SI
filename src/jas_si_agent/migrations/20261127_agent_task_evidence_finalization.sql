@@ -21,10 +21,23 @@ BEGIN
              OR r.rolreplication OR r.rolbypassrls OR r.rolinherit
          )
     ) OR EXISTS (
-        SELECT 1 FROM pg_catalog.pg_auth_members m
-         WHERE m.member=v_role OR m.roleid=v_role
+        SELECT 1
+          FROM pg_catalog.pg_auth_members m
+          JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
+          JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
+         WHERE m.member=v_role OR (m.roleid=v_role AND NOT (
+             (member_role.rolname='neondb_owner'
+              AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)
+             OR
+             (member_role.rolname='neondb_owner'
+              AND grantor_role.rolname='cloud_admin'
+              AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+         ))
     ) THEN
         RAISE EXCEPTION 'Unsafe JAS-SI verifier capability role';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='neondb_owner') THEN
+        EXECUTE 'GRANT jas_si_agent_verifier TO neondb_owner WITH ADMIN FALSE, INHERIT FALSE, SET TRUE';
     END IF;
     IF pg_catalog.to_regclass('public.jas_si_agent_tasks') IS NULL
        OR NOT EXISTS (
