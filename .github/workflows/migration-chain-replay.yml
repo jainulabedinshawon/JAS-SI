@@ -104,6 +104,7 @@ jobs:
               "20261129_agent_runtime_default_acl_boundary.sql",
               "20261130_customer_tenant_active_guard_reassert.sql",
               "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
+              "20261202_agent_task_human_review_decisions.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
