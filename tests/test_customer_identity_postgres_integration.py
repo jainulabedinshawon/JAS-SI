@@ -68,6 +68,8 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261114_customer_usage_read_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
                 "20261119_general_runtime_customer_identity_acl.sql",
+                "20261121_security_audit_writer_boundary.sql",
+                "20261122_customer_rate_limit_owner_boundary.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
