@@ -8,6 +8,7 @@ on:
     paths:
       - "src/jas_si_agent/agent_task_*.py"
       - "src/jas_si_agent/api.py"
+      - "src/jas_si_agent/customer_portal.py"
       - "src/jas_si_agent/migrations/*agent_task*.sql"
       - "tests/test_agent_task_*.py"
       - ".github/workflows/agent-task-review-validation.yml"
