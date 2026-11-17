@@ -42,6 +42,9 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 <h4>Recent usage events</h4>
 <ul id="usage-events" aria-live="polite"></ul>
 <button id="usage-more" class="secondary" type="button" hidden>Load more usage</button>
+<hr><h3>Human Review</h3>
+<p id="review-note" class="muted">Loading tasks that require your review…</p>
+<ul id="review-queue" aria-live="polite"></ul>
 <hr><h3>API keys</h3>
 <form id="create-key">
 <label for="key-name">Key name</label><input id="key-name" maxlength="120" required>
@@ -58,12 +61,13 @@ button.secondary{background:#e8edf5;color:#182b4a}#notice{padding:12px;border-ra
 const notice=document.getElementById('notice');
 const auth=document.getElementById('auth');
 const account=document.getElementById('account');
-async function request(path,body){
+async function request(path,body,idempotencyKey){
  const headers={'Content-Type':'application/json'};
- if(path.endsWith('/logout')||path.includes('/customer/api-keys')){
+ if(path.endsWith('/logout')||path.includes('/customer/api-keys')||path.includes('/customer/agent/tasks/')){
   const csrf=document.cookie.split('; ').find(item=>item.startsWith('jassi_customer_csrf='));
   if(csrf)headers['X-JAS-SI-CSRF']=decodeURIComponent(csrf.split('=').slice(1).join('='));
  }
+ if(idempotencyKey)headers['Idempotency-Key']=idempotencyKey;
  const response=await fetch(path,{method:'POST',headers,body:JSON.stringify(body),credentials:'same-origin'});
  let data={};try{data=await response.json()}catch(_){}
  if(!response.ok)throw new Error(data.detail||'Request could not be completed');
@@ -77,6 +81,7 @@ function showAccount(data){
  loadApiKeys();
  loadUsage();
  loadPlans();
+ loadReviewQueue();
 }
 async function loadPlans(){
  const list=document.getElementById('plan-list');list.replaceChildren();
@@ -137,7 +142,75 @@ async function loadUsageEvents(append=false){
   const item=document.createElement('li');item.textContent=error.message;list.appendChild(item);
  }
 }
+
 document.getElementById('usage-more').addEventListener('click',()=>loadUsageEvents(true));
+async function loadReviewQueue(){
+ const note=document.getElementById('review-note');
+ const list=document.getElementById('review-queue');
+ list.replaceChildren();note.textContent='Loading human-review tasks…';
+ try{
+  const response=await fetch('/v1/customer/agent/tasks/review-queue?limit=50',{credentials:'same-origin'});
+  if(!response.ok)throw new Error('Human Review queue is temporarily unavailable.');
+  const data=await response.json();
+  if(!data.items.length){note.textContent='No tasks currently require human review.';return}
+  note.textContent=data.count+' task(s) require your review. These decisions do not create Verified Success.';
+  for(const task of data.items){
+   const item=document.createElement('li');
+   const heading=document.createElement('strong');
+   heading.textContent=task.task_type+' · '+task.task_id;
+   item.appendChild(heading);
+   const details=document.createElement('p');
+   details.textContent='Status: '+task.status+' · Verifier: '+(task.verification_status||'unknown')+
+    ' · Reason: '+(task.verification_reason_code||'not supplied')+
+    ' · Attempts: '+task.verifier_attempt_count;
+   item.appendChild(details);
+   const more=document.createElement('button');more.type='button';more.className='secondary';
+   more.textContent='Request more evidence';
+   more.addEventListener('click',()=>submitReviewDecision(task.task_id,'request_more_evidence','MORE_EVIDENCE_REQUESTED'));
+   item.appendChild(more);
+   const close=document.createElement('button');close.type='button';close.className='secondary';
+   close.textContent='Close as unverified';
+   close.addEventListener('click',()=>submitReviewDecision(task.task_id,'close_unverified','CUSTOMER_CLOSED_UNVERIFIED'));
+   item.appendChild(close);
+   const history=document.createElement('button');history.type='button';history.className='secondary';
+   history.textContent='View decision history';
+   history.addEventListener('click',()=>loadReviewHistory(task.task_id,item));
+   item.appendChild(history);
+   list.appendChild(item);
+  }
+ }catch(error){note.textContent=error.message}
+}
+async function submitReviewDecision(taskId,decision,reasonCode){
+ if(!window.confirm('Record '+decision.replaceAll('_',' ')+' for this task? This will not mark it successful.'))return;
+ notice.textContent='Saving Human Review decision…';
+ try{
+  const data=await request('/v1/customer/agent/tasks/'+encodeURIComponent(taskId)+'/review',{
+   decision:decision,reason_code:reasonCode
+  },crypto.randomUUID());
+  notice.textContent='Review decision saved. Task status: '+data.task_status+'. Verified Success: no.';
+  await loadReviewQueue();
+ }catch(error){notice.textContent=error.message}
+}
+async function loadReviewHistory(taskId,parent){
+ try{
+  const response=await fetch('/v1/customer/agent/tasks/'+encodeURIComponent(taskId)+'/review-history?limit=50',{credentials:'same-origin'});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||'Review history is unavailable.');
+  const history=document.createElement('ul');
+  for(const event of data.items){
+   const entry=document.createElement('li');
+   entry.textContent=event.decided_at+' · '+event.decision+' · '+event.reason_code+
+    ' · '+event.previous_status+' → '+event.resulting_status;
+   history.appendChild(entry);
+  }
+  if(!data.items.length){
+   const entry=document.createElement('li');entry.textContent='No decisions recorded yet.';history.appendChild(entry);
+  }
+  const old=parent.querySelector('[data-review-history]');
+  if(old)old.remove();
+  history.dataset.reviewHistory='true';parent.appendChild(history);
+ }catch(error){notice.textContent=error.message}
+}
 async function loadApiKeys(){
  const list=document.getElementById('key-list');list.replaceChildren();
  try{
