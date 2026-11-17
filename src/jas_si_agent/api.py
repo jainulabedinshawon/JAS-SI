@@ -68,6 +68,7 @@ from jas_si_agent.usage_meter import PostgresUsageMeter, UsageQuotaExceeded
 from jas_si_agent.agent_task_store import (
     AgentTaskIdempotencyConflict,
     AgentTaskReviewConflict,
+    AgentTaskNotFound,
     AgentTaskStoreError,
     PostgresAgentTaskStore,
 )
@@ -1700,6 +1701,8 @@ def decide_agent_task_human_review(
             reason_code=payload.reason_code,
             idempotency_key=idempotency_key,
         )
+    except AgentTaskNotFound:
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
     except AgentTaskReviewConflict:
         raise HTTPException(
             status_code=409,
