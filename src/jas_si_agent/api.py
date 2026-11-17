@@ -67,6 +67,8 @@ from jas_si_agent.api_key_registry import (
 from jas_si_agent.usage_meter import PostgresUsageMeter, UsageQuotaExceeded
 from jas_si_agent.agent_task_store import (
     AgentTaskIdempotencyConflict,
+    AgentTaskReviewConflict,
+    AgentTaskNotFound,
     AgentTaskStoreError,
     PostgresAgentTaskStore,
 )
@@ -447,6 +449,16 @@ class VerifyRequest(BaseModel):
         default=None,
         max_length=2048,
     )
+
+
+class AgentTaskHumanReviewRequest(BaseModel):
+    """A constrained human-review disposition; never a success assertion."""
+
+    class Config:
+        extra = "forbid"
+
+    decision: str = Field(min_length=1, max_length=32)
+    reason_code: str = Field(min_length=1, max_length=64)
 
 
 class AgentTaskCreateRequest(BaseModel):
@@ -1469,6 +1481,23 @@ def _get_agent_task_store(request: Request) -> PostgresAgentTaskStore:
         ) from None
 
 
+def _get_agent_task_review_store(request: Request) -> PostgresAgentTaskStore:
+    """Return task storage only after the customer-review DB boundary is verified."""
+    store = _get_agent_task_store(request)
+    if getattr(request.app.state, "agent_task_review_boundary_store", None) is store:
+        return store
+    try:
+        if store.verify_review_schema() is not True:
+            raise RuntimeError("Human review database boundary is not installed")
+        request.app.state.agent_task_review_boundary_store = store
+        return store
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Human review service is not securely configured",
+        ) from None
+
+
 def _agent_task_api_key_context(request: Request) -> tuple[uuid.UUID, bytes]:
     """Require a real tenant-scoped API-key proof for every task operation."""
     key_id = getattr(request.state, "api_key_id", None)
@@ -1583,6 +1612,116 @@ def get_agent_task(task_id: str, request: Request) -> dict:
     response = _agent_task_response(task)
     response.update(review_metadata)
     return {"task": response}
+
+
+
+@app.get("/v1/customer/agent/tasks/review-queue")
+def get_customer_agent_task_review_queue(request: Request, limit: int = 50) -> dict:
+    """Return the authenticated tenant's sanitized human-review queue."""
+    account = _require_customer_session(request)
+    store = _get_agent_task_review_store(request)
+    try:
+        items = store.list_human_review_queue(
+            tenant_id=account.tenant_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except AgentTaskStoreError:
+        raise HTTPException(
+            status_code=503,
+            detail="Human review queue is temporarily unavailable",
+        ) from None
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/v1/customer/agent/tasks/{task_id}/review-history")
+def get_customer_agent_task_review_history(
+    task_id: str, request: Request, limit: int = 50,
+) -> dict:
+    """Return append-only review events for one task owned by this tenant."""
+    account = _require_customer_session(request)
+    try:
+        parsed_task_id = uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
+    store = _get_agent_task_review_store(request)
+    try:
+        history = store.get_human_review_history(
+            tenant_id=account.tenant_id,
+            task_id=parsed_task_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except AgentTaskStoreError:
+        raise HTTPException(
+            status_code=503,
+            detail="Human review history is temporarily unavailable",
+        ) from None
+    if history is None:
+        raise HTTPException(status_code=404, detail="Agent task not found")
+    return history
+
+
+@app.post("/v1/customer/agent/tasks/{task_id}/review")
+def decide_agent_task_human_review(
+    task_id: str,
+    payload: AgentTaskHumanReviewRequest,
+    request: Request,
+) -> dict:
+    """Record a tenant-owner review decision using the browser's live session."""
+    account = _require_customer_session(request)
+    _require_customer_csrf(request)
+    try:
+        parsed_task_id = uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
+
+    if payload.decision not in {"request_more_evidence", "close_unverified"}:
+        raise HTTPException(status_code=422, detail="Unsupported human review decision")
+    if re.fullmatch(r"[A-Z0-9_]{1,64}", payload.reason_code) is None:
+        raise HTTPException(status_code=422, detail="Invalid human review reason code")
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if idempotency_key is None or re.fullmatch(
+        r"[A-Za-z0-9._:-]{1,128}", idempotency_key
+    ) is None:
+        raise HTTPException(status_code=422, detail="A valid Idempotency-Key header is required")
+
+    # The customer schema has a UNIQUE constraint on tenant_id, so this
+    # authenticated active account is the sole current tenant owner. If that
+    # invariant is relaxed, explicit reviewer roles must be added before this
+    # endpoint can be used for multi-account tenants.
+    store = _get_agent_task_review_store(request)
+
+    try:
+        result = store.record_human_review_decision(
+            task_id=parsed_task_id,
+            tenant_id=account.tenant_id,
+            reviewer_account_id=account.account_id,
+            decision=payload.decision,
+            reason_code=payload.reason_code,
+            idempotency_key=idempotency_key,
+        )
+    except AgentTaskNotFound:
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
+    except AgentTaskReviewConflict:
+        raise HTTPException(
+            status_code=409,
+            detail="Task review decision conflicts with its current state",
+        ) from None
+    except (AgentTaskStoreError, ValueError):
+        raise HTTPException(
+            status_code=503,
+            detail="Human review decision could not be securely persisted",
+        ) from None
+
+    return {
+        "task_id": str(parsed_task_id),
+        "decision": payload.decision,
+        **result,
+        "verified_success": False,
+    }
 
 
 @app.post(
