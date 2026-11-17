@@ -1478,6 +1478,23 @@ def _get_agent_task_store(request: Request) -> PostgresAgentTaskStore:
         ) from None
 
 
+def _get_agent_task_review_store(request: Request) -> PostgresAgentTaskStore:
+    """Return task storage only after the customer-review DB boundary is verified."""
+    store = _get_agent_task_store(request)
+    if getattr(request.app.state, "agent_task_review_boundary_store", None) is store:
+        return store
+    try:
+        if store.verify_review_schema() is not True:
+            raise RuntimeError("Human review database boundary is not installed")
+        request.app.state.agent_task_review_boundary_store = store
+        return store
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Human review service is not securely configured",
+        ) from None
+
+
 def _agent_task_api_key_context(request: Request) -> tuple[uuid.UUID, bytes]:
     """Require a real tenant-scoped API-key proof for every task operation."""
     key_id = getattr(request.state, "api_key_id", None)
@@ -1594,6 +1611,56 @@ def get_agent_task(task_id: str, request: Request) -> dict:
     return {"task": response}
 
 
+
+@app.get("/v1/customer/agent/tasks/review-queue")
+def get_customer_agent_task_review_queue(request: Request, limit: int = 50) -> dict:
+    """Return the authenticated tenant's sanitized human-review queue."""
+    account = _require_customer_session(request)
+    store = _get_agent_task_review_store(request)
+    try:
+        items = store.list_human_review_queue(
+            tenant_id=account.tenant_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except AgentTaskStoreError:
+        raise HTTPException(
+            status_code=503,
+            detail="Human review queue is temporarily unavailable",
+        ) from None
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/v1/customer/agent/tasks/{task_id}/review-history")
+def get_customer_agent_task_review_history(
+    task_id: str, request: Request, limit: int = 50,
+) -> dict:
+    """Return append-only review events for one task owned by this tenant."""
+    account = _require_customer_session(request)
+    try:
+        parsed_task_id = uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
+    store = _get_agent_task_review_store(request)
+    try:
+        history = store.get_human_review_history(
+            tenant_id=account.tenant_id,
+            task_id=parsed_task_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except AgentTaskStoreError:
+        raise HTTPException(
+            status_code=503,
+            detail="Human review history is temporarily unavailable",
+        ) from None
+    if history is None:
+        raise HTTPException(status_code=404, detail="Agent task not found")
+    return history
+
+
 @app.post("/v1/customer/agent/tasks/{task_id}/review")
 def decide_agent_task_human_review(
     task_id: str,
@@ -1622,17 +1689,7 @@ def decide_agent_task_human_review(
     # authenticated active account is the sole current tenant owner. If that
     # invariant is relaxed, explicit reviewer roles must be added before this
     # endpoint can be used for multi-account tenants.
-    store = _get_agent_task_store(request)
-    if getattr(request.app.state, "agent_task_review_boundary_store", None) is not store:
-        try:
-            if store.verify_review_schema() is not True:
-                raise RuntimeError("Human review database boundary is not installed")
-            request.app.state.agent_task_review_boundary_store = store
-        except Exception:
-            raise HTTPException(
-                status_code=503,
-                detail="Human review service is not securely configured",
-            ) from None
+    store = _get_agent_task_review_store(request)
 
     try:
         result = store.record_human_review_decision(
