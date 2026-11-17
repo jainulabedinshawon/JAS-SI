@@ -1,14 +1,52 @@
 -- Tenant-owner decisions for tasks that exhausted independent verification.
 -- Customer identity is authenticated by the API against the separate customer DB;
--- only the derived account_id + tenant_id cross this boundary. This database
--- persists the decision atomically with task disposition and never grants success.
+-- only the derived account_id + tenant_id cross this boundary.
+-- Review events are owned by a separate NOLOGIN role, not the task routine owner.
 
 DO $block$
+DECLARE v_role oid;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_agent_task_owner')
        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_runtime')
        OR pg_catalog.to_regclass('public.jas_si_agent_tasks') IS NULL THEN
         RAISE EXCEPTION 'Durable agent task store prerequisites are missing';
+    END IF;
+
+    SELECT oid INTO v_role FROM pg_catalog.pg_roles
+     WHERE rolname='jas_si_agent_review_audit_owner';
+    IF v_role IS NULL THEN
+        CREATE ROLE jas_si_agent_review_audit_owner
+            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+            NOREPLICATION NOBYPASSRLS NOINHERIT;
+        SELECT oid INTO v_role FROM pg_catalog.pg_roles
+         WHERE rolname='jas_si_agent_review_audit_owner';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles r
+         WHERE r.oid=v_role AND (
+             r.rolcanlogin OR r.rolsuper OR r.rolcreatedb OR r.rolcreaterole
+             OR r.rolreplication OR r.rolbypassrls OR r.rolinherit
+         )
+    ) OR EXISTS (
+        SELECT 1
+          FROM pg_catalog.pg_auth_members m
+          JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
+          JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
+         WHERE m.member=v_role OR (m.roleid=v_role AND NOT (
+             (member_role.rolname='neondb_owner'
+              AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)
+             OR
+             (member_role.rolname='neondb_owner'
+              AND grantor_role.rolname='cloud_admin'
+              AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+         ))
+    ) THEN
+        RAISE EXCEPTION 'Unsafe JAS-SI review audit owner role';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='neondb_owner') THEN
+        EXECUTE 'GRANT jas_si_agent_review_audit_owner TO neondb_owner WITH ADMIN FALSE, INHERIT FALSE, SET TRUE';
     END IF;
 END
 $block$;
@@ -36,17 +74,18 @@ ALTER TABLE public.jas_si_agent_tasks
          AND completed_at IS NULL)
     );
 
-GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
-SET LOCAL ROLE jas_si_agent_task_owner;
+GRANT USAGE ON SCHEMA public TO jas_si_agent_review_audit_owner;
+GRANT CREATE ON SCHEMA public TO jas_si_agent_review_audit_owner;
+GRANT REFERENCES (task_id) ON TABLE public.jas_si_agent_tasks
+    TO jas_si_agent_review_audit_owner;
+SET LOCAL ROLE jas_si_agent_review_audit_owner;
 
 CREATE TABLE IF NOT EXISTS public.jas_si_agent_task_review_events (
     decision_event_id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
     task_id uuid NOT NULL
         REFERENCES public.jas_si_agent_tasks(task_id)
         ON UPDATE RESTRICT ON DELETE RESTRICT,
-    tenant_id uuid NOT NULL
-        REFERENCES public.jas_si_tenants(tenant_id)
-        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    tenant_id uuid NOT NULL,
     reviewer_account_id uuid NOT NULL,
     idempotency_key varchar(128) NOT NULL,
     decision varchar(32) NOT NULL,
@@ -77,21 +116,30 @@ CREATE TABLE IF NOT EXISTS public.jas_si_agent_task_review_events (
 CREATE INDEX IF NOT EXISTS jas_si_agent_task_review_events_history_idx
     ON public.jas_si_agent_task_review_events(tenant_id,task_id,decided_at,decision_event_id);
 
-REVOKE ALL ON TABLE public.jas_si_agent_task_review_events
-    FROM PUBLIC,jas_si_runtime,jas_si_provisioner;
-GRANT SELECT,INSERT ON TABLE public.jas_si_agent_task_review_events
-    TO jas_si_agent_task_owner;
-REVOKE UPDATE,DELETE,TRUNCATE ON TABLE public.jas_si_agent_task_review_events
-    FROM jas_si_agent_task_owner;
-
 ALTER TABLE public.jas_si_agent_task_review_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jas_si_agent_task_review_events FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS jas_si_agent_task_review_owner_all
     ON public.jas_si_agent_task_review_events;
 CREATE POLICY jas_si_agent_task_review_owner_all
     ON public.jas_si_agent_task_review_events
+    FOR ALL TO jas_si_agent_review_audit_owner
+    USING (true) WITH CHECK (true);
+RESET ROLE;
+
+REVOKE ALL ON TABLE public.jas_si_agent_task_review_events
+    FROM PUBLIC,jas_si_runtime,jas_si_provisioner;
+GRANT SELECT,INSERT,TRIGGER ON TABLE public.jas_si_agent_task_review_events
+    TO jas_si_agent_task_owner;
+REVOKE UPDATE,DELETE,TRUNCATE ON TABLE public.jas_si_agent_task_review_events
+    FROM jas_si_agent_task_owner;
+
+CREATE POLICY jas_si_agent_task_review_routine_all
+    ON public.jas_si_agent_task_review_events
     FOR ALL TO jas_si_agent_task_owner
     USING (true) WITH CHECK (true);
+
+GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
+SET LOCAL ROLE jas_si_agent_task_owner;
 
 CREATE OR REPLACE FUNCTION public.jas_si_agent_task_review_event_immutable()
 RETURNS trigger
@@ -146,7 +194,7 @@ BEGIN
             USING ERRCODE='42501';
     END IF;
     IF p_task_id IS NULL OR p_tenant_id IS NULL
-       OR p_reviewer_account_id IS NULL
+       OR p_reviewer_account_id IS NULL OR p_decision IS NULL
        OR p_decision NOT IN ('request_more_evidence','close_unverified')
        OR p_reason_code IS NULL OR p_reason_code !~ '^[A-Z0-9_]{1,64}$'
        OR p_idempotency_key IS NULL
