@@ -557,38 +557,10 @@ class PostgresApiKeyRegistry:
                             "SELECT set_config('jas_si.tenant_id', %s, true)",
                             (str(tenant_scope),),
                         )
-                    # Serialize all audit writers, then verify the exact chain
-                    # snapshot that this transaction will extend.
-                    cursor.execute(
-                        """
-                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                        VALUES (TRUE, %s)
-                        ON CONFLICT (singleton) DO NOTHING
-                        """,
-                        ("0" * 64,),
-                    )
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        FOR UPDATE
-                        """
-                    )
-                    if cursor.fetchone() is None:
-                        raise ApiKeyError(
-                            "Audit checkpoint unavailable; provisioning stopped"
-                        )
-                    integrity = (
-                        PostgresSecurityEventStore.verify_integrity_in_transaction(
-                            connection
-                        )
-                    )
-                    if integrity.get("valid") is not True:
-                        raise ApiKeyError(
-                            "Audit chain integrity check failed; provisioning stopped"
-                        )
-
+                    # Audit append obtains the global checkpoint lock and verifies
+                    # the full chain inside the same transaction after the key
+                    # and idempotency rows are staged. Any audit failure rolls
+                    # back all three writes atomically.
                     cursor.execute(
                         """
                         SELECT status
@@ -870,35 +842,9 @@ class PostgresApiKeyRegistry:
                             "SELECT set_config('jas_si.tenant_id', %s, true)",
                             (str(tenant_scope),),
                         )
-                    cursor.execute(
-                        """
-                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                        VALUES (TRUE, %s)
-                        ON CONFLICT (singleton) DO NOTHING
-                        """,
-                        ("0" * 64,),
-                    )
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        FOR UPDATE
-                        """
-                    )
-                    if cursor.fetchone() is None:
-                        raise ApiKeyError(
-                            "Audit checkpoint unavailable; revocation stopped"
-                        )
-                    integrity = (
-                        PostgresSecurityEventStore.verify_integrity_in_transaction(
-                            connection
-                        )
-                    )
-                    if integrity.get("valid") is not True:
-                        raise ApiKeyError(
-                            "Audit chain integrity check failed; revocation stopped"
-                        )
+                    # The SECURITY DEFINER audit writer takes the checkpoint lock,
+                    # validates the complete chain, and appends within this
+                    # transaction. An audit failure rolls back the revocation.
                     cursor.execute(
                         """
                         UPDATE jas_si_api_keys
