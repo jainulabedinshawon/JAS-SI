@@ -76,8 +76,10 @@ ALTER TABLE public.jas_si_agent_tasks
 
 GRANT USAGE ON SCHEMA public TO jas_si_agent_review_audit_owner;
 GRANT CREATE ON SCHEMA public TO jas_si_agent_review_audit_owner;
+SET LOCAL ROLE jas_si_agent_task_owner;
 GRANT REFERENCES (task_id) ON TABLE public.jas_si_agent_tasks
     TO jas_si_agent_review_audit_owner;
+RESET ROLE;
 SET LOCAL ROLE jas_si_agent_review_audit_owner;
 
 CREATE TABLE IF NOT EXISTS public.jas_si_agent_task_review_events (
@@ -124,19 +126,17 @@ CREATE POLICY jas_si_agent_task_review_owner_all
     ON public.jas_si_agent_task_review_events
     FOR ALL TO jas_si_agent_review_audit_owner
     USING (true) WITH CHECK (true);
-RESET ROLE;
-
+CREATE POLICY jas_si_agent_task_review_routine_all
+    ON public.jas_si_agent_task_review_events
+    FOR ALL TO jas_si_agent_task_owner
+    USING (true) WITH CHECK (true);
 REVOKE ALL ON TABLE public.jas_si_agent_task_review_events
     FROM PUBLIC,jas_si_runtime,jas_si_provisioner;
 GRANT SELECT,INSERT,TRIGGER ON TABLE public.jas_si_agent_task_review_events
     TO jas_si_agent_task_owner;
 REVOKE UPDATE,DELETE,TRUNCATE ON TABLE public.jas_si_agent_task_review_events
     FROM jas_si_agent_task_owner;
-
-CREATE POLICY jas_si_agent_task_review_routine_all
-    ON public.jas_si_agent_task_review_events
-    FOR ALL TO jas_si_agent_task_owner
-    USING (true) WITH CHECK (true);
+RESET ROLE;
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
