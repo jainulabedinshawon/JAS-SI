@@ -153,6 +153,11 @@ END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_review_event_immutable() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jas_si_agent_task_review_event_immutable()
+    TO jas_si_agent_review_audit_owner;
+RESET ROLE;
+
+SET LOCAL ROLE jas_si_agent_review_audit_owner;
 DROP TRIGGER IF EXISTS jas_si_agent_task_review_events_immutable
     ON public.jas_si_agent_task_review_events;
 CREATE TRIGGER jas_si_agent_task_review_events_immutable
@@ -163,7 +168,9 @@ DROP TRIGGER IF EXISTS jas_si_agent_task_review_events_no_truncate
 CREATE TRIGGER jas_si_agent_task_review_events_no_truncate
     BEFORE TRUNCATE ON public.jas_si_agent_task_review_events
     FOR EACH STATEMENT EXECUTE FUNCTION public.jas_si_agent_task_review_event_immutable();
+RESET ROLE;
 
+SET LOCAL ROLE jas_si_agent_task_owner;
 CREATE OR REPLACE FUNCTION public.jas_si_agent_task_human_review_decide(
     p_task_id uuid,
     p_tenant_id uuid,
