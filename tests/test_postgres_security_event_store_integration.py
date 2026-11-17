@@ -314,6 +314,8 @@ class TestPostgresAgentTaskStore(unittest.TestCase):
             "20261118_shared_api_rate_limits.sql",
             "20261119_general_runtime_customer_identity_acl.sql",
             "20261120_api_key_auth_runtime_tenant_acl.sql",
+            "20261121_security_audit_writer_boundary.sql",
+            "20261122_customer_rate_limit_owner_boundary.sql",
             "20261123_agent_task_store.sql",
             "20261123_agent_task_scope_allowlist.sql",
             "20261124_agent_task_worker_lifecycle.sql",
