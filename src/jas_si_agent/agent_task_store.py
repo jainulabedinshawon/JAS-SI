@@ -26,6 +26,10 @@ class AgentTaskReviewConflict(AgentTaskStoreError):
     """A human review decision conflicts with the current task state."""
 
 
+class AgentTaskNotFound(AgentTaskStoreError):
+    """A task is absent or not visible to the authenticated tenant."""
+
+
 @dataclass(frozen=True)
 class AgentTask:
     task_id: uuid.UUID
@@ -383,7 +387,7 @@ class PostgresAgentTaskStore:
                 )
                 row = cursor.fetchone()
             if row is None:
-                raise AgentTaskStoreError("Task is not available for this tenant")
+                raise AgentTaskNotFound("Task is not available for this tenant")
             return {
                 "decision_event_id": str(row[0]),
                 "task_status": row[1],
