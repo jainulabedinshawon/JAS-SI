@@ -219,7 +219,8 @@ class PostgresApiKeyRegistry:
                         to_regclass('public.jas_si_api_keys'),
                         to_regclass('public.jas_si_api_key_provisioning_runs'),
                         to_regclass('public.jas_si_audit_events'),
-                        to_regclass('public.jas_si_audit_chain_state')
+                        to_regclass('public.jas_si_audit_chain_state'),
+                        to_regprocedure('public.jas_si_audit_append_event(jsonb)')
                     """
                 )
                 row = cursor.fetchone()
