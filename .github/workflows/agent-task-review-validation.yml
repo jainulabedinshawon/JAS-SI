@@ -54,3 +54,18 @@ jobs:
             tests/test_agent_task_worker_runtime.py \
             tests/test_agent_task_worker_store.py \
             tests/test_agent_task_worker_supervisor.py
+      - name: Validate customer portal JavaScript syntax
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from jas_si_agent.customer_portal import CUSTOMER_PORTAL_HTML
+
+          start = CUSTOMER_PORTAL_HTML.index("<script>") + len("<script>")
+          end = CUSTOMER_PORTAL_HTML.index("</script>", start)
+          Path("/tmp/jas-si-customer-portal.js").write_text(
+              CUSTOMER_PORTAL_HTML[start:end], encoding="utf-8"
+          )
+          PY
+          node --check /tmp/jas-si-customer-portal.js
