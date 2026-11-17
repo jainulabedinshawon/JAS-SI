@@ -68,6 +68,8 @@ class FakeTaskStore:
         self.created = []
         self.cancelled = []
         self.review_decisions = []
+        self.review_queue_requests = []
+        self.review_history_requests = []
 
     def create(self, **kwargs):
         self.created.append(kwargs)
@@ -87,6 +89,36 @@ class FakeTaskStore:
             "verification_reason_code": "EVIDENCE_MISSING" if self.task.status == "human_review_required" else None,
         }
 
+
+
+    def list_human_review_queue(self, **kwargs):
+        self.review_queue_requests.append(kwargs)
+        return [{
+            "task_id": str(self.task.task_id),
+            "task_type": "github.read_repository",
+            "status": "human_review_required",
+            "verification_status": "INCONCLUSIVE",
+            "verification_reason_code": "EVIDENCE_MISSING",
+            "verifier_attempt_count": 3,
+            "created_at": "2026-11-17T00:00:00+00:00",
+            "updated_at": "2026-11-17T00:01:00+00:00",
+        }]
+
+    def get_human_review_history(self, **kwargs):
+        self.review_history_requests.append(kwargs)
+        if kwargs["task_id"] != self.task.task_id:
+            return None
+        return {
+            "task_id": str(self.task.task_id),
+            "items": [{
+                "decision_event_id": "00000000-0000-0000-0000-000000000044",
+                "decision": "close_unverified",
+                "reason_code": "OWNER_CONFIRMED",
+                "previous_status": "human_review_required",
+                "resulting_status": "closed_unverified",
+                "decided_at": "2026-11-17T00:00:00+00:00",
+            }],
+        }
 
     def verify_review_schema(self):
         return True
@@ -273,6 +305,49 @@ class TestAgentTaskAPI(TestCase):
         self.assertIsNone(task["verification_status"])
         self.assertIsNone(task["verification_reason_code"])
 
+
+
+    def test_human_review_queue_requires_customer_session(self):
+        response = self.client.get("/v1/customer/agent/tasks/review-queue")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.store.review_queue_requests, [])
+
+    def test_human_review_queue_uses_session_tenant_and_returns_sanitized_items(self):
+        response = self.client.get(
+            "/v1/customer/agent/tasks/review-queue?limit=25",
+            cookies={"jassi_customer_session": "valid-customer-session"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        item = response.json()["items"][0]
+        self.assertEqual(item["status"], "human_review_required")
+        self.assertNotIn("input_payload", item)
+        self.assertEqual(
+            self.store.review_queue_requests[0],
+            {
+                "tenant_id": uuid.UUID("00000000-0000-0000-0000-000000000011"),
+                "limit": 25,
+            },
+        )
+
+    def test_human_review_history_is_session_tenant_scoped(self):
+        response = self.client.get(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000080/review-history",
+            cookies={"jassi_customer_session": "valid-customer-session"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"][0]["decision"], "close_unverified")
+        self.assertEqual(
+            self.store.review_history_requests[0]["tenant_id"],
+            uuid.UUID("00000000-0000-0000-0000-000000000011"),
+        )
+
+    def test_human_review_history_hides_tasks_outside_authenticated_tenant(self):
+        response = self.client.get(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000081/review-history",
+            cookies={"jassi_customer_session": "valid-customer-session"},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_human_review_requires_a_valid_customer_session(self):
         response = self.client.post(
