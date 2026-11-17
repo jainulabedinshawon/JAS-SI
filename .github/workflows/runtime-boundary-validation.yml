@@ -1,0 +1,52 @@
+name: JAS-SI Runtime Database Boundary Validation
+
+on:
+  pull_request:
+    branches:
+      - feat/durable-agent-task-store-v1
+    paths:
+      - "src/jas_si_agent/api.py"
+      - "src/jas_si_agent/api_key_registry.py"
+      - "src/jas_si_agent/customer_rate_limit.py"
+      - "src/jas_si_agent/postgres_security_event_store.py"
+      - "tests/test_api_key_registry.py"
+      - "tests/test_customer_rate_limit.py"
+      - "tests/test_postgres_security_event_store.py"
+      - ".github/workflows/runtime-boundary-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jas-si-runtime-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-boundary-tests:
+    name: Python 3.10 runtime database boundary tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+      - name: Install runtime dependencies and pinned test runner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . pytest==8.3.5
+      - name: Run audit writer, rate limiter, and API-key registry tests
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest -q \
+            tests/test_postgres_security_event_store.py \
+            tests/test_customer_rate_limit.py \
+            tests/test_api_key_registry.py
