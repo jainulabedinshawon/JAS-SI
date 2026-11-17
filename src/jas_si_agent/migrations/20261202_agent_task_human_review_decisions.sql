@@ -76,10 +76,8 @@ ALTER TABLE public.jas_si_agent_tasks
 
 GRANT USAGE ON SCHEMA public TO jas_si_agent_review_audit_owner;
 GRANT CREATE ON SCHEMA public TO jas_si_agent_review_audit_owner;
-SET LOCAL ROLE jas_si_agent_task_owner;
 GRANT REFERENCES (task_id) ON TABLE public.jas_si_agent_tasks
     TO jas_si_agent_review_audit_owner;
-RESET ROLE;
 SET LOCAL ROLE jas_si_agent_review_audit_owner;
 
 CREATE TABLE IF NOT EXISTS public.jas_si_agent_task_review_events (
