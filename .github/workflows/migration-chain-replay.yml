@@ -272,4 +272,94 @@ jobs:
                       )
               cur.execute("RESET SESSION AUTHORIZATION")
               print("Verified worker LOGIN capability: deterministic denial is terminal; transient failure retries")
+
+              # Verify the application audit writer works through its SECURITY
+              # DEFINER routine while direct audit-table mutation remains denied.
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_runtime_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute(
+                  "GRANT jas_si_runtime TO jas_si_agent_runtime_test "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
+              from jas_si_agent.postgres_security_event_store import PostgresSecurityEventStore
+              with psycopg.connect(dsn) as runtime_conn:
+                  with runtime_conn.cursor() as runtime_cur:
+                      runtime_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_runtime_test")
+                      runtime_cur.execute("SET ROLE jas_si_runtime")
+                  PostgresSecurityEventStore.append_in_transaction(
+                      runtime_conn,
+                      {"event_type":"migration_replay_runtime_audit_writer","verified":True},
+                  )
+                  audit_result = PostgresSecurityEventStore.verify_integrity_in_transaction(runtime_conn)
+                  if audit_result.get("valid") is not True:
+                      raise SystemExit(f"Runtime audit writer produced an invalid chain: {audit_result!r}")
+                  with runtime_conn.cursor() as runtime_cur:
+                      runtime_cur.execute("SAVEPOINT direct_audit_write_guard")
+                      try:
+                          runtime_cur.execute(
+                              """INSERT INTO public.jas_si_audit_events(
+                                   event_payload,previous_hash,event_hash
+                                 ) VALUES ('{}'::jsonb,%s,%s)""",
+                              ("0"*64,"1"*64),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          runtime_cur.execute("ROLLBACK TO SAVEPOINT direct_audit_write_guard")
+                      else:
+                          raise SystemExit("Runtime role retained direct audit-table INSERT")
+                      runtime_cur.execute("RELEASE SAVEPOINT direct_audit_write_guard")
+                      runtime_cur.execute("RESET SESSION AUTHORIZATION")
+              print("Verified runtime audit writer routine and denied direct audit-table INSERT")
+
+              # Customer email throttling also crosses a database-owned
+              # SECURITY DEFINER boundary; the runtime role cannot touch rows.
+              cur.execute(
+                  "CREATE ROLE jas_si_customer_runtime_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute(
+                  "GRANT jas_si_customer_runtime TO jas_si_customer_runtime_test "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
+              rate_bucket = bytes([11])*32
+              with psycopg.connect(dsn) as customer_conn:
+                  with customer_conn.cursor() as customer_cur:
+                      customer_cur.execute("SET SESSION AUTHORIZATION jas_si_customer_runtime_test")
+                      customer_cur.execute("SET ROLE jas_si_customer_runtime")
+                      customer_cur.execute(
+                          """SELECT allowed,retry_after_seconds
+                               FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
+                          (rate_bucket,),
+                      )
+                      first_rate = customer_cur.fetchone()
+                      customer_cur.execute(
+                          """SELECT allowed,retry_after_seconds
+                               FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
+                          (rate_bucket,),
+                      )
+                      second_rate = customer_cur.fetchone()
+                      if first_rate is None or first_rate[0] is not True:
+                          raise SystemExit(f"First customer rate-limit request was not allowed: {first_rate!r}")
+                      if second_rate is None or second_rate[0] is not False:
+                          raise SystemExit(f"Customer rate-limit threshold was not enforced: {second_rate!r}")
+                      customer_cur.execute("SAVEPOINT direct_rate_limit_write_guard")
+                      try:
+                          customer_cur.execute(
+                              """INSERT INTO public.jas_si_customer_rate_limits(
+                                   bucket_key,window_started_at,request_count
+                                 ) VALUES (%s,clock_timestamp(),1)""",
+                              (bytes([12])*32,),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          customer_cur.execute("ROLLBACK TO SAVEPOINT direct_rate_limit_write_guard")
+                      else:
+                          raise SystemExit("Customer runtime retained direct rate-limit table INSERT")
+                      customer_cur.execute("RELEASE SAVEPOINT direct_rate_limit_write_guard")
+                      customer_cur.execute("RESET SESSION AUTHORIZATION")
+              print("Verified database-owned customer rate limiting and denied direct table INSERT")
           PY
