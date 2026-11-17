@@ -285,6 +285,7 @@ jobs:
                   "GRANT jas_si_runtime TO jas_si_agent_runtime_test "
                   "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
               )
+              conn.commit()
               from jas_si_agent.postgres_security_event_store import PostgresSecurityEventStore
               with psycopg.connect(dsn) as runtime_conn:
                   with runtime_conn.cursor() as runtime_cur:
@@ -326,6 +327,7 @@ jobs:
                   "GRANT jas_si_customer_runtime TO jas_si_customer_runtime_test "
                   "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
               )
+              conn.commit()
               rate_bucket = bytes([11])*32
               with psycopg.connect(dsn) as customer_conn:
                   with customer_conn.cursor() as customer_cur:
