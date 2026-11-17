@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 from jas_si_agent import api
+from jas_si_agent.customer_portal import CUSTOMER_PORTAL_HTML
 from jas_si_agent.agent_task_store import AgentTask, AgentTaskSubmission
 
 
@@ -306,6 +307,16 @@ class TestAgentTaskAPI(TestCase):
         self.assertIsNone(task["verification_reason_code"])
 
 
+
+
+    def test_customer_portal_exposes_session_protected_human_review_workflow(self):
+        self.assertIn("/v1/customer/agent/tasks/review-queue", CUSTOMER_PORTAL_HTML)
+        self.assertIn("/review-history?limit=50", CUSTOMER_PORTAL_HTML)
+        self.assertIn("close_unverified", CUSTOMER_PORTAL_HTML)
+        self.assertIn("request_more_evidence", CUSTOMER_PORTAL_HTML)
+        self.assertIn("X-JAS-SI-CSRF", CUSTOMER_PORTAL_HTML)
+        self.assertIn("Idempotency-Key", CUSTOMER_PORTAL_HTML)
+        self.assertIn("Verified Success: no.", CUSTOMER_PORTAL_HTML)
 
     def test_human_review_queue_requires_customer_session(self):
         response = self.client.get("/v1/customer/agent/tasks/review-queue")
