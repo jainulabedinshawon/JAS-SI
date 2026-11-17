@@ -263,14 +263,14 @@ BEGIN
            AND status='human_review_required';
     END IF;
 
-    INSERT INTO public.jas_si_agent_task_review_events(
+    INSERT INTO public.jas_si_agent_task_review_events AS review_event(
         task_id,tenant_id,reviewer_account_id,idempotency_key,
         decision,reason_code,previous_status,resulting_status,decided_at
     ) VALUES (
         p_task_id,p_tenant_id,p_reviewer_account_id,p_idempotency_key,
         p_decision,p_reason_code,'human_review_required',v_next_status,v_now
     )
-    RETURNING decision_event_id,decided_at
+    RETURNING review_event.decision_event_id,review_event.decided_at
          INTO v_event_id,v_decided_at;
 
     RETURN QUERY SELECT v_event_id,v_next_status,true,v_decided_at;
