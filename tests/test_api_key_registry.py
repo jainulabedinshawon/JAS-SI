@@ -14,9 +14,76 @@ if str(SRC) not in sys.path:
 from jas_si_agent.api_key_registry import (
     ApiKeyError,
     KEY_PREFIX,
+    PostgresApiKeyRegistry,
     _digest,
     parse_token,
 )
+
+
+
+class TestAuditWriterBoundaryReadiness(unittest.TestCase):
+    def _registry_with_boundary_row(self, row):
+        cursor = FakeRegistryCursor(row)
+        connection = FakeRegistryConnection(cursor)
+        psycopg_module = ModuleType("psycopg")
+        psycopg_module.connect = lambda dsn: connection
+        registry = PostgresApiKeyRegistry(
+            "postgresql://test:test@localhost/test",
+            b"p" * 32,
+        )
+        return registry, psycopg_module
+
+    def test_accepts_database_owned_audit_writer_boundary(self):
+        row = (
+            True, ["search_path=pg_catalog"], "jas_si_audit_writer_owner",
+            False, False, False, False, False, False, False,
+            True, True, False, False,
+        )
+        registry, psycopg_module = self._registry_with_boundary_row(row)
+        with patch.dict(sys.modules, {"psycopg": psycopg_module}):
+            self.assertTrue(registry.verify_audit_writer_boundary())
+
+    def test_rejects_public_execute_on_audit_writer(self):
+        row = (
+            True, ["search_path=pg_catalog"], "jas_si_audit_writer_owner",
+            False, False, False, False, False, False, False,
+            True, True, True, False,
+        )
+        registry, psycopg_module = self._registry_with_boundary_row(row)
+        with patch.dict(sys.modules, {"psycopg": psycopg_module}):
+            self.assertFalse(registry.verify_audit_writer_boundary())
+
+
+class FakeRegistryCursor:
+    def __init__(self, row):
+        self.row = row
+        self.query = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, query, params=None):
+        self.query = query
+
+    def fetchone(self):
+        return self.row
+
+
+class FakeRegistryConnection:
+    def __init__(self, cursor):
+        self.fake_cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def cursor(self):
+        return self.fake_cursor
 
 
 class TestApiKeyPrimitives(unittest.TestCase):
