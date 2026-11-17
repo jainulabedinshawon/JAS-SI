@@ -57,8 +57,12 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
             ROOT / "src/jas_si_agent/migrations/20261110_usage_metering.sql",
             ROOT / "src/jas_si_agent/migrations/20261110_usage_idempotency_fingerprint.sql",
             ROOT / "src/jas_si_agent/migrations/20261111_usage_append_only_role_grants.sql",
+            ROOT / "src/jas_si_agent/migrations/20261110_customer_identity.sql",
+            ROOT / "src/jas_si_agent/migrations/20261112_customer_identity_routines.sql",
+            ROOT / "src/jas_si_agent/migrations/20261113_customer_api_key_routines.sql",
             ROOT / "src/jas_si_agent/migrations/20261115_api_key_auth_boundary.sql",
             ROOT / "src/jas_si_agent/migrations/20261116_api_key_bound_usage_routines.sql",
+            ROOT / "src/jas_si_agent/migrations/20261121_security_audit_writer_boundary.sql",
         ]
         with psycopg.connect(cls.dsn) as connection:
             with connection.cursor() as cursor:
@@ -80,6 +84,11 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                 )
                 if cursor.fetchone() is None:
                     cursor.execute("CREATE ROLE jas_si_runtime NOLOGIN")
+                cursor.execute(
+                    "SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_key_runtime'"
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute("CREATE ROLE jas_si_customer_key_runtime NOLOGIN")
                 for migration in migrations:
                     cursor.execute(migration.read_text(encoding="utf-8"))
 
@@ -452,7 +461,7 @@ class TestAtomicApiKeyProvisioning(unittest.TestCase):
                     )
                     self.assertEqual(
                         cursor.fetchone(),
-                        (True, True, True, True, True, True, False, False),
+                        (True, False, False, True, False, True, False, False),
                     )
 
                 if runtime_exists:
