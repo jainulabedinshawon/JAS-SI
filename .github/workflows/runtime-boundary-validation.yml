@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - feat/durable-agent-task-store-v1
+      - feat/verifier-inconclusive-review-lifecycle-rebased
     paths:
       - "src/jas_si_agent/api.py"
       - "src/jas_si_agent/api_key_registry.py"
