@@ -126,6 +126,8 @@ CREATE POLICY jas_si_agent_task_review_owner_all
     ON public.jas_si_agent_task_review_events
     FOR ALL TO jas_si_agent_review_audit_owner
     USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS jas_si_agent_task_review_routine_all
+    ON public.jas_si_agent_task_review_events;
 CREATE POLICY jas_si_agent_task_review_routine_all
     ON public.jas_si_agent_task_review_events
     FOR ALL TO jas_si_agent_task_owner
