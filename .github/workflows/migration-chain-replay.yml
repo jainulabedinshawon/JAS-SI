@@ -396,5 +396,46 @@ jobs:
               review_event_count = cur.fetchone()[0]
               if review_event_count != 2:
                   raise SystemExit(f"Expected two immutable review events, found {review_event_count}")
-              print("Verified Human Review runtime boundary: tenant isolation, atomic disposition, append-only audit and idempotency")
+
+              # Even the isolated audit-table owner cannot mutate review events;
+              # UPDATE and TRUNCATE triggers must reject changes.
+              cur.execute("SET ROLE jas_si_agent_review_audit_owner")
+              cur.execute("SAVEPOINT review_audit_update_guard")
+              try:
+                  cur.execute(
+                      """UPDATE public.jas_si_agent_task_review_events
+                            SET reason_code='TAMPERED'
+                          WHERE task_id=%s""",
+                      (review_task_id,),
+                  )
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "55000":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT review_audit_update_guard")
+              else:
+                  raise SystemExit("Append-only review audit accepted UPDATE")
+              cur.execute("RELEASE SAVEPOINT review_audit_update_guard")
+
+              cur.execute("SAVEPOINT review_audit_truncate_guard")
+              try:
+                  cur.execute("TRUNCATE public.jas_si_agent_task_review_events")
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "55000":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT review_audit_truncate_guard")
+              else:
+                  raise SystemExit("Append-only review audit accepted TRUNCATE")
+              cur.execute("RELEASE SAVEPOINT review_audit_truncate_guard")
+              cur.execute("RESET ROLE")
+
+              cur.execute(
+                  """SELECT count(*),bool_and(reason_code<>'TAMPERED')
+                       FROM public.jas_si_agent_task_review_events
+                      WHERE task_id IN (%s,%s)""",
+                  (review_task_id,review_task_more_id),
+              )
+              immutable_audit = cur.fetchone()
+              if immutable_audit != (2, True):
+                  raise SystemExit(f"Human review audit was mutated: {immutable_audit!r}")
+              print("Verified Human Review runtime boundary: tenant isolation, atomic disposition, idempotency and immutable audit")
           PY
