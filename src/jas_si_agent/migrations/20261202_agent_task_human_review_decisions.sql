@@ -265,8 +265,7 @@ BEGIN
         p_task_id,p_tenant_id,p_reviewer_account_id,p_idempotency_key,
         p_decision,p_reason_code,'human_review_required',v_next_status,v_now
     )
-    RETURNING public.jas_si_agent_task_review_events.decision_event_id,
-              public.jas_si_agent_task_review_events.decided_at
+    RETURNING decision_event_id,decided_at
          INTO v_event_id,v_decided_at;
 
     RETURN QUERY SELECT v_event_id,v_next_status,true,v_decided_at;
