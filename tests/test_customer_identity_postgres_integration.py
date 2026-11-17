@@ -251,7 +251,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         self.assertEqual(len(key), 32)
         self.assertNotIn(ip.encode("ascii"), key)
         self.assertTrue(limiter.check(ip, limit=5, window_seconds=60)[0])
-        with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT bucket_key FROM jas_si_customer_rate_limits WHERE bucket_key=%s",
                 (key,),
@@ -392,7 +392,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'DELETE')"""
             )
             privileges = cur.fetchone()
-        self.assertEqual(privileges, (False, False, False, False, False, False, False, False, False, True, True, True, False))
+        self.assertEqual(privileges, (False, False, False, False, False, False, False, False, False, False, False, False, False))
 
     def test_customer_usage_reads_are_session_bound_and_not_directly_selectable(self):
         from datetime import datetime, timezone
