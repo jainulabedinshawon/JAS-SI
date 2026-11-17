@@ -7,6 +7,7 @@ on:
       - main
       - feat/customer-identity-onboarding-v1
       - fix/tenant-suspension-locking-after-onboarding-fix
+      - feat/durable-agent-task-store-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -90,6 +91,7 @@ jobs:
           required_acl_migrations = (
               "20261119_general_runtime_customer_identity_acl.sql",
               "20261120_api_key_auth_runtime_tenant_acl.sql",
+              "20261115z_api_key_auth_tenant_lock_reassert.sql",
               "20261121_security_audit_writer_boundary.sql",
               "20261122_customer_rate_limit_owner_boundary.sql",
               "20261123_agent_task_store.sql",
