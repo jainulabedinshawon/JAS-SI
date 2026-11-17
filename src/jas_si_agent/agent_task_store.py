@@ -22,6 +22,10 @@ class AgentTaskIdempotencyConflict(AgentTaskStoreError):
     """An idempotency key was reused for a different request."""
 
 
+class AgentTaskReviewConflict(AgentTaskStoreError):
+    """A human review decision conflicts with the current task state."""
+
+
 @dataclass(frozen=True)
 class AgentTask:
     task_id: uuid.UUID
@@ -283,3 +287,99 @@ class PostgresAgentTaskStore:
                 return bool(cursor.fetchone()[0])
         except Exception as exc:
             raise AgentTaskStoreError("Unable to cancel agent task") from exc
+
+    def verify_review_schema(self) -> bool:
+        """Verify the isolated human-review routine and append-only audit boundary."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     pg_catalog.to_regclass('public.jas_si_agent_task_review_events') IS NOT NULL,
+                     pg_catalog.to_regprocedure(
+                       'public.jas_si_agent_task_human_review_decide(uuid,uuid,uuid,text,text,text)'
+                     ) IS NOT NULL,
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_human_review_decide(uuid,uuid,uuid,text,text,text)',
+                       'EXECUTE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','SELECT'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','INSERT'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','UPDATE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','DELETE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','TRUNCATE'
+                     ),
+                     EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_trigger t
+                        WHERE t.tgrelid='public.jas_si_agent_task_review_events'::regclass
+                          AND t.tgname='jas_si_agent_task_review_events_immutable'
+                          AND t.tgenabled='O'
+                     ),
+                     EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_trigger t
+                        WHERE t.tgrelid='public.jas_si_agent_task_review_events'::regclass
+                          AND t.tgname='jas_si_agent_task_review_events_no_truncate'
+                          AND t.tgenabled='O'
+                     )
+                """
+            )
+            row = cursor.fetchone()
+        return bool(row and all(value is True for value in row))
+
+    def record_human_review_decision(
+        self, *, task_id: uuid.UUID, tenant_id: uuid.UUID,
+        reviewer_account_id: uuid.UUID, decision: str, reason_code: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Record an authenticated tenant-owner decision through one DB routine."""
+        if not all(isinstance(value, uuid.UUID) for value in (
+            task_id, tenant_id, reviewer_account_id
+        )):
+            raise ValueError("Task, tenant, and reviewer identifiers must be UUIDs")
+        if decision not in {"request_more_evidence", "close_unverified"}:
+            raise ValueError("Unsupported human review decision")
+        if not isinstance(reason_code, str) or re.fullmatch(
+            r"[A-Z0-9_]{1,64}", reason_code
+        ) is None:
+            raise ValueError("Invalid human review reason code")
+        if not isinstance(idempotency_key, str) or re.fullmatch(
+            r"[A-Za-z0-9._:-]{1,128}", idempotency_key
+        ) is None:
+            raise ValueError("Invalid review idempotency key")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT decision_event_id,task_status,created,decided_at
+                       FROM public.jas_si_agent_task_human_review_decide(
+                         %s,%s,%s,%s,%s,%s)""",
+                    (task_id,tenant_id,reviewer_account_id,decision,reason_code,idempotency_key),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise AgentTaskStoreError("Task is not available for this tenant")
+            return {
+                "decision_event_id": str(row[0]),
+                "task_status": row[1],
+                "created": bool(row[2]),
+                "decided_at": row[3].isoformat(),
+            }
+        except (ValueError, AgentTaskStoreError):
+            raise
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) in {"22023", "55000", "40001"}:
+                raise AgentTaskReviewConflict(
+                    "Task review decision conflicts with the current task state"
+                ) from exc
+            raise AgentTaskStoreError("Unable to record human review decision") from exc
+
