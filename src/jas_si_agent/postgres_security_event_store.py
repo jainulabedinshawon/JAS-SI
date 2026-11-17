@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 from typing import Any, Mapping
 
@@ -9,7 +10,6 @@ from jas_si_agent.security_event_store import (
     MAX_EVENT_BYTES,
     SecurityEventStoreError,
     _canonical_json,
-    _event_hash,
 )
 
 
@@ -62,60 +62,8 @@ class PostgresSecurityEventStore:
 
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
-                    INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                    VALUES (TRUE, %s)
-                    ON CONFLICT (singleton) DO NOTHING
-                    """,
-                    (GENESIS_HASH,),
-                )
-                cursor.execute(
-                    """
-                    SELECT last_hash
-                    FROM jas_si_audit_chain_state
-                    WHERE singleton = TRUE
-                    FOR UPDATE
-                    """
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    raise SecurityEventStoreError(
-                        "Audit chain state is unavailable"
-                    )
-
-                previous_hash = row[0]
-                if not _valid_hash(previous_hash):
-                    raise SecurityEventStoreError(
-                        "Invalid database chain checkpoint"
-                    )
-
-                cursor.execute("SELECT %s::jsonb", (Jsonb(event_data),))
-                normalized_row = cursor.fetchone()
-                if (
-                    normalized_row is None
-                    or not isinstance(normalized_row[0], dict)
-                ):
-                    raise SecurityEventStoreError(
-                        "Unable to normalize audit event"
-                    )
-
-                normalized_event = normalized_row[0]
-                new_hash = _event_hash(normalized_event, previous_hash)
-                cursor.execute(
-                    """
-                    INSERT INTO jas_si_audit_events
-                        (event_payload, previous_hash, event_hash)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (Jsonb(normalized_event), previous_hash, new_hash),
-                )
-                cursor.execute(
-                    """
-                    UPDATE jas_si_audit_chain_state
-                    SET last_hash = %s
-                    WHERE singleton = TRUE
-                    """,
-                    (new_hash,),
+                    "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+                    (Jsonb(event_data),),
                 )
         except SecurityEventStoreError:
             raise
@@ -149,7 +97,8 @@ class PostgresSecurityEventStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT event_payload, previous_hash, event_hash
+                    SELECT event_payload, previous_hash, event_hash,
+                           public.jas_si_customer_key_canonical_jsonb(event_payload)
                     FROM jas_si_audit_events
                     ORDER BY event_id ASC
                     """
@@ -167,7 +116,7 @@ class PostgresSecurityEventStore:
             previous_hash = GENESIS_HASH
             verified_count = 0
             for event_number, row in enumerate(rows, start=1):
-                payload, recorded_previous, recorded_hash = row
+                payload, recorded_previous, recorded_hash, canonical_payload = row
                 if not isinstance(payload, dict):
                     raise SecurityEventStoreError(
                         f"Invalid event payload at position {event_number}"
@@ -184,12 +133,18 @@ class PostgresSecurityEventStore:
                     raise SecurityEventStoreError(
                         f"Hash-chain link mismatch at position {event_number}"
                     )
-                try:
-                    expected_hash = _event_hash(payload, previous_hash)
-                except (TypeError, ValueError, RecursionError) as exc:
+                if not isinstance(canonical_payload, str):
                     raise SecurityEventStoreError(
-                        f"Invalid event data at position {event_number}"
-                    ) from exc
+                        f"Invalid canonical event data at position {event_number}"
+                    )
+                material = (
+                    b'{"event":'
+                    + canonical_payload.encode("utf-8")
+                    + b',"previous_hash":'
+                    + ('"' + previous_hash + '"').encode("utf-8")
+                    + b'}'
+                )
+                expected_hash = hashlib.sha256(material).hexdigest()
                 if not hmac.compare_digest(recorded_hash, expected_hash):
                     raise SecurityEventStoreError(
                         f"Event hash mismatch at position {event_number}"
