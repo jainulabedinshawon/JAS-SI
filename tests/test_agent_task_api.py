@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from jas_si_agent import api
 from jas_si_agent.customer_portal import CUSTOMER_PORTAL_HTML
-from jas_si_agent.agent_task_store import AgentTask, AgentTaskSubmission
+from jas_si_agent.agent_task_store import AgentTask, AgentTaskNotFound, AgentTaskSubmission
 
 
 class FakeEventStore:
@@ -126,6 +126,8 @@ class FakeTaskStore:
 
     def record_human_review_decision(self, **kwargs):
         self.review_decisions.append(kwargs)
+        if kwargs["task_id"] != self.task.task_id:
+            raise AgentTaskNotFound("Task is not available for this tenant")
         return {
             "decision_event_id": "00000000-0000-0000-0000-000000000044",
             "task_status": (
@@ -410,6 +412,22 @@ class TestAgentTaskAPI(TestCase):
         )
         self.assertEqual(decision["decision"], "close_unverified")
         self.assertEqual(decision["idempotency_key"], "review-close-001")
+
+
+    def test_human_review_hides_unknown_or_other_tenant_tasks_with_not_found(self):
+        response = self.client.post(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000081/review",
+            cookies={
+                "jassi_customer_session": "valid-customer-session",
+                "jassi_customer_csrf": "csrf-token",
+            },
+            headers={
+                "X-JAS-SI-CSRF": "csrf-token",
+                "Idempotency-Key": "review-hidden-001",
+            },
+            json={"decision": "close_unverified", "reason_code": "OWNER_CONFIRMED"},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_human_review_rejects_unknown_decision_without_database_write(self):
         response = self.client.post(
