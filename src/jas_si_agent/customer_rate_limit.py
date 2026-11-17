@@ -122,7 +122,7 @@ class PostgresCustomerRateLimiter:
                 with connection.cursor() as cursor:
                     cursor.execute(
                         "SELECT allowed,retry_after_seconds "
-                        "FROM public.jas_si_customer_rate_limit_check(%s,%s,%s)",
+                        "FROM public.jas_si_customer_rate_limit_check(%s::bytea,%s::integer,%s::integer)",
                         (bucket_key, limit, window_seconds),
                     )
                     row = cursor.fetchone()
