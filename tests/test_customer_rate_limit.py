@@ -65,7 +65,7 @@ class TestPostgresCustomerRateLimiter(unittest.TestCase):
         self.assertEqual(retry_after, 17)
         self.assertEqual(len(self.cursor.calls), 1)
         query, params = self.cursor.calls[0]
-        self.assertIn("public.jas_si_customer_rate_limit_check(%s,%s,%s)", query)
+        self.assertIn("public.jas_si_customer_rate_limit_check(%s::bytea,%s::integer,%s::integer)", query)
         self.assertEqual(len(params[0]), 32)
         self.assertEqual(params[1:], (5, 900))
         self.assertNotIn("INSERT INTO jas_si_customer_rate_limits", query)
