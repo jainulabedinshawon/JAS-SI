@@ -60,9 +60,11 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
+          import sys
           import psycopg
 
           root = Path.cwd()
+          sys.path.insert(0, str(root / "src"))
           migration_dir = root / "src" / "jas_si_agent" / "migrations"
           migrations = (
               "001_create_audit_tables.sql",
