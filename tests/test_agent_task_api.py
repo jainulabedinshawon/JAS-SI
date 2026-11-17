@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+import uuid
+from types import SimpleNamespace
 from unittest import TestCase
 
 from fastapi import HTTPException, Request
@@ -35,6 +37,18 @@ class FakeUsageMeter:
         }
 
 
+class FakeCustomerIdentityStore:
+    def __init__(self):
+        self.account = SimpleNamespace(
+            account_id=uuid.UUID("00000000-0000-0000-0000-000000000033"),
+            tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000011"),
+            status="active",
+        )
+
+    def authenticate_session(self, token):
+        return self.account if token == "valid-customer-session" else None
+
+
 class FakeTaskStore:
     def __init__(self):
         now = datetime(2026, 11, 15, tzinfo=timezone.utc)
@@ -53,6 +67,7 @@ class FakeTaskStore:
         )
         self.created = []
         self.cancelled = []
+        self.review_decisions = []
 
     def create(self, **kwargs):
         self.created.append(kwargs)
@@ -70,6 +85,23 @@ class FakeTaskStore:
             "review_required": self.task.status == "human_review_required",
             "verification_status": "INCONCLUSIVE" if self.task.status == "human_review_required" else None,
             "verification_reason_code": "EVIDENCE_MISSING" if self.task.status == "human_review_required" else None,
+        }
+
+
+    def verify_review_schema(self):
+        return True
+
+    def record_human_review_decision(self, **kwargs):
+        self.review_decisions.append(kwargs)
+        return {
+            "decision_event_id": "00000000-0000-0000-0000-000000000044",
+            "task_status": (
+                "closed_unverified"
+                if kwargs["decision"] == "close_unverified"
+                else "human_review_required"
+            ),
+            "created": True,
+            "decided_at": "2026-11-17T00:00:00+00:00",
         }
 
     def cancel(self, **kwargs):
@@ -104,6 +136,13 @@ class TestAgentTaskAPI(TestCase):
         self.store = FakeTaskStore()
         api.app.state.agent_task_store = self.store
         self.addCleanup(self._restore_task_store)
+
+        self.old_customer_identity_store = getattr(
+            api.app.state, "customer_identity_store", None
+        )
+        self.customer_identity_store = FakeCustomerIdentityStore()
+        api.app.state.customer_identity_store = self.customer_identity_store
+        self.addCleanup(self._restore_customer_identity_store)
 
         self.old_enabled = getattr(api.app.state, "agent_task_submission_enabled", None)
         api.app.state.agent_task_submission_enabled = True
@@ -143,6 +182,13 @@ class TestAgentTaskAPI(TestCase):
                 delattr(api.app.state, "agent_task_store")
         else:
             api.app.state.agent_task_store = self.old_task_store
+
+    def _restore_customer_identity_store(self):
+        if self.old_customer_identity_store is None:
+            if hasattr(api.app.state, "customer_identity_store"):
+                delattr(api.app.state, "customer_identity_store")
+        else:
+            api.app.state.customer_identity_store = self.old_customer_identity_store
 
     def _restore_enabled(self):
         if self.old_enabled is None:
@@ -226,6 +272,74 @@ class TestAgentTaskAPI(TestCase):
         self.assertFalse(task["review_required"])
         self.assertIsNone(task["verification_status"])
         self.assertIsNone(task["verification_reason_code"])
+
+
+    def test_human_review_requires_a_valid_customer_session(self):
+        response = self.client.post(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000080/review",
+            json={"decision": "close_unverified", "reason_code": "OWNER_CONFIRMED"},
+            headers={"Idempotency-Key": "review-session-001"},
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.store.review_decisions, [])
+
+    def test_human_review_requires_csrf_even_with_a_valid_customer_session(self):
+        response = self.client.post(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000080/review",
+            cookies={
+                "jassi_customer_session": "valid-customer-session",
+                "jassi_customer_csrf": "csrf-token",
+            },
+            json={"decision": "close_unverified", "reason_code": "OWNER_CONFIRMED"},
+            headers={"Idempotency-Key": "review-csrf-001"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.store.review_decisions, [])
+
+    def test_human_review_uses_server_derived_identity_and_never_asserts_success(self):
+        response = self.client.post(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000080/review",
+            cookies={
+                "jassi_customer_session": "valid-customer-session",
+                "jassi_customer_csrf": "csrf-token",
+            },
+            headers={
+                "X-JAS-SI-CSRF": "csrf-token",
+                "Idempotency-Key": "review-close-001",
+            },
+            json={"decision": "close_unverified", "reason_code": "OWNER_CONFIRMED"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["verified_success"])
+        self.assertEqual(response.json()["task_status"], "closed_unverified")
+        self.assertEqual(len(self.store.review_decisions), 1)
+        decision = self.store.review_decisions[0]
+        self.assertEqual(
+            decision["tenant_id"],
+            uuid.UUID("00000000-0000-0000-0000-000000000011"),
+        )
+        self.assertEqual(
+            decision["reviewer_account_id"],
+            uuid.UUID("00000000-0000-0000-0000-000000000033"),
+        )
+        self.assertEqual(decision["decision"], "close_unverified")
+        self.assertEqual(decision["idempotency_key"], "review-close-001")
+
+    def test_human_review_rejects_unknown_decision_without_database_write(self):
+        response = self.client.post(
+            "/v1/customer/agent/tasks/00000000-0000-0000-0000-000000000080/review",
+            cookies={
+                "jassi_customer_session": "valid-customer-session",
+                "jassi_customer_csrf": "csrf-token",
+            },
+            headers={
+                "X-JAS-SI-CSRF": "csrf-token",
+                "Idempotency-Key": "review-invalid-001",
+            },
+            json={"decision": "mark_verified_success", "reason_code": "OWNER_CONFIRMED"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.store.review_decisions, [])
 
     def test_cancel_task_uses_authenticated_key_context(self):
         response = self.client.post(
