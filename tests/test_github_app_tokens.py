@@ -37,7 +37,7 @@ class GitHubAppTokenIssuerTests(unittest.TestCase):
     def _response(self, *, repository="jainulabedinshawon/JAS-SI", permissions=None, expires=None):
         return {
             "token": "ghs-short-lived-test-token",
-            "expires_at": expires or datetime.fromtimestamp(self.now, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "expires_at": expires or datetime.fromtimestamp(self.now + 3600, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "repositories": [{"full_name": repository}],
             "permissions": permissions or dict(_READ_ONLY_PERMISSIONS),
         }
