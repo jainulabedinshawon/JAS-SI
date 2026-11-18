@@ -24,6 +24,13 @@ BEGIN
 END
 $preflight$;
 
+-- The task-owner role must create the tenant FK without gaining read access.
+-- Grant REFERENCES temporarily through the database owner, then revoke it.
+SET LOCAL ROLE neondb_owner;
+GRANT REFERENCES (tenant_id) ON public.jas_si_tenants
+    TO jas_si_agent_task_owner;
+RESET ROLE;
+
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
@@ -81,6 +88,13 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_app_installation_repositories (
 CREATE UNIQUE INDEX IF NOT EXISTS jas_si_github_repo_tenant_name_unique
     ON public.jas_si_github_app_installation_repositories
        (tenant_id,pg_catalog.lower(repository_full_name));
+
+RESET ROLE;
+SET LOCAL ROLE neondb_owner;
+REVOKE REFERENCES (tenant_id) ON public.jas_si_tenants
+    FROM jas_si_agent_task_owner;
+RESET ROLE;
+SET LOCAL ROLE jas_si_agent_task_owner;
 
 REVOKE ALL PRIVILEGES ON TABLE
     public.jas_si_github_app_installations,
