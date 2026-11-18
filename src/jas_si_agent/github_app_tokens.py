@@ -14,13 +14,18 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
+from uuid import UUID
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from jas_si_agent.github_installations import is_valid_github_repository
+from jas_si_agent.github_installations import (
+    TenantGitHubInstallationCredential,
+    TenantGitHubInstallationProvider,
+    is_valid_github_repository,
+)
 
 _GITHUB_API = "https://api.github.com"
 _API_VERSION = "2022-11-28"
@@ -203,8 +208,88 @@ class GitHubAppInstallationTokenIssuer:
             raise GitHubAppTokenError("GitHub returned an invalid or over-scoped installation token") from None
 
 
+
+@dataclass(frozen=True)
+class TenantGitHubInstallationBinding:
+    """Trusted persistence result binding one tenant to one installed repo."""
+
+    tenant_id: UUID
+    installation_id: int
+    repository: str
+
+
+class TenantGitHubInstallationBindingResolver(Protocol):
+    """Database/admin adapter; must return only verified tenant-owned bindings."""
+
+    def resolve(
+        self, *, tenant_id: UUID, repository: str
+    ) -> TenantGitHubInstallationBinding | None:
+        """Resolve an already verified installation/repository binding."""
+
+
+class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
+    """Bridge trusted tenant-installation records to short-lived App tokens.
+
+    The resolver is the security boundary: it must authenticate installation
+    ownership and repository allowlisting from trusted records. This provider
+    never accepts an installation ID from task payloads or user input.
+    """
+
+    def __init__(
+        self,
+        *,
+        binding_resolver: TenantGitHubInstallationBindingResolver,
+        token_issuer: GitHubAppInstallationTokenIssuer,
+    ) -> None:
+        if binding_resolver is None or not callable(getattr(binding_resolver, "resolve", None)):
+            raise ValueError("A trusted tenant installation binding resolver is required")
+        if token_issuer is None or not callable(getattr(token_issuer, "issue", None)):
+            raise ValueError("A GitHub App token issuer is required")
+        self._binding_resolver = binding_resolver
+        self._token_issuer = token_issuer
+
+    def resolve(
+        self, *, tenant_id: UUID, repository: str
+    ) -> TenantGitHubInstallationCredential | None:
+        if not isinstance(tenant_id, UUID):
+            raise GitHubAppTokenError("Authenticated tenant identity is required")
+        if not is_valid_github_repository(repository):
+            raise GitHubAppTokenError("Repository identifier is invalid")
+        try:
+            binding = self._binding_resolver.resolve(
+                tenant_id=tenant_id, repository=repository
+            )
+        except Exception:
+            raise GitHubAppTokenError("Tenant GitHub installation binding is unavailable") from None
+        if binding is None:
+            return None
+        if not isinstance(binding, TenantGitHubInstallationBinding):
+            raise GitHubAppTokenError("Tenant GitHub installation binding is invalid")
+        if (
+            binding.tenant_id != tenant_id
+            or binding.repository.casefold() != repository.casefold()
+            or isinstance(binding.installation_id, bool)
+            or not isinstance(binding.installation_id, int)
+            or binding.installation_id <= 0
+        ):
+            raise GitHubAppTokenError("Tenant GitHub installation binding mismatch")
+        issued = self._token_issuer.issue(
+            installation_id=binding.installation_id,
+            repository=repository,
+        )
+        return TenantGitHubInstallationCredential(
+            tenant_id=tenant_id,
+            installation_id=binding.installation_id,
+            repository=repository,
+            access_token=issued.access_token,
+            expires_at=issued.expires_at,
+        )
+
 __all__ = [
     "GitHubAppInstallationTokenIssuer",
+    "GitHubAppTenantCredentialProvider",
+    "TenantGitHubInstallationBinding",
+    "TenantGitHubInstallationBindingResolver",
     "GitHubAppTokenError",
     "GitHubAppTokenSettings",
     "IssuedGitHubInstallationToken",
