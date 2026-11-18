@@ -33,15 +33,16 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_webhook_inbox (
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 10),
     received_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
     processing_started_at timestamptz,
+    lease_expires_at timestamptz,
     processed_at timestamptz,
     next_attempt_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
     last_error_code varchar(64),
     CONSTRAINT jas_si_github_webhook_state_consistency CHECK (
-        (status='RECEIVED' AND processing_started_at IS NULL AND processed_at IS NULL)
-        OR (status='PROCESSING' AND processing_started_at IS NOT NULL AND processed_at IS NULL)
-        OR (status='PROCESSED' AND processing_started_at IS NOT NULL AND processed_at IS NOT NULL
+        (status='RECEIVED' AND processing_started_at IS NULL AND lease_expires_at IS NULL AND processed_at IS NULL)
+        OR (status='PROCESSING' AND processing_started_at IS NOT NULL AND lease_expires_at IS NOT NULL AND processed_at IS NULL)
+        OR (status='PROCESSED' AND processing_started_at IS NOT NULL AND lease_expires_at IS NULL AND processed_at IS NOT NULL
             AND last_error_code IS NULL)
-        OR (status='FAILED' AND processed_at IS NULL AND last_error_code IS NOT NULL)
+        OR (status='FAILED' AND lease_expires_at IS NULL AND processed_at IS NULL AND last_error_code IS NOT NULL)
     )
 );
 
@@ -72,6 +73,7 @@ CREATE OR REPLACE FUNCTION public.jas_si_github_webhook_receive(
 ) RETURNS TABLE(delivery_id text,status text,attempt_count integer,inserted boolean)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE v_row public.jas_si_github_webhook_inbox%ROWTYPE;
+        v_inserted boolean;
 BEGIN
     IF NOT pg_catalog.pg_has_role(session_user,'jas_si_runtime','MEMBER') THEN
         RAISE EXCEPTION 'Webhook service identity is not authorized' USING ERRCODE='42501';
@@ -97,6 +99,7 @@ BEGIN
     ) VALUES (
         p_delivery_id,p_event_name,p_action,p_installation_id,p_raw_body_sha256,p_payload
     ) ON CONFLICT (delivery_id) DO NOTHING;
+    v_inserted := FOUND;
 
     SELECT q.* INTO v_row
       FROM public.jas_si_github_webhook_inbox q
@@ -110,8 +113,7 @@ BEGIN
             USING ERRCODE='22023';
     END IF;
     RETURN QUERY SELECT v_row.delivery_id::text,v_row.status::text,
-        v_row.attempt_count,(v_row.attempt_count=0 AND v_row.status='RECEIVED'
-            AND v_row.received_at >= pg_catalog.transaction_timestamp()) ;
+        v_row.attempt_count,v_inserted;
 END;
 $function$;
 
@@ -138,9 +140,7 @@ BEGIN
          WHERE q.attempt_count<10
            AND q.next_attempt_at<=pg_catalog.clock_timestamp()
            AND (q.status IN ('RECEIVED','FAILED')
-                OR (q.status='PROCESSING'
-                    AND q.processing_started_at<=pg_catalog.clock_timestamp()
-                        -pg_catalog.make_interval(secs=>p_lease_seconds)))
+                OR (q.status='PROCESSING' AND q.lease_expires_at<=pg_catalog.clock_timestamp()))
          ORDER BY q.received_at,q.delivery_id
          LIMIT p_limit
          FOR UPDATE SKIP LOCKED
@@ -149,6 +149,7 @@ BEGIN
        SET status='PROCESSING',
            attempt_count=q.attempt_count+1,
            processing_started_at=pg_catalog.clock_timestamp(),
+           lease_expires_at=pg_catalog.clock_timestamp()+pg_catalog.make_interval(secs=>p_lease_seconds),
            processed_at=NULL,
            last_error_code=NULL
       FROM candidates c
@@ -168,7 +169,7 @@ BEGIN
     END IF;
     UPDATE public.jas_si_github_webhook_inbox
        SET status='PROCESSED',processed_at=pg_catalog.clock_timestamp(),
-           last_error_code=NULL
+           lease_expires_at=NULL,last_error_code=NULL
      WHERE delivery_id=p_delivery_id AND status='PROCESSING';
     RETURN FOUND;
 END;
@@ -190,7 +191,7 @@ BEGIN
         RAISE EXCEPTION 'Invalid GitHub webhook failure update' USING ERRCODE='22023';
     END IF;
     UPDATE public.jas_si_github_webhook_inbox
-       SET status='FAILED',processed_at=NULL,last_error_code=p_error_code,
+       SET status='FAILED',processed_at=NULL,lease_expires_at=NULL,last_error_code=p_error_code,
            next_attempt_at=pg_catalog.clock_timestamp()
                +pg_catalog.make_interval(secs=>p_retry_delay_seconds)
      WHERE delivery_id=p_delivery_id AND status='PROCESSING';
