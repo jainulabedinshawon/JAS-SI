@@ -1,8 +1,4 @@
-"""Read-only database and capability preflight for agent host processes.
-
-This proves connectivity and the exact database grants required by a host.
-It does not claim that the API is ready or that a task was executed.
-"""
+"""Read-only database and capability preflight for agent host processes."""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -16,54 +12,70 @@ def verify_agent_host_database_access(
     dsn: str,
     *,
     capability_role: str,
+    expected_login: str,
     required_functions: Sequence[str],
 ) -> None:
-    """Verify DB connectivity, role-switch permission, and routine EXECUTE grants.
-
-    The login roles are NOINHERIT. We therefore verify that the login can SET
-    ROLE to its one fixed capability role, then check routine privileges as
-    that effective role. No task claim or mutation routine is executed.
-    """
+    """Verify dedicated login, capability switch, routine grants, and table isolation."""
+    expected_logins = {
+        "jas_si_agent_worker": "jas_si_agent_worker_login",
+        "jas_si_agent_verifier": "jas_si_agent_verifier_login",
+    }
     if not isinstance(dsn, str) or not dsn.strip():
         raise AgentHostPreflightError("Agent host database DSN is required")
-    if capability_role not in {"jas_si_agent_worker", "jas_si_agent_verifier"}:
-        raise AgentHostPreflightError("Agent host capability role is invalid")
+    if capability_role not in expected_logins or expected_login != expected_logins[capability_role]:
+        raise AgentHostPreflightError("Agent host database identity is invalid")
     if not required_functions or any(
         not isinstance(item, str)
         or not item.startswith("public.jas_si_agent_task_")
         or "(" not in item
+        or not item.endswith(")")
         for item in required_functions
     ):
         raise AgentHostPreflightError("Agent host routine allowlist is invalid")
 
     import psycopg
 
-    privilege_checks = ", ".join(
+    routine_checks = ", ".join(
         "pg_catalog.has_function_privilege(current_user, %s, 'EXECUTE')"
         for _ in required_functions
     )
-    query = f"SELECT current_user, {privilege_checks}"
-    parameters = tuple(required_functions)
-
+    table_checks = [
+        "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'SELECT')",
+        "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'UPDATE')",
+    ]
+    if capability_role == "jas_si_agent_verifier":
+        table_checks.extend([
+            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'SELECT')",
+            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'INSERT')",
+        ])
+    query = (
+        "SELECT session_user, current_user, "
+        + routine_checks + ", " + ", ".join(table_checks)
+    )
     try:
         with psycopg.connect(dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
-                # capability_role is selected from the fixed allowlist above,
-                # so this is not caller-controlled SQL.
-                cursor.execute(f"SET ROLE {capability_role}")
-                cursor.execute(query, parameters)
+                cursor.execute("SET ROLE " + capability_role)
+                cursor.execute(query, tuple(required_functions))
                 row = cursor.fetchone()
     except Exception:
-        # Driver errors can contain hostnames, usernames, or credential material.
         raise AgentHostPreflightError(
             "Agent host database connectivity or privilege preflight failed"
         ) from None
 
-    if not row or len(row) != 1 + len(required_functions):
+    expected_length = 2 + len(required_functions) + len(table_checks)
+    if not row or len(row) != expected_length:
         raise AgentHostPreflightError("Agent host database preflight returned an invalid result")
-    if row[0] != capability_role or any(value is not True for value in row[1:]):
+    routine_values = row[2 : 2 + len(required_functions)]
+    table_values = row[2 + len(required_functions) :]
+    if (
+        row[0] != expected_login
+        or row[1] != capability_role
+        or any(value is not True for value in routine_values)
+        or any(value is not False for value in table_values)
+    ):
         raise AgentHostPreflightError(
-            "Agent host capability role lacks required routine privileges"
+            "Agent host identity, routine privileges, or direct-table boundary is invalid"
         )
 
 

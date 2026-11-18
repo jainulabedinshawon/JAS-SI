@@ -77,6 +77,7 @@ def main() -> None:
         verify_agent_host_database_access(
             dsn,
             capability_role="jas_si_agent_worker",
+            expected_login="jas_si_agent_worker_login",
             required_functions=(
                 "public.jas_si_agent_task_claim(uuid,integer)",
                 "public.jas_si_agent_task_renew(uuid,uuid,bigint,integer)",
