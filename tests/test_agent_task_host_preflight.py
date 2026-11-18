@@ -65,6 +65,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
+                expected_login="jas_si_agent_worker_login",
                 required_functions=WORKER_FUNCTIONS,
             )
 
