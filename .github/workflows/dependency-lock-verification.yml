@@ -95,7 +95,7 @@ jobs:
 
   persist-generated-lock:
     name: Persist Verified Lock on Trusted Branch Push
-    if: github.event_name == 'push' && github.ref_type == 'branch'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat/tenant-github-installation-binding-v1'
     needs: resolve-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 5
