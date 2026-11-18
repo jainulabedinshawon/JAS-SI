@@ -37,15 +37,16 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
 
     def test_worker_preflight_checks_role_and_all_worker_routines(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", True, True, True, True, True, True)
+        self.cursor.fetchone.return_value = ("jas_si_agent_worker", True, True, True, True, True)
         verify_agent_host_database_access(
             "postgresql://not-logged", capability_role="jas_si_agent_worker",
             required_functions=WORKER_FUNCTIONS,
         )
         self.psycopg.connect.assert_called_once_with("postgresql://not-logged", connect_timeout=5)
         query, params = self.cursor.execute.call_args.args
-        self.assertIn("pg_catalog.pg_has_role", query)
-        self.assertEqual(params, ("jas_si_agent_worker", *WORKER_FUNCTIONS))
+        self.assertIn("current_user", query)
+        self.assertEqual(params, WORKER_FUNCTIONS)
+        self.assertEqual(self.cursor.execute.call_args_list[0].args[0], "SET ROLE jas_si_agent_worker")
 
     def test_verifier_preflight_checks_separate_role_and_routines(self):
         self.cursor.fetchone.return_value = ("jas_si_agent_verifier_login", True, True, True, True)
@@ -55,11 +56,11 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         )
         self.assertEqual(
             self.cursor.execute.call_args.args[1],
-            ("jas_si_agent_verifier", *VERIFIER_FUNCTIONS),
+            VERIFIER_FUNCTIONS,
         )
 
     def test_rejects_missing_role_membership(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", False, True, True, True, True, True)
+        self.cursor.execute.side_effect = RuntimeError("permission denied: cannot SET ROLE")
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
@@ -67,7 +68,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
             )
 
     def test_rejects_missing_function_privilege(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", True, True, False, True, True, True)
+        self.cursor.fetchone.return_value = ("jas_si_agent_worker", True, False, True, True, True)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
