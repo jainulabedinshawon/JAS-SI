@@ -59,29 +59,37 @@ def verify_agent_host_database_access(
                 "pg_catalog.has_any_column_privilege(current_user, "
                 + repr(table) + ", " + repr(privilege) + ")"
             )
+    forbidden_role = (
+        "jas_si_agent_verifier"
+        if capability_role == "jas_si_agent_worker"
+        else "jas_si_agent_worker"
+    )
     query = (
         "SELECT session_user, current_user, "
+        "pg_catalog.pg_has_role(session_user, %s, 'MEMBER'), "
         + routine_checks + ", " + ", ".join(table_checks)
     )
     try:
         with psycopg.connect(dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("SET ROLE " + capability_role)
-                cursor.execute(query, tuple(required_functions))
+                cursor.execute(query, (forbidden_role, *required_functions))
                 row = cursor.fetchone()
     except Exception:
         raise AgentHostPreflightError(
             "Agent host database connectivity or privilege preflight failed"
         ) from None
 
-    expected_length = 2 + len(required_functions) + len(table_checks)
+    expected_length = 3 + len(required_functions) + len(table_checks)
     if not row or len(row) != expected_length:
         raise AgentHostPreflightError("Agent host database preflight returned an invalid result")
-    routine_values = row[2 : 2 + len(required_functions)]
-    table_values = row[2 + len(required_functions) :]
+    forbidden_role_membership = row[2]
+    routine_values = row[3 : 3 + len(required_functions)]
+    table_values = row[3 + len(required_functions) :]
     if (
         row[0] != expected_login
         or row[1] != capability_role
+        or forbidden_role_membership is not False
         or any(value is not True for value in routine_values)
         or any(value is not False for value in table_values)
     ):
