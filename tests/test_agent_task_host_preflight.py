@@ -50,7 +50,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         self.assertEqual(self.cursor.execute.call_args_list[0].args[0], "SET ROLE jas_si_agent_worker")
 
     def test_verifier_preflight_checks_separate_role_and_routines(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_verifier_login", "jas_si_agent_verifier", True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
+        self.cursor.fetchone.return_value = ("jas_si_agent_verifier_login", "jas_si_agent_verifier", True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
         verify_agent_host_database_access(
             "postgresql://not-logged", capability_role="jas_si_agent_verifier", expected_login="jas_si_agent_verifier_login",
             required_functions=VERIFIER_FUNCTIONS,
@@ -65,8 +65,8 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         values = [
             "jas_si_agent_verifier_login", "jas_si_agent_verifier",
             True, True, True,
-        ] + [False] * 15
-        values[3 + 8] = True
+        ] + [False] * 17
+        values[14] = True
         self.cursor.fetchone.return_value = tuple(values)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
