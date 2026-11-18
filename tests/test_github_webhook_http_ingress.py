@@ -81,7 +81,9 @@ class GitHubWebhookHTTPIngressTests(unittest.TestCase):
             "state": "RECEIVED",
         })
         self.assertEqual(len(self.inbox.calls), 1)
-        self.assertNotIn("tenant_id", self.inbox.calls[0]["payload"])
+        # Untrusted payload fields are preserved as evidence, not promoted to authority.
+        self.assertEqual(self.inbox.calls[0]["payload"]["tenant_id"], "untrusted-tenant")
+        self.assertNotIn("tenant_id", self.inbox.calls[0])
         self.assertEqual(len(self.inbox.calls[0]["raw_body_sha256"]), 32)
 
     def test_duplicate_delivery_is_acknowledged_without_claiming_new_insert(self):
