@@ -98,7 +98,7 @@ BEGIN
         delivery_id,event_name,action,installation_id,raw_body_sha256,payload
     ) VALUES (
         p_delivery_id,p_event_name,p_action,p_installation_id,p_raw_body_sha256,p_payload
-    ) ON CONFLICT (delivery_id) DO NOTHING;
+    ) ON CONFLICT ON CONSTRAINT jas_si_github_webhook_inbox_pkey DO NOTHING;
     v_inserted := FOUND;
 
     SELECT q.* INTO v_row
