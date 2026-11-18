@@ -28,6 +28,10 @@ $preflight$;
 -- temporarily so the task-owner role can create its tenant FK without SELECT.
 GRANT REFERENCES (tenant_id) ON public.jas_si_tenants
     TO jas_si_agent_task_owner;
+-- The resolver executes as task_owner and reads only the tenant identity/status
+-- columns needed to enforce active-tenant state. Host logins receive no access.
+GRANT SELECT (tenant_id,status) ON public.jas_si_tenants
+    TO jas_si_agent_task_owner;
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
