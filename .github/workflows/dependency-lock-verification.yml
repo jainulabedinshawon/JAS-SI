@@ -8,6 +8,7 @@ on:
     paths:
       - "requirements.in"
       - "requirements.txt"
+      - "requirements.lock.txt"
       - "src/**"
       - "tests/**"
       - ".github/workflows/dependency-lock-verification.yml"
@@ -15,6 +16,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/github-app-token-issuer-v1
     paths:
       - "requirements.in"
       - "requirements.txt"
