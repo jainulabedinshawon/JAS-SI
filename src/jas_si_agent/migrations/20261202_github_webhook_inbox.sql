@@ -34,15 +34,16 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_webhook_inbox (
     received_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
     processing_started_at timestamptz,
     lease_expires_at timestamptz,
+    lease_token uuid,
     processed_at timestamptz,
     next_attempt_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
     last_error_code varchar(64),
     CONSTRAINT jas_si_github_webhook_state_consistency CHECK (
-        (status='RECEIVED' AND processing_started_at IS NULL AND lease_expires_at IS NULL AND processed_at IS NULL)
-        OR (status='PROCESSING' AND processing_started_at IS NOT NULL AND lease_expires_at IS NOT NULL AND processed_at IS NULL)
-        OR (status='PROCESSED' AND processing_started_at IS NOT NULL AND lease_expires_at IS NULL AND processed_at IS NOT NULL
+        (status='RECEIVED' AND processing_started_at IS NULL AND lease_expires_at IS NULL AND lease_token IS NULL AND processed_at IS NULL)
+        OR (status='PROCESSING' AND processing_started_at IS NOT NULL AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL AND processed_at IS NULL)
+        OR (status='PROCESSED' AND processing_started_at IS NOT NULL AND lease_expires_at IS NULL AND lease_token IS NULL AND processed_at IS NOT NULL
             AND last_error_code IS NULL)
-        OR (status='FAILED' AND lease_expires_at IS NULL AND processed_at IS NULL AND last_error_code IS NOT NULL)
+        OR (status='FAILED' AND lease_expires_at IS NULL AND lease_token IS NULL AND processed_at IS NULL AND last_error_code IS NOT NULL)
     )
 );
 
@@ -122,7 +123,7 @@ CREATE OR REPLACE FUNCTION public.jas_si_github_webhook_claim(
     p_lease_seconds integer DEFAULT 120
 ) RETURNS TABLE(
     delivery_id text,event_name text,action text,installation_id bigint,
-    payload jsonb,attempt_count integer
+    payload jsonb,attempt_count integer,claim_token uuid
 )
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 BEGIN
@@ -150,17 +151,19 @@ BEGIN
            attempt_count=q.attempt_count+1,
            processing_started_at=pg_catalog.clock_timestamp(),
            lease_expires_at=pg_catalog.clock_timestamp()+pg_catalog.make_interval(secs=>p_lease_seconds),
+           lease_token=pg_catalog.gen_random_uuid(),
            processed_at=NULL,
            last_error_code=NULL
       FROM candidates c
      WHERE q.delivery_id=c.delivery_id
     RETURNING q.delivery_id::text,q.event_name::text,q.action::text,
-              q.installation_id,q.payload,q.attempt_count;
+              q.installation_id,q.payload,q.attempt_count,q.lease_token;
 END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.jas_si_github_webhook_mark_processed(
-    p_delivery_id text
+    p_delivery_id text,
+    p_claim_token uuid
 ) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 BEGIN
@@ -169,8 +172,9 @@ BEGIN
     END IF;
     UPDATE public.jas_si_github_webhook_inbox
        SET status='PROCESSED',processed_at=pg_catalog.clock_timestamp(),
-           lease_expires_at=NULL,last_error_code=NULL
-     WHERE delivery_id=p_delivery_id AND status='PROCESSING';
+           lease_expires_at=NULL,lease_token=NULL,last_error_code=NULL
+     WHERE delivery_id=p_delivery_id AND status='PROCESSING'
+       AND lease_token=p_claim_token AND lease_expires_at>pg_catalog.clock_timestamp();
     RETURN FOUND;
 END;
 $function$;
@@ -178,6 +182,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.jas_si_github_webhook_mark_failed(
     p_delivery_id text,
     p_error_code text,
+    p_claim_token uuid,
     p_retry_delay_seconds integer DEFAULT 30
 ) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
@@ -191,18 +196,19 @@ BEGIN
         RAISE EXCEPTION 'Invalid GitHub webhook failure update' USING ERRCODE='22023';
     END IF;
     UPDATE public.jas_si_github_webhook_inbox
-       SET status='FAILED',processed_at=NULL,lease_expires_at=NULL,last_error_code=p_error_code,
+       SET status='FAILED',processed_at=NULL,lease_expires_at=NULL,lease_token=NULL,last_error_code=p_error_code,
            next_attempt_at=pg_catalog.clock_timestamp()
                +pg_catalog.make_interval(secs=>p_retry_delay_seconds)
-     WHERE delivery_id=p_delivery_id AND status='PROCESSING';
+     WHERE delivery_id=p_delivery_id AND status='PROCESSING'
+       AND lease_token=p_claim_token AND lease_expires_at>pg_catalog.clock_timestamp();
     RETURN FOUND;
 END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_claim(integer,integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_processed(text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_processed(text,uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,uuid,integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb) TO jas_si_runtime;
 GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_claim(integer,integer) TO jas_si_runtime;
 GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_processed(text) TO jas_si_runtime;
