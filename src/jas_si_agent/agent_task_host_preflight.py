@@ -42,6 +42,7 @@ def verify_agent_host_database_access(
     table_checks = [
         "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'SELECT')",
         "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'UPDATE')",
+        "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'TRUNCATE')",
     ]
     if capability_role == "jas_si_agent_worker":
         table_checks.extend([
@@ -50,8 +51,10 @@ def verify_agent_host_database_access(
         ])
     if capability_role == "jas_si_agent_verifier":
         table_checks.extend([
+            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'TRUNCATE')",
             "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'SELECT')",
             "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'INSERT')",
+            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'TRUNCATE')",
         ])
     query = (
         "SELECT session_user, current_user, "
