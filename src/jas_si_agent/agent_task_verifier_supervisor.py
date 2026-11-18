@@ -23,6 +23,13 @@ from jas_si_agent.github_app_tokens import (
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
 
+class _PublicRepositoryOnlyProvider:
+    """Fail-closed fallback when the GitHub App private key is not configured."""
+
+    def resolve(self, *, tenant_id, repository):
+        return None
+
+
 
 class _PublicRepositoryOnlyProvider:
     """Fail-closed provider: no private installation credentials are configured."""
