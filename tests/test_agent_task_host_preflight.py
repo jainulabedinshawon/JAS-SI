@@ -84,6 +84,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
             "jas_si_agent_worker_login", "jas_si_agent_worker",
             True, True, True, True, True,
             False, False, False, True, False,
+            False, False, False,
         )
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -99,6 +100,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
             "jas_si_agent_worker_login", "jas_si_agent_worker",
             True, True, True, True, True,
             False, False, True, False, False,
+            False, False, False,
         )
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
