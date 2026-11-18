@@ -22,6 +22,7 @@ on:
       - "requirements.txt"
       - "src/**"
       - "tests/**"
+      - "requirements.lock.txt"
       - ".github/workflows/dependency-lock-verification.yml"
 
 permissions:
@@ -35,6 +36,8 @@ jobs:
   resolve-and-test:
     name: Resolve and Verify Python 3.10 Dependencies
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 15
 
     steps:
@@ -61,6 +64,18 @@ jobs:
             --generate-hashes \
             --output-file=requirements.lock.txt \
             requirements.in
+
+      - name: Commit regenerated lock on trusted branch pushes
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements.lock.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "build(deps): refresh Python 3.10 hash lock"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Install locked dependencies
         run: |
