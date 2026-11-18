@@ -211,8 +211,8 @@ REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_processed(text,uuid) FR
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,uuid,integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb) TO jas_si_runtime;
 GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_claim(integer,integer) TO jas_si_runtime;
-GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_processed(text) TO jas_si_runtime;
-GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,integer) TO jas_si_runtime;
+GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_processed(text,uuid) TO jas_si_runtime;
+GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,uuid,integer) TO jas_si_runtime;
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
@@ -223,8 +223,8 @@ BEGIN
     FOREACH v_name IN ARRAY ARRAY[
         'jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)',
         'jas_si_github_webhook_claim(integer,integer)',
-        'jas_si_github_webhook_mark_processed(text)',
-        'jas_si_github_webhook_mark_failed(text,text,integer)'
+        'jas_si_github_webhook_mark_processed(text,uuid)',
+        'jas_si_github_webhook_mark_failed(text,text,uuid,integer)'
     ] LOOP
         IF pg_catalog.pg_get_userbyid((
             SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid=v_name::regprocedure
