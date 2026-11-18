@@ -198,7 +198,7 @@ BEGIN
              JOIN pg_catalog.pg_roles grantee
                ON grantee.oid = ANY(policy.polroles)
             WHERE policy.polrelid='public.jas_si_tenants'::regclass
-              AND policy.polname='jas_si_tenants_agent_task_owner_status'
+              AND policy.polname='jas_si_tenants_agent_binding_resolver'
               AND policy.polcmd='r'
               AND policy.polpermissive
               AND grantee.rolname='jas_si_agent_task_owner'
