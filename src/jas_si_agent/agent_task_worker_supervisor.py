@@ -18,6 +18,9 @@ from jas_si_agent.agent_task_host_preflight import (
 )
 from jas_si_agent.agent_task_worker import AgentTaskWorker
 from jas_si_agent.agent_task_worker_runtime import build_github_repository_worker
+from jas_si_agent.github_app_tokens import (
+    build_github_app_tenant_credential_provider,
+)
 
 _LOG = logging.getLogger("jas_si_agent.worker")
 
@@ -99,10 +102,29 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Worker database readiness preflight failed") from None
 
+    app_id_raw = os.environ.get("GITHUB_APP_ID", "").strip()
+    private_key_path = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
+    if bool(app_id_raw) != bool(private_key_path):
+        raise SystemExit(
+            "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH must be configured together"
+        )
+    if app_id_raw:
+        try:
+            app_id = int(app_id_raw)
+            credential_provider = build_github_app_tenant_credential_provider(
+                database_dsn=dsn,
+                app_id=app_id,
+                private_key_path=private_key_path,
+            )
+        except (ValueError, TypeError):
+            raise SystemExit("GitHub App runtime configuration is invalid") from None
+    else:
+        credential_provider = _PublicRepositoryOnlyProvider()
+
     worker = build_github_repository_worker(
         worker_dsn=dsn,
         worker_id=worker_id,
-        credential_provider=_PublicRepositoryOnlyProvider(),
+        credential_provider=credential_provider,
     )
     stop_event = threading.Event()
 
