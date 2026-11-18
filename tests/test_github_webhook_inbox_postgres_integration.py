@@ -7,6 +7,8 @@ import uuid
 
 import psycopg
 
+from jas_si_agent.github_webhook_inbox import PostgresGitHubWebhookInbox
+
 
 def _payload(action="created", installation_id=183349938):
     return {
@@ -186,6 +188,43 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
                 (delivery_id, stale_token),
             )
             self.assertIs(cur.fetchone()[0], False)
+
+
+    def test_postgres_adapter_assumes_runtime_role_and_persists_delivery(self):
+        delivery_id = "it-adapter-" + uuid.uuid4().hex
+        payload = _payload()
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        receipt = PostgresGitHubWebhookInbox(
+            os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
+        ).receive(
+            delivery_id=delivery_id,
+            event_name="installation",
+            action="created",
+            installation_id=payload["installation"]["id"],
+            raw_body_sha256=hashlib.sha256(raw).digest(),
+            payload=payload,
+        )
+        self.assertEqual(receipt.delivery_id, delivery_id)
+        self.assertEqual(receipt.status, "RECEIVED")
+        self.assertEqual(receipt.attempt_count, 0)
+        self.assertTrue(receipt.inserted)
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT delivery_id,attempt_count,claim_token
+                  FROM public.jas_si_github_webhook_claim(5,30)
+                 WHERE delivery_id=%s
+                """,
+                (delivery_id,),
+            )
+            claimed = cur.fetchone()
+            self.assertEqual(claimed[:2], (delivery_id, 1))
+            cur.execute(
+                "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
+                (delivery_id, claimed[2]),
+            )
+            self.assertIs(cur.fetchone()[0], True)
 
     def test_runtime_cannot_read_inbox_table_directly(self):
         with self.conn.cursor() as cur:
