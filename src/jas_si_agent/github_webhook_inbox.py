@@ -52,6 +52,9 @@ class PostgresGitHubWebhookInbox:
 
             with psycopg.connect(self._database_dsn, connect_timeout=5) as connection:
                 with connection.cursor() as cursor:
+                    # Runtime login must explicitly assume its restricted
+                    # capability role; membership alone is not inherited.
+                    cursor.execute("SET ROLE jas_si_runtime")
                     cursor.execute(
                         """SELECT delivery_id,status,attempt_count,inserted
                              FROM public.jas_si_github_webhook_receive(
