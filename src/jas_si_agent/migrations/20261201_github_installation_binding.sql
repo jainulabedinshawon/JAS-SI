@@ -159,7 +159,7 @@ BEGIN
       JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
      WHERE n.nspname='public'
        AND p.proname='jas_si_github_installation_binding_resolve'
-       AND pg_catalog.pg_get_function_identity_arguments(p.oid)='p_tenant_id uuid, p_repository_full_name text';
+       AND p.oid='public.jas_si_github_installation_binding_resolve(uuid,text)'::regprocedure;
     IF v_proc IS NULL OR v_owner<>'jas_si_agent_task_owner'
        OR NOT (SELECT p.prosecdef FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
        OR NOT (SELECT COALESCE(p.proconfig,ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog']
