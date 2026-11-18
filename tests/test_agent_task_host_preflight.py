@@ -104,7 +104,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
             )
 
     def test_rejects_missing_function_privilege(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", "jas_si_agent_worker", True, False, True, True, True, False, False, False, False, False, False, False, False)
+        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", "jas_si_agent_worker", True, False, True, True, True, *([False] * 22))
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
