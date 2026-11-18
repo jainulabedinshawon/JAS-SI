@@ -43,6 +43,11 @@ def verify_agent_host_database_access(
         "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'SELECT')",
         "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'UPDATE')",
     ]
+    if capability_role == "jas_si_agent_worker":
+        table_checks.extend([
+            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'INSERT')",
+            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'DELETE')",
+        ])
     if capability_role == "jas_si_agent_verifier":
         table_checks.extend([
             "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'SELECT')",
