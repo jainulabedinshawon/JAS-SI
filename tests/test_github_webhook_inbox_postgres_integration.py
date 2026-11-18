@@ -97,6 +97,7 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
             self.assertIs(cur.fetchone()[0], True)
 
             # Test owner moves retry eligibility forward without sleeping.
+            cur.execute("RESET ROLE")
             cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute(
                 """
@@ -151,6 +152,7 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
                 (delivery_id,),
             )
             self.assertEqual(cur.fetchone(), (delivery_id,))
+            cur.execute("RESET ROLE")
             cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute(
                 """
