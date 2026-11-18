@@ -73,7 +73,13 @@ class IssuedGitHubInstallationToken:
             raise ValueError("installation_id must be a positive integer")
         if not is_valid_github_repository(self.repository):
             raise ValueError("repository must be an owner/name identifier")
-        if not isinstance(self.access_token, str) or not self.access_token or len(self.access_token) > 4096:
+        if (
+            not isinstance(self.access_token, str)
+            or not self.access_token
+            or len(self.access_token) > 4096
+            or self.access_token.strip() != self.access_token
+            or any(ord(char) < 33 or ord(char) > 126 for char in self.access_token)
+        ):
             raise ValueError("GitHub installation token is invalid")
         if not isinstance(self.expires_at, datetime) or self.expires_at.tzinfo is None or self.expires_at.utcoffset() is None:
             raise ValueError("expires_at must be timezone-aware")
@@ -165,14 +171,22 @@ class GitHubAppInstallationTokenIssuer:
             expires_at = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
             returned_repositories = data["repositories"]
             returned_permissions = data["permissions"]
-            repository_match = any(
-                isinstance(item, dict)
-                and str(item.get("full_name", "")).casefold() == repository.casefold()
+            returned_repository_names = {
+                str(item.get("full_name", "")).casefold()
                 for item in returned_repositories
-            )
-            permissions_match = all(
-                returned_permissions.get(name) == access
-                for name, access in _READ_ONLY_PERMISSIONS.items()
+                if isinstance(item, dict)
+            }
+            repository_match = returned_repository_names == {repository.casefold()}
+            # GitHub may include its implicit metadata:read permission. No
+            # additional permission or write-level access is accepted.
+            permissions_match = (
+                all(returned_permissions.get(name) == access
+                    for name, access in _READ_ONLY_PERMISSIONS.items())
+                and all(
+                    name in {*_READ_ONLY_PERMISSIONS, "metadata"}
+                    and access == "read"
+                    for name, access in returned_permissions.items()
+                )
             )
             now = datetime.fromtimestamp(self._clock(), timezone.utc)
             if not repository_match or not permissions_match:
