@@ -172,16 +172,6 @@ GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
--- FORCE RLS applies to the SECURITY DEFINER owner as well. Permit that
--- non-login owner to read only the two granted tenant columns; host roles
--- remain without direct tenant-table privileges.
-DROP POLICY IF EXISTS jas_si_tenants_agent_task_owner_status
-    ON public.jas_si_tenants;
-CREATE POLICY jas_si_tenants_agent_task_owner_status
-    ON public.jas_si_tenants
-    FOR SELECT TO jas_si_agent_task_owner
-    USING (true);
-
 DO $assert$
 DECLARE v_proc oid; v_owner text;
 BEGIN
