@@ -68,7 +68,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         ]
         # Evidence table starts after 11 task-table checks; its column UPDATE
         # is the third column privilege in that table's 11-check block.
-        values[2 + 3 + 11 + 2 + 2] = True
+        values[2 + 3 + 11 + 9] = True
         self.cursor.fetchone.return_value = tuple(values)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
