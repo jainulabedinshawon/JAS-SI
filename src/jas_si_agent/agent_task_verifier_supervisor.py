@@ -1,8 +1,8 @@
 """Supervised host process for JAS-SI's independent task verifier.
 
 The verifier uses a dedicated database login and independently collects
-GitHub evidence. This host is intentionally public-repository-only until a
-trusted tenant GitHub App installation provider is deployed.
+GitHub evidence. Private-repository access is enabled only when a trusted
+Tenant-bound GitHub App provider is configured through deployment secrets.
 """
 from __future__ import annotations
 
@@ -22,14 +22,6 @@ from jas_si_agent.github_app_tokens import (
 )
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
-
-class _PublicRepositoryOnlyProvider:
-    """Fail-closed fallback when the GitHub App private key is not configured."""
-
-    def resolve(self, *, tenant_id, repository):
-        return None
-
-
 
 class _PublicRepositoryOnlyProvider:
     """Fail-closed provider: no private installation credentials are configured."""
