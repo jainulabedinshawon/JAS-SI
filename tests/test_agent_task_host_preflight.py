@@ -108,6 +108,22 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
                 required_functions=WORKER_FUNCTIONS,
             )
 
+
+    def test_rejects_worker_column_level_select_privilege(self):
+        self.cursor.fetchone.return_value = (
+            "jas_si_agent_worker_login", "jas_si_agent_worker",
+            True, True, True, True, True,
+            False, False, False, False, False,
+            True, False, False,
+        )
+        with self.assertRaises(AgentHostPreflightError):
+            verify_agent_host_database_access(
+                "postgresql://not-logged",
+                capability_role="jas_si_agent_worker",
+                expected_login="jas_si_agent_worker_login",
+                required_functions=WORKER_FUNCTIONS,
+            )
+
     def test_redacts_database_driver_errors(self):
         self.psycopg.connect.side_effect = RuntimeError("password=do-not-leak")
         with self.assertRaisesRegex(AgentHostPreflightError, "preflight failed") as caught:
