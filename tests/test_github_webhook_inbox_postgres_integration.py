@@ -149,7 +149,7 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT delivery_id
+                SELECT delivery_id,claim_token
                   FROM public.jas_si_github_webhook_claim(5,30)
                  WHERE delivery_id=%s
                 """,
