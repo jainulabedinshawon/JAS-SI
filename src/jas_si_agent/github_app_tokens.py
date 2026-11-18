@@ -18,8 +18,6 @@ from typing import Any, Protocol
 from uuid import UUID
 
 import httpx
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from jas_si_agent.github_installations import (
     TenantGitHubInstallationCredential,
@@ -94,8 +92,11 @@ def _b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def _load_rsa_private_key(path: str) -> rsa.RSAPrivateKey:
+def _load_rsa_private_key(path: str):
     try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
         pem = Path(path).read_bytes()
         key = serialization.load_pem_private_key(pem, password=None)
     except Exception:
@@ -132,6 +133,9 @@ class GitHubAppInstallationTokenIssuer:
             separators=(",", ":"),
         ).encode())
         signing_input = f"{header}.{payload}".encode("ascii")
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
         signature = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
         return f"{header}.{payload}.{_b64url(signature)}"
 
