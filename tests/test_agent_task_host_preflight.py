@@ -114,10 +114,12 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
 
 
     def test_rejects_direct_worker_table_mutation_privileges(self):
-        self.cursor.fetchone.return_value = (
+        values = [
             "jas_si_agent_worker_login", "jas_si_agent_worker",
             *([True] * 5), *([False] * 22),
-        )
+        ]
+        values[2 + 5 + 1] = True  # task-table INSERT
+        self.cursor.fetchone.return_value = tuple(values)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged",
@@ -128,10 +130,12 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
 
 
     def test_rejects_worker_truncate_privilege(self):
-        self.cursor.fetchone.return_value = (
+        values = [
             "jas_si_agent_worker_login", "jas_si_agent_worker",
             *([True] * 5), *([False] * 22),
-        )
+        ]
+        values[2 + 5 + 4] = True  # task-table TRUNCATE
+        self.cursor.fetchone.return_value = tuple(values)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged",
@@ -142,10 +146,12 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
 
 
     def test_rejects_worker_column_level_select_privilege(self):
-        self.cursor.fetchone.return_value = (
+        values = [
             "jas_si_agent_worker_login", "jas_si_agent_worker",
             *([True] * 5), *([False] * 22),
-        )
+        ]
+        values[2 + 5 + 7] = True  # task-table column SELECT
+        self.cursor.fetchone.return_value = tuple(values)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged",
