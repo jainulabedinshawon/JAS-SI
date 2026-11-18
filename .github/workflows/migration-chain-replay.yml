@@ -10,6 +10,7 @@ on:
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
+      - "tests/test_github_webhook_inbox_postgres_integration.py"
   pull_request:
     branches:
       - main
