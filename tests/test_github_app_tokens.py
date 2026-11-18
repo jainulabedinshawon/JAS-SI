@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sys
+import types
+import uuid
+from unittest.mock import patch
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -17,6 +21,9 @@ from jas_si_agent.github_app_tokens import (
     GitHubAppTokenSettings,
     IssuedGitHubInstallationToken,
     _READ_ONLY_PERMISSIONS,
+    GitHubAppTenantCredentialProvider,
+    PostgresTenantGitHubInstallationBindingResolver,
+    TenantGitHubInstallationBinding,
 )
 
 
@@ -142,6 +149,85 @@ class GitHubAppTokenIssuerTests(unittest.TestCase):
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
         self.assertNotIn("secret-token", repr(token))
+
+
+
+class TenantGitHubBindingResolverTests(unittest.TestCase):
+    tenant_id = uuid.UUID("00000000-0000-0000-0000-000000000101")
+    other_tenant_id = uuid.UUID("00000000-0000-0000-0000-000000000102")
+
+    def test_resolver_uses_database_security_definer_lookup(self):
+        captured = []
+        row = (self.tenant_id, 183349938, "jainulabedinshawon/JAS-SI")
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def execute(self, query, params): captured.append((query, params))
+            def fetchone(self): return row
+        class Connection:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def cursor(self): return Cursor()
+        fake = types.ModuleType("psycopg")
+        fake.connect = lambda dsn, connect_timeout: Connection()
+        with patch.dict(sys.modules, {"psycopg": fake}):
+            resolver = PostgresTenantGitHubInstallationBindingResolver("postgresql://worker")
+            binding = resolver.resolve(tenant_id=self.tenant_id, repository="jainulabedinshawon/JAS-SI")
+        self.assertEqual(binding, TenantGitHubInstallationBinding(
+            tenant_id=self.tenant_id, installation_id=183349938,
+            repository="jainulabedinshawon/JAS-SI"))
+        self.assertIn("jas_si_github_installation_binding_resolve", captured[0][0])
+        self.assertEqual(captured[0][1], (self.tenant_id, "jainulabedinshawon/JAS-SI"))
+        self.assertNotIn("FROM public.jas_si_github_app_installations", captured[0][0])
+
+    def test_resolver_returns_none_for_unbound_repository(self):
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def execute(self, *_args): pass
+            def fetchone(self): return None
+        class Connection:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def cursor(self): return Cursor()
+        fake = types.ModuleType("psycopg")
+        fake.connect = lambda *_args, **_kwargs: Connection()
+        with patch.dict(sys.modules, {"psycopg": fake}):
+            resolver = PostgresTenantGitHubInstallationBindingResolver("postgresql://worker")
+            self.assertIsNone(resolver.resolve(
+                tenant_id=self.tenant_id, repository="jainulabedinshawon/JAS-SI"))
+
+    def test_provider_rejects_cross_tenant_binding_before_token_issue(self):
+        class Resolver:
+            def resolve(inner, *, tenant_id, repository):
+                return TenantGitHubInstallationBinding(
+                    tenant_id=self.other_tenant_id, installation_id=183349938,
+                    repository=repository)
+        class Issuer:
+            def issue(self, **_kwargs):
+                raise AssertionError("must not issue a token for a tenant mismatch")
+        provider = GitHubAppTenantCredentialProvider(
+            binding_resolver=Resolver(), token_issuer=Issuer())
+        with self.assertRaises(GitHubAppTokenError):
+            provider.resolve(tenant_id=self.tenant_id, repository="jainulabedinshawon/JAS-SI")
+
+    def test_provider_returns_none_without_allowlist_binding(self):
+        class Resolver:
+            def resolve(self, **_kwargs): return None
+        class Issuer:
+            def issue(self, **_kwargs):
+                raise AssertionError("must not issue a token without a binding")
+        provider = GitHubAppTenantCredentialProvider(
+            binding_resolver=Resolver(), token_issuer=Issuer())
+        self.assertIsNone(provider.resolve(
+            tenant_id=self.tenant_id, repository="jainulabedinshawon/JAS-SI"))
+
+    def test_resolver_rejects_invalid_dsn_and_repository(self):
+        with self.assertRaises(ValueError):
+            PostgresTenantGitHubInstallationBindingResolver(" ")
+        resolver = PostgresTenantGitHubInstallationBindingResolver("postgresql://worker")
+        with self.assertRaises(GitHubAppTokenError):
+            resolver.resolve(tenant_id=self.tenant_id, repository="../private")
 
 
 if __name__ == "__main__":
