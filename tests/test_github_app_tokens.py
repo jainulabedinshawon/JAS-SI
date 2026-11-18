@@ -87,6 +87,27 @@ class GitHubAppTokenIssuerTests(unittest.TestCase):
         with self.assertRaises(GitHubAppTokenError):
             issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
 
+    def test_rejects_additional_repository_even_when_requested_repo_is_present(self):
+        response = self._response()
+        response["repositories"].append({"full_name": "someone/other"})
+        issuer = self._issuer(response)
+        with self.assertRaises(GitHubAppTokenError):
+            issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
+
+    def test_rejects_unrequested_write_permission(self):
+        permissions = dict(_READ_ONLY_PERMISSIONS)
+        permissions["issues"] = "write"
+        issuer = self._issuer(self._response(permissions=permissions))
+        with self.assertRaises(GitHubAppTokenError):
+            issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
+
+    def test_accepts_implicit_metadata_read_permission(self):
+        permissions = dict(_READ_ONLY_PERMISSIONS)
+        permissions["metadata"] = "read"
+        issuer = self._issuer(self._response(permissions=permissions))
+        result = issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
+        self.assertEqual(result.repository, "jainulabedinshawon/JAS-SI")
+
     def test_rejects_expired_token(self):
         expired = (datetime.fromtimestamp(self.now - 1, timezone.utc)
                    .replace(microsecond=0).isoformat().replace("+00:00", "Z"))
