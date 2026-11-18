@@ -172,6 +172,16 @@ GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
+-- FORCE RLS applies to the SECURITY DEFINER owner as well. Permit that
+-- non-login owner to read only the two granted tenant columns; host roles
+-- remain without direct tenant-table privileges.
+DROP POLICY IF EXISTS jas_si_tenants_agent_task_owner_status
+    ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_agent_task_owner_status
+    ON public.jas_si_tenants
+    FOR SELECT TO jas_si_agent_task_owner
+    USING (true);
+
 DO $assert$
 DECLARE v_proc oid; v_owner text;
 BEGIN
@@ -188,6 +198,21 @@ BEGIN
                  FROM pg_catalog.pg_proc p WHERE p.oid=v_proc)
        OR NOT pg_catalog.has_function_privilege('jas_si_agent_worker',v_proc,'EXECUTE')
        OR NOT pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
+       OR NOT pg_catalog.has_column_privilege(
+           'jas_si_agent_task_owner','public.jas_si_tenants','tenant_id','SELECT')
+       OR NOT pg_catalog.has_column_privilege(
+           'jas_si_agent_task_owner','public.jas_si_tenants','status','SELECT')
+       OR NOT EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_policy policy
+             JOIN pg_catalog.pg_roles grantee
+               ON grantee.oid = ANY(policy.polroles)
+            WHERE policy.polrelid='public.jas_si_tenants'::regclass
+              AND policy.polname='jas_si_tenants_agent_task_owner_status'
+              AND policy.polcmd='r'
+              AND policy.polpermissive
+              AND grantee.rolname='jas_si_agent_task_owner'
+       )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.aclexplode(
                COALESCE((SELECT p.proacl FROM pg_catalog.pg_proc p WHERE p.oid=v_proc),
