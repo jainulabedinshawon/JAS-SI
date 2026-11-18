@@ -37,7 +37,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
 
     def test_worker_preflight_checks_role_and_all_worker_routines(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", "jas_si_agent_worker", True, True, True, True, True, False, False, False, False, False, False, False, False)
+        self.cursor.fetchone.return_value = ("jas_si_agent_worker_login", "jas_si_agent_worker", *([True] * 5), *([False] * 22))
         verify_agent_host_database_access(
             "postgresql://not-logged", capability_role="jas_si_agent_worker", expected_login="jas_si_agent_worker_login",
             required_functions=WORKER_FUNCTIONS,
@@ -50,7 +50,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         self.assertEqual(self.cursor.execute.call_args_list[0].args[0], "SET ROLE jas_si_agent_worker")
 
     def test_verifier_preflight_checks_separate_role_and_routines(self):
-        self.cursor.fetchone.return_value = ("jas_si_agent_verifier_login", "jas_si_agent_verifier", True, True, True, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False)
+        self.cursor.fetchone.return_value = ("jas_si_agent_verifier_login", "jas_si_agent_verifier", *([True] * 3), *([False] * 22))
         verify_agent_host_database_access(
             "postgresql://not-logged", capability_role="jas_si_agent_verifier", expected_login="jas_si_agent_verifier_login",
             required_functions=VERIFIER_FUNCTIONS,
@@ -61,12 +61,30 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         )
 
 
+    def test_rejects_verifier_direct_evidence_column_update(self):
+        values = [
+            "jas_si_agent_verifier_login", "jas_si_agent_verifier",
+            *([True] * 3), *([False] * 22),
+        ]
+        # Evidence table starts after 11 task-table checks; its column UPDATE
+        # is the third column privilege in that table's 11-check block.
+        values[2 + 3 + 11 + 2 + 2] = True
+        self.cursor.fetchone.return_value = tuple(values)
+        with self.assertRaises(AgentHostPreflightError):
+            verify_agent_host_database_access(
+                "postgresql://not-logged",
+                capability_role="jas_si_agent_verifier",
+                expected_login="jas_si_agent_verifier_login",
+                required_functions=VERIFIER_FUNCTIONS,
+            )
+
     def test_rejects_verifier_direct_task_insert_privilege(self):
         values = [
             "jas_si_agent_verifier_login", "jas_si_agent_verifier",
-            True, True, True,
-        ] + [False] * 17
-        values[14] = True
+            *([True] * 3), *([False] * 22),
+        ]
+        # First table's INSERT privilege: SELECT, INSERT, UPDATE, ...
+        values[2 + 3 + 1] = True
         self.cursor.fetchone.return_value = tuple(values)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -98,9 +116,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
     def test_rejects_direct_worker_table_mutation_privileges(self):
         self.cursor.fetchone.return_value = (
             "jas_si_agent_worker_login", "jas_si_agent_worker",
-            True, True, True, True, True,
-            False, False, False, True, False,
-            False, False, False,
+            *([True] * 5), *([False] * 22),
         )
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -114,9 +130,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
     def test_rejects_worker_truncate_privilege(self):
         self.cursor.fetchone.return_value = (
             "jas_si_agent_worker_login", "jas_si_agent_worker",
-            True, True, True, True, True,
-            False, False, True, False, False,
-            False, False, False,
+            *([True] * 5), *([False] * 22),
         )
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -130,9 +144,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
     def test_rejects_worker_column_level_select_privilege(self):
         self.cursor.fetchone.return_value = (
             "jas_si_agent_worker_login", "jas_si_agent_worker",
-            True, True, True, True, True,
-            False, False, False, False, False,
-            True, False, False,
+            *([True] * 5), *([False] * 22),
         )
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
