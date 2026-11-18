@@ -74,6 +74,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
+                expected_login="jas_si_agent_worker_login",
                 required_functions=WORKER_FUNCTIONS,
             )
 
@@ -82,6 +83,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(AgentHostPreflightError, "preflight failed") as caught:
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
+                expected_login="jas_si_agent_worker_login",
                 required_functions=WORKER_FUNCTIONS,
             )
         self.assertNotIn("do-not-leak", str(caught.exception))
@@ -89,12 +91,13 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
     def test_rejects_unknown_role_and_untrusted_routine_signature(self):
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
-                "postgresql://not-logged", capability_role="jas_si_admin",
+                "postgresql://not-logged", capability_role="jas_si_admin", expected_login="jas_si_admin_login",
                 required_functions=WORKER_FUNCTIONS,
             )
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
                 "postgresql://not-logged", capability_role="jas_si_agent_worker",
+                expected_login="jas_si_agent_worker_login",
                 required_functions=("public.anything(); DROP TABLE x; --",),
             )
 
