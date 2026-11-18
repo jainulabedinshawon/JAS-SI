@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import unittest
 
+from jas_si_agent.agent_host_health import AgentHostHealthState
 from jas_si_agent.agent_task_verifier_supervisor import run_verifier_loop
 
 
@@ -53,6 +54,21 @@ class VerifierSupervisorTests(unittest.TestCase):
         run_verifier_loop(verifier, stop_event=stop, poll_interval_seconds=0.5)
         self.assertEqual(verifier.calls, 1)
         self.assertEqual(stop.calls, 1)
+
+    def test_health_state_tracks_successful_verification_poll(self):
+        state = AgentHostHealthState()
+        outcome = type("Batch", (), {"scanned": 0, "finalized": 0, "inconclusive": 0, "lost_finalization_race": 0})()
+        verifier = FakeVerifier([RuntimeError("db unavailable"), outcome])
+        stop = StopAfterWait(stop_after=2)
+        run_verifier_loop(verifier, stop_event=stop, poll_interval_seconds=0.5, health_state=state)
+        self.assertTrue(state.is_ready())
+
+    def test_health_state_stays_unready_when_verifier_poll_fails(self):
+        state = AgentHostHealthState()
+        verifier = FakeVerifier([RuntimeError("db unavailable")])
+        stop = StopAfterWait()
+        run_verifier_loop(verifier, stop_event=stop, poll_interval_seconds=0.5, health_state=state)
+        self.assertFalse(state.is_ready())
 
     def test_retries_after_error_without_leaking_exception(self):
         outcome = type(

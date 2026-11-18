@@ -11,6 +11,7 @@ import signal
 import threading
 from uuid import UUID
 
+from jas_si_agent.agent_host_health import AgentHostHealthServer, AgentHostHealthState
 from jas_si_agent.agent_task_host_preflight import (
     AgentHostPreflightError,
     verify_agent_host_database_access,
@@ -34,6 +35,7 @@ def run_worker_loop(
     *,
     stop_event: threading.Event,
     poll_interval_seconds: float = 2.0,
+    health_state: AgentHostHealthState | None = None,
 ) -> None:
     """Poll one task at a time, throttle every iteration, and stop cooperatively."""
     if (
@@ -46,8 +48,12 @@ def run_worker_loop(
     while not stop_event.is_set():
         try:
             outcome = worker.run_once()
+            if health_state is not None:
+                health_state.mark_success()
             _LOG.info("worker iteration state=%s", outcome.state)
         except Exception:
+            if health_state is not None:
+                health_state.mark_failure()
             # Do not log exception text: database/driver errors can contain
             # connection details. The process remains observable without
             # risking DSN or credential disclosure.
@@ -61,6 +67,7 @@ def main() -> None:
     dsn = os.environ.get("JAS_SI_AGENT_WORKER_DSN", "").strip()
     worker_id_raw = os.environ.get("JAS_SI_AGENT_WORKER_ID", "").strip()
     poll_raw = os.environ.get("JAS_SI_AGENT_WORKER_POLL_SECONDS", "2").strip()
+    health_port_raw = os.environ.get("JAS_SI_AGENT_HEALTH_PORT", "8000").strip()
     if not dsn or not worker_id_raw:
         raise SystemExit(
             "JAS_SI_AGENT_WORKER_DSN and JAS_SI_AGENT_WORKER_ID are required"
@@ -68,10 +75,13 @@ def main() -> None:
     try:
         worker_id = UUID(worker_id_raw)
         poll_interval = float(poll_raw)
+        health_port = int(health_port_raw)
     except (ValueError, TypeError):
         raise SystemExit("Worker identity or poll interval is invalid") from None
     if not 0.1 <= poll_interval <= 60:
         raise SystemExit("JAS_SI_AGENT_WORKER_POLL_SECONDS must be between 0.1 and 60")
+    if not 1 <= health_port <= 65535:
+        raise SystemExit("JAS_SI_AGENT_HEALTH_PORT must be between 1 and 65535")
 
     try:
         verify_agent_host_database_access(
@@ -101,12 +111,19 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    _LOG.info("JAS-SI read-only worker started; database preflight passed")
-    run_worker_loop(
-        worker,
-        stop_event=stop_event,
-        poll_interval_seconds=poll_interval,
-    )
+    health_state = AgentHostHealthState(max_staleness_seconds=max(30.0, poll_interval * 5))
+    health_server = AgentHostHealthServer(health_state, port=health_port)
+    health_server.start()
+    _LOG.info("JAS-SI read-only worker started; database preflight passed; awaiting first successful poll")
+    try:
+        run_worker_loop(
+            worker,
+            stop_event=stop_event,
+            poll_interval_seconds=poll_interval,
+            health_state=health_state,
+        )
+    finally:
+        health_server.close()
     _LOG.info("JAS-SI read-only worker stopped")
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import unittest
 
+from jas_si_agent.agent_host_health import AgentHostHealthState
 from jas_si_agent.agent_task_worker_supervisor import run_worker_loop
 
 
@@ -49,6 +50,20 @@ class WorkerSupervisorTests(unittest.TestCase):
         run_worker_loop(worker, stop_event=stop, poll_interval_seconds=0.5)
         self.assertEqual(worker.calls, 1)
         self.assertEqual(stop.calls, 1)
+
+    def test_health_state_tracks_successful_database_poll_and_failure(self):
+        state = AgentHostHealthState()
+        worker = FakeWorker([RuntimeError("db unavailable"), type("Outcome", (), {"state": "idle"})()])
+        stop = StopAfterWait(stop_after=2)
+        run_worker_loop(worker, stop_event=stop, poll_interval_seconds=0.5, health_state=state)
+        self.assertTrue(state.is_ready())
+
+    def test_health_state_stays_unready_when_poll_fails(self):
+        state = AgentHostHealthState()
+        worker = FakeWorker([RuntimeError("db unavailable")])
+        stop = StopAfterWait()
+        run_worker_loop(worker, stop_event=stop, poll_interval_seconds=0.5, health_state=state)
+        self.assertFalse(state.is_ready())
 
     def test_retries_after_worker_error_without_leaking_exception(self):
         worker = FakeWorker([
