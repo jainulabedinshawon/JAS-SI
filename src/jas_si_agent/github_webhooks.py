@@ -77,6 +77,8 @@ def parse_verified_github_webhook(
         raise GitHubWebhookError("GitHub delivery ID is invalid")
     if event_name not in _SUPPORTED_EVENTS:
         raise GitHubWebhookError("GitHub webhook event is unsupported")
+    if not isinstance(raw_body, bytes) or len(raw_body) > 2_000_000:
+        raise GitHubWebhookError("GitHub webhook body is invalid")
     try:
         payload = json.loads(raw_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
