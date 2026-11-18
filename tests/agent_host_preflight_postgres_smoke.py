@@ -160,6 +160,23 @@ def main() -> None:
         "jas_si_agent_worker_login",
         WORKER_FUNCTIONS,
     )
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "GRANT jas_si_agent_verifier TO jas_si_agent_worker_login"
+            )
+    expect_denied(
+        "Worker login membership in Verifier capability",
+        WORKER_DSN,
+        "jas_si_agent_worker",
+        "jas_si_agent_worker_login",
+        WORKER_FUNCTIONS,
+    )
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "REVOKE jas_si_agent_verifier FROM jas_si_agent_worker_login"
+            )
     print("PASS: all real PostgreSQL privilege-boundary smoke tests")
 
 
