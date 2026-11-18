@@ -32,6 +32,14 @@ GRANT REFERENCES (tenant_id) ON public.jas_si_tenants
 -- columns needed to enforce active-tenant state. Host logins receive no access.
 GRANT SELECT (tenant_id,status) ON public.jas_si_tenants
     TO jas_si_agent_task_owner;
+-- FORCE RLS on the tenant table also applies inside SECURITY DEFINER. Permit
+-- only the non-login task owner to read rows needed by the resolver; Worker
+-- and Verifier still receive no direct tenant-table privileges.
+DROP POLICY IF EXISTS jas_si_tenants_agent_binding_resolver
+    ON public.jas_si_tenants;
+CREATE POLICY jas_si_tenants_agent_binding_resolver
+    ON public.jas_si_tenants
+    FOR SELECT TO jas_si_agent_task_owner USING (true);
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
