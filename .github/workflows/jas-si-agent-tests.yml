@@ -7,6 +7,8 @@ on:
       - feat/jas-si-agent-mvp-safety-core
       - feat/customer-identity-onboarding-v1
       - feat/jas-si-agent-authorization-tests
+      - feat/github-webhook-durable-inbox-v1
+      - feat/github-webhook-durable-inbox-v1
       - fix/shared-api-rate-limiter-v1
     paths:
       - "src/jas_si_agent/**"
