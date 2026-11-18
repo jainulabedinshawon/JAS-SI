@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feat/tenant-github-installation-binding-v1
+      - feat/github-webhook-durable-inbox-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -15,10 +16,12 @@ on:
       - fix/tenant-suspension-locking-after-onboarding-fix
       - feat/durable-agent-task-store-v1
       - feat/github-app-token-issuer-v1
+      - feat/github-installation-onboarding-security-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
       - "tests/test_customer_identity_postgres_integration.py"
+      - "tests/test_github_webhook_inbox_postgres_integration.py"
 
 permissions:
   contents: read
@@ -113,6 +116,7 @@ jobs:
               "20261129_agent_runtime_default_acl_boundary.sql",
               "20261130_customer_tenant_active_guard_reassert.sql",
               "20261201_github_installation_binding.sql",
+              "20261202_github_webhook_inbox.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
@@ -472,3 +476,6 @@ jobs:
                       customer_cur.execute("RESET SESSION AUTHORIZATION")
               print("Verified database-owned customer rate limiting and denied direct table INSERT")
           PY
+      - name: Verify GitHub webhook inbox state machine on PostgreSQL 16
+        run: |
+          python -m pytest -q tests/test_github_webhook_inbox_postgres_integration.py
