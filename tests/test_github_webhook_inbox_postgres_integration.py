@@ -78,7 +78,7 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT delivery_id,event_name,action,installation_id,payload,attempt_count
+                SELECT delivery_id,event_name,action,installation_id,payload,attempt_count,claim_token
                   FROM public.jas_si_github_webhook_claim(5,30)
                  WHERE delivery_id=%s
                 """,
@@ -89,10 +89,11 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
             self.assertEqual(claimed[0], delivery_id)
             self.assertEqual(claimed[1:4], ("installation", "created", 183349938))
             self.assertEqual(claimed[5], 1)
+            first_claim_token = claimed[6]
 
             cur.execute(
-                "SELECT public.jas_si_github_webhook_mark_failed(%s,'API_UNAVAILABLE',5)",
-                (delivery_id,),
+                "SELECT public.jas_si_github_webhook_mark_failed(%s,'API_UNAVAILABLE',%s,5)",
+                (delivery_id, first_claim_token),
             )
             self.assertIs(cur.fetchone()[0], True)
 
@@ -112,26 +113,29 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
 
             cur.execute(
                 """
-                SELECT delivery_id,attempt_count
+                SELECT delivery_id,attempt_count,claim_token
                   FROM public.jas_si_github_webhook_claim(5,30)
                  WHERE delivery_id=%s
                 """,
                 (delivery_id,),
             )
-            self.assertEqual(cur.fetchone(), (delivery_id, 2))
+            second_claim = cur.fetchone()
+            self.assertEqual(second_claim[:2], (delivery_id, 2))
+            second_claim_token = second_claim[2]
+            self.assertNotEqual(first_claim_token, second_claim_token)
             cur.execute(
-                "SELECT public.jas_si_github_webhook_mark_processed(%s)",
-                (delivery_id,),
+                "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
+                (delivery_id, second_claim_token),
             )
             self.assertIs(cur.fetchone()[0], True)
             cur.execute(
-                "SELECT public.jas_si_github_webhook_mark_failed(%s,'LATE_FAILURE',5)",
-                (delivery_id,),
+                "SELECT public.jas_si_github_webhook_mark_failed(%s,'LATE_FAILURE',%s,5)",
+                (delivery_id, first_claim_token),
             )
             self.assertIs(cur.fetchone()[0], False)
             cur.execute(
                 """
-                SELECT delivery_id
+                SELECT delivery_id,claim_token
                   FROM public.jas_si_github_webhook_claim(5,30)
                  WHERE delivery_id=%s
                 """,
@@ -151,7 +155,9 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
                 """,
                 (delivery_id,),
             )
-            self.assertEqual(cur.fetchone(), (delivery_id,))
+            first_claim = cur.fetchone()
+            self.assertEqual(first_claim[0], delivery_id)
+            stale_token = first_claim[1]
             cur.execute("RESET ROLE")
             cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute(
@@ -166,13 +172,20 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
             cur.execute("SET ROLE jas_si_runtime")
             cur.execute(
                 """
-                SELECT delivery_id,attempt_count
+                SELECT delivery_id,attempt_count,claim_token
                   FROM public.jas_si_github_webhook_claim(5,30)
                  WHERE delivery_id=%s
                 """,
                 (delivery_id,),
             )
-            self.assertEqual(cur.fetchone(), (delivery_id, 2))
+            reclaimed = cur.fetchone()
+            self.assertEqual(reclaimed[:2], (delivery_id, 2))
+            self.assertNotEqual(stale_token, reclaimed[2])
+            cur.execute(
+                "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
+                (delivery_id, stale_token),
+            )
+            self.assertIs(cur.fetchone()[0], False)
 
     def test_runtime_cannot_read_inbox_table_directly(self):
         with self.conn.cursor() as cur:
