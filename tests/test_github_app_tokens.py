@@ -211,6 +211,42 @@ class TenantGitHubBindingResolverTests(unittest.TestCase):
         with self.assertRaises(GitHubAppTokenError):
             provider.resolve(tenant_id=self.tenant_id, repository="jainulabedinshawon/JAS-SI")
 
+    def test_provider_mints_only_for_database_verified_binding(self):
+        calls = []
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=45)
+
+        class Resolver:
+            def resolve(inner, *, tenant_id, repository):
+                return TenantGitHubInstallationBinding(
+                    tenant_id=self.tenant_id,
+                    installation_id=183349938,
+                    repository="jainulabedinshawon/JAS-SI",
+                )
+
+        class Issuer:
+            def issue(inner, *, installation_id, repository):
+                calls.append((installation_id, repository))
+                return IssuedGitHubInstallationToken(
+                    installation_id=installation_id,
+                    repository=repository,
+                    access_token="ghs-verified-short-lived-token",
+                    expires_at=expires_at,
+                )
+
+        provider = GitHubAppTenantCredentialProvider(
+            binding_resolver=Resolver(), token_issuer=Issuer()
+        )
+        credential = provider.resolve(
+            tenant_id=self.tenant_id,
+            repository="jainulabedinshawon/JAS-SI",
+        )
+        self.assertEqual(calls, [(183349938, "jainulabedinshawon/JAS-SI")])
+        self.assertEqual(credential.tenant_id, self.tenant_id)
+        self.assertEqual(credential.installation_id, 183349938)
+        self.assertEqual(credential.repository, "jainulabedinshawon/JAS-SI")
+        self.assertEqual(credential.access_token, "ghs-verified-short-lived-token")
+        self.assertEqual(credential.expires_at, expires_at)
+
     def test_provider_returns_none_without_allowlist_binding(self):
         class Resolver:
             def resolve(self, **_kwargs): return None
