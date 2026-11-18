@@ -267,6 +267,7 @@ class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
             raise GitHubAppTokenError("Tenant GitHub installation binding is invalid")
         if (
             binding.tenant_id != tenant_id
+            or not is_valid_github_repository(binding.repository)
             or binding.repository.casefold() != repository.casefold()
             or isinstance(binding.installation_id, bool)
             or not isinstance(binding.installation_id, int)
