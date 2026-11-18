@@ -22,3 +22,5 @@ Do not use the migration-owner, database-superuser, Worker, or Verifier DSN for 
 Webhook payload fields are untrusted signals, including account, sender, repository list, and any tenant-like fields. The ingress does not create a tenant binding, mark an Installation active, issue tokens, or infer repository allowlists. A separate callback ownership proof and authoritative GitHub API reconciliation are required before activation.
 
 The webhook receiver does not process lifecycle events in the request path. It only persists them for a later worker/reconciler. If persistence is unavailable, it fails closed with HTTP 503 so GitHub can redeliver.
+
+Operational status: this endpoint remains disabled until both runtime configuration values are supplied through the deployment's secret-management system and the inbox migration is applied in the intended environment.
