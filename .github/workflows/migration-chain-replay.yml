@@ -2,6 +2,12 @@ name: JAS-SI Clean Migration Chain Replay
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/tenant-github-installation-binding-v1
+    paths:
+      - "src/jas_si_agent/migrations/**"
+      - ".github/workflows/migration-chain-replay.yml"
   pull_request:
     branches:
       - main
