@@ -17,6 +17,9 @@ from jas_si_agent.agent_task_host_preflight import (
     verify_agent_host_database_access,
 )
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
+from jas_si_agent.github_app_tokens import (
+    build_github_app_tenant_credential_provider,
+)
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
 
@@ -105,9 +108,28 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Verifier database readiness preflight failed") from None
 
+    app_id_raw = os.environ.get("GITHUB_APP_ID", "").strip()
+    private_key_path = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
+    if bool(app_id_raw) != bool(private_key_path):
+        raise SystemExit(
+            "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH must be configured together"
+        )
+    if app_id_raw:
+        try:
+            app_id = int(app_id_raw)
+            credential_provider = build_github_app_tenant_credential_provider(
+                database_dsn=dsn,
+                app_id=app_id,
+                private_key_path=private_key_path,
+            )
+        except (ValueError, TypeError):
+            raise SystemExit("GitHub App runtime configuration is invalid") from None
+    else:
+        credential_provider = _PublicRepositoryOnlyProvider()
+
     verifier = build_github_repository_verifier(
         verifier_dsn=dsn,
-        credential_provider=_PublicRepositoryOnlyProvider(),
+        credential_provider=credential_provider,
         collector_id=collector_id,
         batch_size=batch_size,
     )
