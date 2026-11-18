@@ -62,6 +62,27 @@ class GitHubWebhookAuthenticationTests(unittest.TestCase):
                 raw_body=body,
             )
 
+    def test_accepts_all_installation_lifecycle_actions(self):
+        for action in ("created", "deleted", "suspend", "unsuspend", "new_permissions_accepted"):
+            body = json.dumps({
+                "action": action,
+                "installation": {"id": 183349938},
+            }).encode()
+            event = parse_verified_github_webhook(
+                delivery_id=f"delivery-{action}",
+                event_name="installation",
+                raw_body=body,
+            )
+            self.assertEqual(event.action, action)
+
+    def test_rejects_non_bytes_parser_body(self):
+        with self.assertRaises(GitHubWebhookError):
+            parse_verified_github_webhook(
+                delivery_id="delivery-004",
+                event_name="installation",
+                raw_body="not-bytes",
+            )
+
     def test_accepts_repository_membership_events(self):
         for action in ("added", "removed"):
             body = json.dumps({
