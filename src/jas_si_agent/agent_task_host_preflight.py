@@ -39,36 +39,26 @@ def verify_agent_host_database_access(
         "pg_catalog.has_function_privilege(current_user, %s, 'EXECUTE')"
         for _ in required_functions
     )
-    table_checks = [
-        "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'SELECT')",
-        "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'UPDATE')",
-        "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'TRUNCATE')",
-    ]
-    if capability_role == "jas_si_agent_worker":
-        table_checks.extend([
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_tasks', 'SELECT')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_tasks', 'INSERT')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_tasks', 'UPDATE')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'INSERT')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'DELETE')",
-        ])
-    if capability_role == "jas_si_agent_verifier":
-        table_checks.extend([
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_tasks', 'SELECT')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_tasks', 'UPDATE')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_tasks', 'INSERT')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_evidence_records', 'SELECT')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_evidence_records', 'INSERT')",
-            "pg_catalog.has_any_column_privilege(current_user, 'public.jas_si_agent_evidence_records', 'UPDATE')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'INSERT')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'DELETE')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_tasks', 'TRUNCATE')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'SELECT')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'INSERT')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'UPDATE')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'DELETE')",
-            "pg_catalog.has_table_privilege(current_user, 'public.jas_si_agent_evidence_records', 'TRUNCATE')",
-        ])
+    # Neither host may read or mutate task/evidence tables directly. All
+    # access must pass through the narrowly granted SECURITY DEFINER routines.
+    table_checks = []
+    for table in (
+        "public.jas_si_agent_tasks",
+        "public.jas_si_agent_evidence_records",
+    ):
+        for privilege in (
+            "SELECT", "INSERT", "UPDATE", "DELETE",
+            "TRUNCATE", "REFERENCES", "TRIGGER",
+        ):
+            table_checks.append(
+                "pg_catalog.has_table_privilege(current_user, "
+                + repr(table) + ", " + repr(privilege) + ")"
+            )
+        for privilege in ("SELECT", "INSERT", "UPDATE", "REFERENCES"):
+            table_checks.append(
+                "pg_catalog.has_any_column_privilege(current_user, "
+                + repr(table) + ", " + repr(privilege) + ")"
+            )
     query = (
         "SELECT session_user, current_user, "
         + routine_checks + ", " + ", ".join(table_checks)
