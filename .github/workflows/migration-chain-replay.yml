@@ -424,4 +424,37 @@ jobs:
                       customer_cur.execute("RELEASE SAVEPOINT direct_rate_limit_write_guard")
                       customer_cur.execute("RESET SESSION AUTHORIZATION")
               print("Verified database-owned customer rate limiting and denied direct table INSERT")
+
+              # Contended same-bucket requests must serialize at the database
+              # row lock: with limit=1, exactly one concurrent request wins.
+              from concurrent.futures import ThreadPoolExecutor
+              concurrent_bucket = bytes([14])*32
+
+              def concurrent_rate_check(_):
+                  with psycopg.connect(dsn) as concurrent_conn:
+                      with concurrent_conn.cursor() as concurrent_cur:
+                          concurrent_cur.execute(
+                              "SET SESSION AUTHORIZATION jas_si_customer_runtime_test"
+                          )
+                          concurrent_cur.execute("SET ROLE jas_si_customer_runtime")
+                          concurrent_cur.execute(
+                              """SELECT allowed,retry_after_seconds
+                                   FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
+                              (concurrent_bucket,),
+                          )
+                          decision = concurrent_cur.fetchone()
+                          concurrent_cur.execute("RESET SESSION AUTHORIZATION")
+                          return decision
+
+              with ThreadPoolExecutor(max_workers=8) as executor:
+                  concurrent_decisions = list(executor.map(concurrent_rate_check, range(8)))
+              allowed_count = sum(1 for decision in concurrent_decisions if decision and decision[0])
+              denied_count = sum(1 for decision in concurrent_decisions if decision and not decision[0])
+              if allowed_count != 1 or denied_count != 7:
+                  raise SystemExit(
+                      "Concurrent customer rate-limit decisions were not serialized: "
+                      f"allowed={allowed_count}, denied={denied_count}, "
+                      f"decisions={concurrent_decisions!r}"
+                  )
+              print("Verified concurrent customer rate-limit serialization: 1 allowed, 7 denied")
           PY
