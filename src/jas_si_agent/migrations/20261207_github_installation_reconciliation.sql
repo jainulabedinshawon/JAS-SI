@@ -392,7 +392,18 @@ BEGIN
        OR pg_catalog.has_function_privilege('jas_si_github_reconciler',
             'public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)','EXECUTE')
        OR NOT pg_catalog.has_function_privilege('jas_si_github_reconciler',
-            'public.jas_si_github_installation_claim_pending(integer)','EXECUTE') THEN
+            'public.jas_si_github_installation_claim_pending(integer)','EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_runtime',
+            'public.jas_si_github_installation_claim_pending(integer)','EXECUTE')
+       OR EXISTS (
+            SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
+                (SELECT p.proacl FROM pg_catalog.pg_proc p
+                  WHERE p.oid='public.jas_si_github_installation_claim_pending(integer)'::regprocedure),
+                pg_catalog.acldefault('f',(SELECT p.proowner FROM pg_catalog.pg_proc p
+                  WHERE p.oid='public.jas_si_github_installation_claim_pending(integer)'::regprocedure))
+            )) acl
+            WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+       ) THEN
         RAISE EXCEPTION 'GitHub reconciler privilege boundary is invalid';
     END IF;
 END
