@@ -20,7 +20,7 @@ _GITHUB_AUTHORIZE_ENDPOINT = "https://github.com/login/oauth/authorize"
 _STATE_BYTES = 32
 _VERIFIER_BYTES = 32
 _CODE_RE = re.compile(r"^[A-Za-z0-9._~-]{1,512}$")
-_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_]{1,128}$")
+_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _STATE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
 
