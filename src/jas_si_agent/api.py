@@ -1280,7 +1280,7 @@ def customer_github_oauth_start(
     try:
         authorization_url = service.begin(
             session_token=session_token, account=account,
-            installation_id=consumed.installation_id,
+            installation_id=payload.installation_id,
         )
         from urllib.parse import parse_qs, urlsplit
         states = parse_qs(urlsplit(authorization_url).query, strict_parsing=True).get("state", [])
@@ -1379,7 +1379,7 @@ def github_oauth_callback_complete(
         github_user = provider.authenticated_user(token)
         proof = verifier.verify(
             user_access_token=token.access_token,
-            installation_id=payload.installation_id,
+            installation_id=consumed.installation_id,
         )
         if (
             proof.user.user_id != github_user.github_user_id
