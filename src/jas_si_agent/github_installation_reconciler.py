@@ -72,6 +72,38 @@ class PostgresGitHubInstallationReconciler:
         except Exception:
             raise RuntimeError("GitHub reconciliation inbox is unavailable") from None
 
+    def claim_pending(self, *, limit: int = 10) -> tuple[tuple[int, int], ...]:
+        """Claim due pending OAuth claims even when their webhook arrived earlier."""
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """SELECT installation_id,attempt_count
+                         FROM public.jas_si_github_installation_claim_pending(%s)""",
+                    (limit,),
+                )
+                return tuple((int(row[0]), int(row[1])) for row in cur.fetchall())
+        except Exception:
+            raise RuntimeError("Pending GitHub Installation claims are unavailable") from None
+
+    def process_pending_claims(self, *, limit: int = 10) -> dict[str, int]:
+        claimed = self.claim_pending(limit=limit)
+        counts = {"claimed": len(claimed), "reconciled": 0, "retry": 0}
+        for installation_id, _attempt_count in claimed:
+            try:
+                snapshot = self._github.snapshot(installation_id=installation_id)
+                state = self.apply_snapshot(
+                    installation_id=installation_id, snapshot=snapshot
+                )
+                if state[0] in {"active", "suspended", "revoked"}:
+                    counts["reconciled"] += 1
+                else:
+                    counts["retry"] += 1
+            except Exception:
+                # claim_pending() has already advanced a bounded retry time.
+                # Do not log provider responses, private key details, or DSNs.
+                counts["retry"] += 1
+        return counts
+
     def apply_snapshot(self, *, installation_id: int, snapshot) -> tuple[str, str, int]:
         missing = snapshot is None
         repositories = [] if missing or snapshot.suspended else [
@@ -214,11 +246,17 @@ def main() -> None:
     _LOG.info("GitHub Installation reconciler started; poll_seconds=%s", poll_seconds)
     while True:
         try:
-            counts = reconciler.process_batch(limit=10)
-            if counts["claimed"]:
+            webhook_counts = reconciler.process_batch(limit=10)
+            pending_counts = reconciler.process_pending_claims(limit=10)
+            if webhook_counts["claimed"] or pending_counts["claimed"]:
                 _LOG.info(
-                    "GitHub reconciliation batch: claimed=%s processed=%s retry=%s lease_lost=%s",
-                    counts["claimed"], counts["processed"], counts["retry"], counts["lease_lost"],
+                    "GitHub reconciliation: webhook_claimed=%s webhook_processed=%s "
+                    "webhook_retry=%s lease_lost=%s pending_claimed=%s pending_reconciled=%s "
+                    "pending_retry=%s",
+                    webhook_counts["claimed"], webhook_counts["processed"],
+                    webhook_counts["retry"], webhook_counts["lease_lost"],
+                    pending_counts["claimed"], pending_counts["reconciled"],
+                    pending_counts["retry"],
                 )
         except Exception:
             _LOG.error("GitHub Installation reconciliation cycle failed")
