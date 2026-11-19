@@ -80,7 +80,7 @@ class GitHubOAuthAttemptPostgresTests(unittest.TestCase):
             cur.execute(
                 """SELECT claim_id,status,installation_id
                      FROM public.customer_github_installation_claim_record(
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s
+                       %s,%s,%s::bigint,%s::bigint,%s,%s::bigint,%s,%s,%s::bigint
                      )""",
                 (
                     session_digest, uuid.uuid4(), installation_id, user_id,
