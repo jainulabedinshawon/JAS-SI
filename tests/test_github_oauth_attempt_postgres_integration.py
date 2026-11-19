@@ -69,7 +69,7 @@ class GitHubOAuthAttemptPostgresTests(unittest.TestCase):
                      FROM public.customer_github_oauth_attempt_create(
                        %s,%s,%s,%s,%s,%s,%s
                      )""",
-                (session_digest, uuid.uuid4(), state_digest, b"\x01"*48,
+                (session_digest, uuid.uuid4(), state_digest, b"\x01"*71,
                  "test-key-v1", hashlib.sha256(b"https://jas-si.example.test/oauth/callback").digest(),
                  datetime.now(timezone.utc)+timedelta(minutes=5)),
             )
