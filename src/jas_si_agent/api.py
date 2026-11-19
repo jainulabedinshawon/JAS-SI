@@ -1327,7 +1327,7 @@ def github_oauth_callback_page(request: Request) -> HTMLResponse:
    body:JSON.stringify({state,code,installation_id:Number(iid)})});
   const data=await r.json();
   document.getElementById("status").textContent=r.ok
-   ?"GitHub identity verified. Installation is awaiting repository reconciliation."
+   ?"GitHub ownership proof verified. The Installation record has not yet been persisted."
    :(data.detail||"GitHub connection could not be verified.");
  }catch(_){document.getElementById("status").textContent="GitHub connection could not be verified.";}
 })();
@@ -1394,7 +1394,7 @@ def github_oauth_callback_complete(
     )
     response.headers["Cache-Control"] = "no-store"
     return {
-        "status": "ownership_verified_pending_reconciliation",
+        "status": "ownership_proof_verified_not_persisted",
         "github_user": {"id": github_user.github_user_id, "login": github_user.login},
         "installation": {
             "installation_id": proof.installation_id,
@@ -1404,6 +1404,7 @@ def github_oauth_callback_complete(
             "account_type": proof.account_type,
         },
         "reconciliation_required": True,
+        "persistence": "not_recorded",
         "activation": "not_performed",
     }
 
