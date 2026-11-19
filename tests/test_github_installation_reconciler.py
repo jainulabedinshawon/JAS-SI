@@ -43,6 +43,10 @@ class FakeReconciler(PostgresGitHubInstallationReconciler):
         self.processed = []
         self.failed = []
         self.applied = []
+        self.pending = ((98765, 1),)
+
+    def claim_pending(self, *, limit=10):
+        return self.pending
 
     def claim(self, *, limit=10, lease_seconds=120):
         return self._events
@@ -92,6 +96,26 @@ class GitHubInstallationReconcilerTests(unittest.TestCase):
         result = reconciler.process_batch()
         self.assertEqual(result["retry"], 1)
         self.assertEqual(reconciler.failed[0][1], "GITHUB_API_UNAVAILABLE")
+
+    def test_pending_claims_are_reconciled_even_without_webhook_delivery(self):
+        snapshot = SimpleNamespace(
+            app_id=123456, account_id=7654321,
+            account_login="jas-org", account_type="Organization",
+            suspended=False, repositories=(),
+        )
+        github = FakeGitHub(snapshot=snapshot)
+        reconciler = FakeReconciler(github)
+        result = reconciler.process_pending_claims()
+        self.assertEqual(github.calls, [98765])
+        self.assertEqual(reconciler.applied, [(98765, snapshot)])
+        self.assertEqual(result, {"claimed": 1, "reconciled": 1, "retry": 0})
+
+    def test_pending_claim_api_outage_is_left_for_bounded_retry(self):
+        github = FakeGitHub(error=GitHubAppAPIError("secret provider response"))
+        reconciler = FakeReconciler(github)
+        result = reconciler.process_pending_claims()
+        self.assertEqual(result, {"claimed": 1, "reconciled": 0, "retry": 1})
+        self.assertEqual(reconciler.failed, [])
 
     def test_expired_lease_is_not_reported_as_processed(self):
         github = FakeGitHub(snapshot=None)
