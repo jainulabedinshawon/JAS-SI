@@ -92,7 +92,7 @@ class GitHubWebhookAuthenticationTests(unittest.TestCase):
                 "repositories_removed": [],
             }).encode()
             event = parse_verified_github_webhook(
-                delivery_id=f"delivery-{action}",
+                delivery_id=f"delivery-{action.replace('_', '-')}",
                 event_name="installation_repositories",
                 raw_body=body,
             )
