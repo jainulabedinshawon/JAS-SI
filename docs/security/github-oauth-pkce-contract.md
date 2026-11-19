@@ -37,11 +37,11 @@ The claim starts as `pending_reconciliation`. OAuth success does not activate an
 
 The implementation now includes:
 - `GitHubAppInstallationAPI`: signs short-lived RS256 App JWTs in memory, fetches the current Installation record, verifies the configured App ID/account, handles suspended or missing Installations, mints a short-lived Installation token, and exhaustively paginates the complete `/installation/repositories` response.
-- `GitHubInstallationReconciler`: claims durable webhook inbox deliveries through restricted database routines. It ignores webhook payload account/repository/tenant claims and uses the Installation ID only as a lookup candidate.
+- `GitHubInstallationReconciler`: claims durable webhook inbox deliveries through restricted database routines and independently polls pending OAuth claims on a bounded retry schedule. This ensures a claim can reconcile even if its original installation webhook arrived before the customer completed OAuth. It ignores webhook payload account/repository/tenant claims and uses the Installation ID only as a lookup candidate.
 - `jas_si_github_installation_reconcile_apply`: a database-owned SECURITY DEFINER routine, callable only by the dedicated `jas_si_github_reconciler` capability. It requires an existing pending ownership claim, matches the App ID and GitHub account identity, and requires the customer tenant to remain active before enabling access.
 - A complete repository snapshot is applied atomically. Repositories removed from the live GitHub App allowlist are marked revoked. Installation suspension revokes the current binding; deletion (GitHub API 404) revokes the claim and all bindings. Unsuspension can reactivate only after a fresh matching App API snapshot.
 - The reconciler has EXECUTE-only access to reconciliation and inbox claim/finish routines. It cannot read or write the claim, installation, repository, or webhook inbox tables directly, and cannot call the public webhook receive routine.
-- Missing claims and provider/database failures are retried through the fenced webhook lease state machine. A lost lease is not reported as processed.
+- Missing claims and provider/database failures are retried through the fenced webhook lease state machine. Pending claims also receive bounded periodic retries (maximum ten attempts, at least 60 seconds apart), independent of webhook timing. A lost webhook lease is not reported as processed.
 
 Webhook deliveries are authenticated over exact raw bytes and durably stored before acknowledgement. They are signals only. The live GitHub App API response, together with the customer-bound pending claim, is the authority for Installation and repository state.
 
