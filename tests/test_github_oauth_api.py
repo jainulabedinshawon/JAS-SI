@@ -1,13 +1,14 @@
 """HTTP-boundary tests for the GitHub OAuth browser handoff."""
 from __future__ import annotations
 
+import importlib
 import unittest
 import uuid
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from jas_si_agent import api
+api = importlib.import_module("jas_si_agent.api")
 from jas_si_agent.customer_identity import CustomerAccount
 from jas_si_agent.github_oauth_service import ConsumedGitHubOAuthAttempt
 
@@ -120,12 +121,12 @@ class GitHubOAuthApiTests(unittest.TestCase):
 
     def test_start_requires_csrf_and_sets_short_lived_lax_state_cookie(self):
         denied = self.client.post("/v1/customer/github/oauth/start")
-        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.status_code, 403, denied.text)
         response = self.client.post(
             "/v1/customer/github/oauth/start",
             headers={"X-JAS-SI-CSRF": "C" * 43},
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["expires_in"], 300)
         cookie = response.headers["set-cookie"].lower()
         self.assertIn("jassi_github_oauth_state=", cookie)
@@ -139,7 +140,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
             "/v1/customer/github/oauth/start",
             headers={"X-JAS-SI-CSRF": "C" * 43},
         )
-        self.assertEqual(started.status_code, 200)
+        self.assertEqual(started.status_code, 200, started.text)
         response = self.client.get(
             "/v1/github/oauth/callback?state=" + "A" * 43
             + "&code=github-authorization-code&installation_id=98765"
