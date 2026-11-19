@@ -158,8 +158,8 @@ class GitHubAppInstallationAPITests(unittest.TestCase):
                 page = int(request.url.params["page"])
                 return httpx.Response(200, json={
                     "total_count": 101 if page == 1 else 102,
-                    "repositories": [self._repo(i, f"jas-test-org/r{i}") for i in range(1, 102)]
-                    if page == 1 else [self._repo(102, "jas-test-org/r102")],
+                    "repositories": [self._repo(i, f"jas-test-org/r{i}") for i in range(1, 101)]
+                    if page == 1 else [self._repo(101, "jas-test-org/r101")],
                 })
             return httpx.Response(404)
         with self.assertRaises(GitHubAppAPIError):
