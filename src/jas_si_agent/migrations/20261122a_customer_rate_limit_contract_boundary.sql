@@ -4,6 +4,11 @@
 -- database-owned routine is the only permitted access path. Revoke legacy
 -- table and column grants from all application roles, including inherited
 -- PUBLIC-effective grants, before asserting the effective boundary.
+
+-- Execute ACL changes as the actual table owner. The migration operator is
+-- only a SET-capable member of this NOLOGIN role; membership alone does not
+-- grant authority to revoke privileges originally granted by the owner.
+SET LOCAL ROLE jas_si_customer_rate_limit_owner;
 REVOKE ALL PRIVILEGES ON TABLE public.jas_si_customer_rate_limits
     FROM PUBLIC, jas_si_customer_runtime, jas_si_runtime, jas_si_provisioner;
 DO $revoke_columns$
@@ -47,3 +52,5 @@ BEGIN
     END LOOP;
 END
 $assert_runtime_acl$;
+
+RESET ROLE;
