@@ -127,6 +127,50 @@ class PostgresGitHubOAuthAttemptStore:
             ) from None
 
 
+class PostgresGitHubInstallationClaimStore:
+    """Persist a verified GitHub user/Installation proof as a pending claim."""
+
+    def __init__(self, dsn: str, session_pepper: bytes) -> None:
+        if not isinstance(dsn, str) or not dsn.strip():
+            raise GitHubOAuthServiceError("Customer database is not configured")
+        if not isinstance(session_pepper, bytes) or len(session_pepper) < 32:
+            raise GitHubOAuthServiceError("Customer session pepper is unavailable")
+        self._dsn = dsn.strip()
+        self._pepper = session_pepper
+
+    def record(
+        self, *, session_token: str, proof, claim_id: uuid.UUID | None = None,
+    ) -> tuple[uuid.UUID, str, int]:
+        import psycopg
+        if claim_id is None:
+            claim_id = uuid.uuid4()
+        session_digest = hmac.new(
+            self._pepper, session_token.encode("utf-8"), hashlib.sha256
+        ).digest()
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(
+                    """SELECT * FROM public.customer_github_installation_claim_record(
+                         %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        session_digest, claim_id, proof.installation_id,
+                        proof.user.user_id, proof.user.login,
+                        proof.account_id, proof.account_login,
+                        proof.account_type, proof.app_id,
+                    ),
+                )
+                row = cur.fetchone()
+            if row is None:
+                raise GitHubOAuthServiceError("Installation claim was not recorded")
+            return row[0], str(row[1]), int(row[2])
+        except GitHubOAuthServiceError:
+            raise
+        except Exception:
+            raise GitHubOAuthServiceError(
+                "Verified GitHub Installation claim could not be recorded"
+            ) from None
+
+
 class GitHubOAuthService:
     """Persist-before-redirect and consume-before-decrypt OAuth orchestration."""
 
