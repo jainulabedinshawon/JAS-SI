@@ -131,7 +131,7 @@ BEGIN
        AND o.state_digest=p_state_digest AND o.redirect_uri_digest=p_redirect_uri_digest
        AND o.consumed_at IS NULL AND o.expires_at>v_now
     RETURNING o.attempt_id,o.tenant_id,o.account_id,o.verifier_ciphertext,
-              o.verifier_key_version;
+              o.verifier_key_version::text;
 END;
 $function$;
 
