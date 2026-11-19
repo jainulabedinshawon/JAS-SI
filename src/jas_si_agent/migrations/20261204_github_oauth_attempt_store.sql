@@ -16,8 +16,10 @@ GRANT SELECT (session_id,account_id,token_digest,expires_at,revoked_at)
     ON public.jas_si_customer_sessions TO jas_si_customer_identity_owner;
 GRANT SELECT (account_id,tenant_id,status)
     ON public.jas_si_customer_accounts TO jas_si_customer_identity_owner;
-GRANT SELECT (tenant_id,status)
+GRANT SELECT (tenant_id,status), REFERENCES (tenant_id)
     ON public.jas_si_tenants TO jas_si_customer_identity_owner;
+GRANT REFERENCES (account_id)
+    ON public.jas_si_customer_accounts TO jas_si_customer_identity_owner;
 
 GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 SET LOCAL ROLE jas_si_customer_identity_owner;
