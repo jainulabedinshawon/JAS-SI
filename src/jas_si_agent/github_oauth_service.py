@@ -154,7 +154,7 @@ class PostgresGitHubInstallationClaimStore:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
                 cur.execute(
                     """SELECT * FROM public.customer_github_installation_claim_record(
-                         %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                         %s,%s,%s::bigint,%s::bigint,%s,%s::bigint,%s,%s,%s::bigint)""",
                     (
                         session_digest, claim_id, proof.installation_id,
                         proof.user.user_id, proof.user.login,
