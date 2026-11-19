@@ -139,8 +139,8 @@ class GitHubOAuthAttemptPostgresTests(unittest.TestCase):
             with self._runtime_connection() as conn, conn.cursor() as cur:
                 barrier.wait(timeout=5)
                 cur.execute(
-                    """SELECT attempt_id,tenant_id,account_id,verifier_ciphertext,
-                              verifier_key_version
+                    """SELECT attempt_id,tenant_id,account_id,candidate_installation_id,
+                              verifier_ciphertext,verifier_key_version
                          FROM public.customer_github_oauth_attempt_consume(%s,%s,%s)""",
                     (session_digest, state_digest, redirect_digest),
                 )
