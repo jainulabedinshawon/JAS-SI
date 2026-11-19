@@ -58,6 +58,16 @@ class FakeProvider:
         return SimpleNamespace(github_user_id=12345, login="jas-user")
 
 
+class FakeInstallationClaimStore:
+    def __init__(self):
+        self.recorded = None
+
+    def record(self, *, session_token, proof):
+        assert session_token == "S" * 43
+        self.recorded = proof
+        return uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), "pending_reconciliation", proof.installation_id
+
+
 class FakeOwnershipVerifier:
     def verify(self, *, user_access_token, installation_id):
         assert user_access_token == "gho_" + "T" * 36
@@ -96,7 +106,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         self.state_names = (
             "customer_identity_store", "github_oauth_service",
             "github_oauth_provider", "github_installation_ownership_verifier",
-            "api_rate_limiter",
+            "api_rate_limiter", "github_installation_claim_store",
         )
         self.old_state = {name: getattr(api.app.state, name, None) for name in self.state_names}
         api.app.state.customer_identity_store = FakeCustomerStore(self.account)
@@ -104,6 +114,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         api.app.state.github_oauth_service = FakeOAuthService(self.account)
         api.app.state.github_oauth_provider = FakeProvider()
         api.app.state.github_installation_ownership_verifier = FakeOwnershipVerifier()
+        api.app.state.github_installation_claim_store = FakeInstallationClaimStore()
         self.old_identity_helper = api._get_customer_identity_store
         self.old_session_helper = api._require_customer_session
         self.old_oauth_components = api._get_github_oauth_components
@@ -200,9 +211,14 @@ class GitHubOAuthApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["status"], "ownership_proof_verified_not_persisted")
+        self.assertEqual(body["status"], "ownership_proof_verified_pending_reconciliation")
         self.assertTrue(body["reconciliation_required"])
-        self.assertEqual(body["persistence"], "not_recorded")
+        self.assertEqual(body["persistence"], "recorded")
+        self.assertEqual(body["claim_status"], "pending_reconciliation")
+        self.assertEqual(body["claim_id"], "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        self.assertEqual(
+            api.app.state.github_installation_claim_store.recorded.installation_id, 98765
+        )
         self.assertEqual(body["activation"], "not_performed")
         self.assertEqual(body["github_user"]["login"], "jas-user")
         self.assertEqual(body["installation"]["installation_id"], 98765)
