@@ -184,6 +184,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         started = self.client.post(
             "/v1/customer/github/oauth/start",
             headers={"X-JAS-SI-CSRF": "C" * 43},
+            json={"installation_id": 98765},
         )
         self.assertEqual(started.status_code, 200)
         response = self.client.get(
@@ -201,7 +202,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         self.assertEqual(started.status_code, 200)
         page = self.client.get(
             "/v1/github/oauth/callback?state=" + "A" * 43
-            + "&code=github-authorization-code&installation_id=98765"
+            + "&code=github-authorization-code"
         )
         self.assertEqual(page.status_code, 200)
         response = self.client.post(
