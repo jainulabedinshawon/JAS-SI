@@ -926,10 +926,13 @@ class CustomerTokenRequest(BaseModel):
     token: str = Field(min_length=32, max_length=128)
 
 
+class GitHubOAuthStartRequest(BaseModel):
+    installation_id: int = Field(gt=0)
+
+
 class GitHubOAuthCallbackRequest(BaseModel):
     state: str = Field(min_length=32, max_length=128)
     code: str = Field(min_length=1, max_length=512)
-    installation_id: int = Field(gt=0)
 
 
 class CustomerApiKeyCreateRequest(BaseModel):
@@ -1266,14 +1269,19 @@ def _get_github_oauth_components(request: Request):
 
 
 @app.post("/v1/customer/github/oauth/start")
-def customer_github_oauth_start(request: Request, response: Response) -> dict:
+def customer_github_oauth_start(
+    payload: GitHubOAuthStartRequest, request: Request, response: Response
+) -> dict:
     """Begin OAuth only from an authenticated, CSRF-protected customer session."""
     account = _require_customer_session(request)
     _require_customer_csrf(request)
     session_token = request.cookies.get("jassi_customer_session") or ""
     service, _, _ = _get_github_oauth_components(request)
     try:
-        authorization_url = service.begin(session_token=session_token, account=account)
+        authorization_url = service.begin(
+            session_token=session_token, account=account,
+            installation_id=consumed.installation_id,
+        )
         from urllib.parse import parse_qs, urlsplit
         states = parse_qs(urlsplit(authorization_url).query, strict_parsing=True).get("state", [])
         if len(states) != 1 or not states[0]:
@@ -1302,7 +1310,6 @@ def github_oauth_callback_page(request: Request) -> HTMLResponse:
         query.get("error") or len(states) != 1 or len(codes) != 1
         or not states[0] or not codes[0] or not state_cookie
         or not hmac.compare_digest(states[0], state_cookie)
-        or len(query.get("installation_id", [])) != 1
     ):
         response = HTMLResponse(
             "<!doctype html><html><body><h1>GitHub connection could not be verified</h1></body></html>",
@@ -1318,14 +1325,14 @@ def github_oauth_callback_page(request: Request) -> HTMLResponse:
 (async()=>{
  const q=new URLSearchParams(location.search);
  const one=k=>{const a=q.getAll(k);return a.length===1?a[0]:null};
- const state=one("state"),code=one("code"),iid=one("installation_id");
+ const state=one("state"),code=one("code");
  history.replaceState(null,"",location.pathname);
  const csrf=(()=>{const m=document.cookie.match(/(?:^|; )jassi_customer_csrf=([^;]+)/);return m?decodeURIComponent(m[1]):""})();
- if(!state||!code||!iid||!/^\\d+$/.test(iid)||!csrf){document.getElementById("status").textContent="Invalid callback. Return to JAS-SI and try again.";return;}
+ if(!state||!code||!csrf){document.getElementById("status").textContent="Invalid callback. Return to JAS-SI and try again.";return;}
  try{
   const r=await fetch("/v1/github/oauth/callback/complete",{method:"POST",credentials:"same-origin",
    headers:{"Content-Type":"application/json","X-JAS-SI-CSRF":csrf},
-   body:JSON.stringify({state,code,installation_id:Number(iid)})});
+   body:JSON.stringify({state,code})});
   const data=await r.json();
   document.getElementById("status").textContent=r.ok
    ?"GitHub ownership proof verified. The Installation record has not yet been persisted."
