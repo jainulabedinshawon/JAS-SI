@@ -11,6 +11,10 @@ import signal
 import threading
 from uuid import UUID
 
+from jas_si_agent.agent_task_host_preflight import (
+    AgentHostPreflightError,
+    verify_agent_host_database_access,
+)
 from jas_si_agent.agent_task_worker import AgentTaskWorker
 from jas_si_agent.agent_task_worker_runtime import build_github_repository_worker
 
@@ -69,6 +73,22 @@ def main() -> None:
     if not 0.1 <= poll_interval <= 60:
         raise SystemExit("JAS_SI_AGENT_WORKER_POLL_SECONDS must be between 0.1 and 60")
 
+    try:
+        verify_agent_host_database_access(
+            dsn,
+            capability_role="jas_si_agent_worker",
+            expected_login="jas_si_agent_worker_login",
+            required_functions=(
+                "public.jas_si_agent_task_claim(uuid,integer)",
+                "public.jas_si_agent_task_renew(uuid,uuid,bigint,integer)",
+                "public.jas_si_agent_task_ack_cancel(uuid,uuid,bigint)",
+                "public.jas_si_agent_task_report(uuid,uuid,bigint,jsonb)",
+                "public.jas_si_agent_task_fail(uuid,uuid,bigint,text,integer)",
+            ),
+        )
+    except AgentHostPreflightError:
+        raise SystemExit("Worker database readiness preflight failed") from None
+
     worker = build_github_repository_worker(
         worker_dsn=dsn,
         worker_id=worker_id,
@@ -81,7 +101,7 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    _LOG.info("JAS-SI read-only worker started")
+    _LOG.info("JAS-SI read-only worker started; database preflight passed")
     run_worker_loop(
         worker,
         stop_event=stop_event,

@@ -11,6 +11,10 @@ import os
 import signal
 import threading
 
+from jas_si_agent.agent_task_host_preflight import (
+    AgentHostPreflightError,
+    verify_agent_host_database_access,
+)
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
@@ -77,6 +81,20 @@ def main() -> None:
     if not 1 <= batch_size <= 20:
         raise SystemExit("JAS_SI_AGENT_VERIFIER_BATCH_SIZE must be between 1 and 20")
 
+    try:
+        verify_agent_host_database_access(
+            dsn,
+            capability_role="jas_si_agent_verifier",
+            expected_login="jas_si_agent_verifier_login",
+            required_functions=(
+                "public.jas_si_agent_task_verification_claim(integer,integer)",
+                "public.jas_si_agent_task_verification_release(uuid,uuid,uuid)",
+                "public.jas_si_agent_task_finalize_success(uuid,uuid,uuid,uuid,text,bytea,jsonb,timestamptz)",
+            ),
+        )
+    except AgentHostPreflightError:
+        raise SystemExit("Verifier database readiness preflight failed") from None
+
     verifier = build_github_repository_verifier(
         verifier_dsn=dsn,
         credential_provider=_PublicRepositoryOnlyProvider(),
@@ -90,7 +108,7 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    _LOG.info("JAS-SI independent verifier started")
+    _LOG.info("JAS-SI independent verifier started; database preflight passed")
     run_verifier_loop(
         verifier,
         stop_event=stop_event,
