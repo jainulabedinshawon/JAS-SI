@@ -92,7 +92,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
         )
         self.store.row = (
             attempt_id, self.account.tenant_id, self.account.account_id,
-            envelope.ciphertext, envelope.key_version,
+            98765, envelope.ciphertext, envelope.key_version,
         )
         result = self.service.consume_callback(
             session_token=self.session, state=state,
