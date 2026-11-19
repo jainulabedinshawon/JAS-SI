@@ -28,6 +28,9 @@ GRANT REFERENCES (account_id) ON public.jas_si_customer_accounts
 GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 SET LOCAL ROLE jas_si_customer_identity_owner;
 
+CREATE UNIQUE INDEX IF NOT EXISTS jas_si_customer_accounts_account_tenant_unique
+    ON public.jas_si_customer_accounts(account_id,tenant_id);
+
 CREATE TABLE IF NOT EXISTS public.jas_si_github_installation_claims (
     claim_id uuid PRIMARY KEY,
     installation_id bigint NOT NULL UNIQUE CHECK (installation_id > 0),
