@@ -46,7 +46,7 @@ class ConsumedGitHubOAuthAttempt:
         return (
             "ConsumedGitHubOAuthAttempt(attempt_id=<redacted>, "
             "tenant_id=<redacted>, account_id=<redacted>, "
-            "code_verifier=<redacted>)"
+            "installation_id=<redacted>, code_verifier=<redacted>)"
         )
 
 
@@ -145,6 +145,8 @@ class PostgresGitHubInstallationClaimStore:
         import psycopg
         if claim_id is None:
             claim_id = uuid.uuid4()
+        if not isinstance(session_token, str) or not _SESSION_TOKEN_RE.fullmatch(session_token):
+            raise GitHubOAuthServiceError("Invalid or expired customer session")
         session_digest = hmac.new(
             self._pepper, session_token.encode("utf-8"), hashlib.sha256
         ).digest()
