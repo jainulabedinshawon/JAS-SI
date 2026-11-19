@@ -136,7 +136,7 @@ def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[
     client_secret = values[names[1]]
     redirect_uri = values[names[2]]
     active_version = values[names[4]]
-    if not client_id or not re.fullmatch(r"^(?:Iv1\\.)?[A-Za-z0-9_-]{8,128}$", client_id):
+    if not client_id or not re.fullmatch(r"^(?:Iv1\.)?[A-Za-z0-9_-]{8,128}$", client_id):
         raise ValueError("JAS_SI_GITHUB_OAUTH_CLIENT_ID is invalid")
     if not client_secret or not 20 <= len(client_secret) <= 512:
         raise ValueError("JAS_SI_GITHUB_OAUTH_CLIENT_SECRET is invalid")
