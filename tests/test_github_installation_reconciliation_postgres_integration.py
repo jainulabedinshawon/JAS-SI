@@ -224,6 +224,31 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
         )
         self.assertEqual(result, ("NO_CLAIM", "UNCHANGED", 0))
 
+    def test_pending_claim_polling_has_bounded_retry_and_stops_after_reconcile(self):
+        _, installation_id, _ = self._fixture()
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
+            cur.execute("SET ROLE jas_si_github_reconciler")
+            cur.execute(
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(10)"
+            )
+            self.assertEqual(cur.fetchone(), (installation_id, 1))
+            cur.execute(
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(10)"
+            )
+            self.assertIsNone(cur.fetchone())
+        self._reconcile(
+            installation_id,
+            repositories=[self._repo(1001, "jas-org/alpha")],
+        )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
+            cur.execute("SET ROLE jas_si_github_reconciler")
+            cur.execute(
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(10)"
+            )
+            self.assertIsNone(cur.fetchone())
+
     def test_reconciler_has_execute_only_access(self):
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
