@@ -1572,7 +1572,17 @@ def get_agent_task(task_id: str, request: Request) -> dict:
         raise HTTPException(status_code=503, detail="Agent task retrieval is unavailable") from None
     if task is None:
         raise HTTPException(status_code=404, detail="Agent task not found")
-    return {"task": _agent_task_response(task)}
+    try:
+        review_metadata = store.get_review_metadata(
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            task_id=parsed_task_id,
+        )
+    except (AgentTaskStoreError, ValueError):
+        raise HTTPException(status_code=503, detail="Agent task review metadata is unavailable") from None
+    response = _agent_task_response(task)
+    response.update(review_metadata)
+    return {"task": response}
 
 
 @app.post(

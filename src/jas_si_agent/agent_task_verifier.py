@@ -28,6 +28,9 @@ class AgentTaskVerifierStore(Protocol):
     def finalize_success(self, *, task, decision) -> bool:
         ...
 
+    def record_inconclusive(self, *, task, reason_code: str) -> str | None:
+        ...
+
 
 @dataclass(frozen=True)
 class VerifierBatchResult:
@@ -53,6 +56,8 @@ class AgentTaskVerifier:
             raise ValueError("A verifier claim releaser is required")
         if not callable(getattr(store, "finalize_success", None)):
             raise ValueError("A trusted task finalizer is required")
+        if not callable(getattr(store, "record_inconclusive", None)):
+            raise ValueError("A durable inconclusive-outcome recorder is required")
         if collector is None or not callable(getattr(collector, "collect", None)):
             raise ValueError("An independent evidence collector is required")
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or not 1 <= batch_size <= 20:
@@ -70,11 +75,14 @@ class AgentTaskVerifier:
         for task, report in pending:
             decision = verify_github_repository_task(task, report, collector=self._collector)
             if decision.status is not VerificationStatus.VERIFIED_SUCCESS:
-                # Keep the claim until its bounded lease expires. Releasing an
-                # inconclusive claim immediately would make a permanently
-                # inaccessible/private repository get retried every poll cycle.
-                # Lease expiry provides bounded retry backoff without a schema
-                # mutation; a later verifier can reclaim the task safely.
+                # Persist the result through the task/tenant/claim-token fence.
+                # The database applies bounded retries and moves exhausted
+                # tasks to HUMAN_REVIEW_REQUIRED; no inconclusive result can
+                # reach the success finalizer.
+                self._store.record_inconclusive(
+                    task=task,
+                    reason_code=decision.reason,
+                )
                 inconclusive += 1
                 continue
             if self._store.finalize_success(task=task, decision=decision):
