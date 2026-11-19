@@ -107,7 +107,7 @@ class GitHubOAuthAttemptPostgresTests(unittest.TestCase):
             results = list(pool.map(lambda _: consume(), range(2)))
         self.assertEqual(sum(result is not None for result in results), 1)
         winner = next(result for result in results if result is not None)
-        self.assertEqual(winner[3], b"\x01"*48)
+        self.assertEqual(winner[3], b"\x01"*71)
         self.assertEqual(winner[4], "test-key-v1")
 
     def test_callback_cannot_be_consumed_by_a_different_customer_session(self):
