@@ -103,11 +103,16 @@ class GitHubOAuthProviderTests(unittest.TestCase):
             )
 
     def test_user_identity_response_must_be_well_formed(self):
-        transport = httpx.MockTransport(
-            lambda request: httpx.Response(
+        def handler(request):
+            if request.url.path == "/login/oauth/access_token":
+                return httpx.Response(200, json={
+                    "access_token": self.access_token,
+                    "token_type": "bearer",
+                })
+            return httpx.Response(
                 200, json={"id": True, "login": "not valid login"}
             )
-        )
+        transport = httpx.MockTransport(handler)
         provider = GitHubOAuthProvider(
             client_id="Iv1.example", client_secret="secret-" + "S" * 32,
             transport=transport,
