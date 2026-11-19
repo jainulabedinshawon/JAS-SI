@@ -43,7 +43,8 @@ class FakeOAuthService:
         assert authorization_code == "github-authorization-code"
         self.consumed = ConsumedGitHubOAuthAttempt(
             attempt_id=uuid.uuid4(), tenant_id=self.account.tenant_id,
-            account_id=self.account.account_id, code_verifier="V" * 43,
+            account_id=self.account.account_id, installation_id=98765,
+            code_verifier="V" * 43,
         )
         return self.consumed
 
@@ -166,6 +167,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         started = self.client.post(
             "/v1/customer/github/oauth/start",
             headers={"X-JAS-SI-CSRF": "C" * 43},
+            json={"installation_id": 98765},
         )
         self.assertEqual(started.status_code, 200, started.text)
         response = self.client.get(
@@ -187,7 +189,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         response = self.client.get(
             "/v1/github/oauth/callback?state=" + "A" * 43
             + "&state=" + "A" * 43
-            + "&code=github-authorization-code&installation_id=98765"
+            + "&code=github-authorization-code"
         )
         self.assertEqual(response.status_code, 400, response.text)
 
@@ -232,7 +234,6 @@ class GitHubOAuthApiTests(unittest.TestCase):
             json={
                 "state": "A" * 43,
                 "code": "github-authorization-code",
-                "installation_id": 98765,
             },
         )
         self.assertEqual(response.status_code, 400)
