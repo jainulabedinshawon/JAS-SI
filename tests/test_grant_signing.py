@@ -17,6 +17,8 @@ from jas_si_agent.grant_signing import (  # noqa: E402
     GrantSigningError,
     sign_grant,
     verify_grant_signature,
+    sign_task_grant,
+    verify_task_grant_signature,
 )
 
 
@@ -77,6 +79,33 @@ class TestGrantSigning(unittest.TestCase):
     def test_short_key_is_rejected_when_verifying(self) -> None:
         self.assertFalse(
             verify_grant_signature(self.grant, "0" * 64, b"short")
+        )
+
+    def test_tenant_mutation_invalidates_task_bound_signature(self) -> None:
+        import uuid
+
+        task_id = uuid.uuid4()
+        signature = sign_task_grant(self.grant, task_id, self.key)
+        altered = replace(self.grant, tenant_id=uuid.uuid4())
+        self.assertFalse(
+            verify_task_grant_signature(altered, task_id, signature, self.key)
+        )
+
+    def test_task_bound_signature_verifies_only_for_its_task(self) -> None:
+        import uuid
+
+        task_id = uuid.uuid4()
+        signature = sign_task_grant(self.grant, task_id, self.key)
+        self.assertTrue(
+            verify_task_grant_signature(self.grant, task_id, signature, self.key)
+        )
+        self.assertFalse(
+            verify_task_grant_signature(self.grant, uuid.uuid4(), signature, self.key)
+        )
+
+    def test_task_bound_signature_rejects_non_uuid_task_id(self) -> None:
+        self.assertFalse(
+            verify_task_grant_signature(self.grant, "task-1", "0" * 64, self.key)
         )
 
     def test_naive_expiry_is_rejected(self) -> None:

@@ -1,6 +1,7 @@
 """Tests for authenticated usage metering validation contracts."""
 from datetime import datetime, timezone
 from unittest import TestCase
+from unittest.mock import patch
 
 from jas_si_agent.usage_meter import PostgresUsageMeter
 
@@ -28,6 +29,29 @@ class UsageMeterValidationTests(TestCase):
         with self.assertRaises(ValueError):
             self.meter.record_authenticated(
                 **self.common, operation="authorization.evaluate", units=999,
+            )
+
+    def test_accepts_server_mapped_agent_task_submission_scope(self):
+        common = dict(self.common)
+        common["required_scope"] = "agent:tasks:write"
+        with patch("psycopg.connect") as connect:
+            cursor = connect.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (
+                "00000000-0000-0000-0000-000000000033", "agent.task.submit", 1,
+                datetime(2026, 11, 15, tzinfo=timezone.utc), False, 100, 1, 99,
+                datetime(2026, 11, 1, tzinfo=timezone.utc),
+                datetime(2026, 12, 1, tzinfo=timezone.utc),
+            )
+            result = self.meter.record_authenticated(
+                **common, operation="agent.task.submit",
+            )
+        self.assertEqual(result["operation"], "agent.task.submit")
+        self.assertEqual(result["remaining_units"], 99)
+
+    def test_rejects_agent_task_operation_with_unrelated_scope(self):
+        with self.assertRaises(ValueError):
+            self.meter.record_authenticated(
+                **self.common, operation="agent.task.submit",
             )
 
     def test_rejects_invalid_api_key_context(self):

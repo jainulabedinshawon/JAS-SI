@@ -49,6 +49,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
                 "20261112_customer_identity_routines.sql",
                 "20261113_customer_api_key_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
+                "20261121_security_audit_writer_boundary.sql",
             ]
             for name in migrations:
                 path = ROOT / "src" / "jas_si_agent" / "migrations" / name

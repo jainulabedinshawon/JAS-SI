@@ -98,7 +98,7 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
         with self.assertRaises(ValueError):
             PostgresSecurityEventStore(" ")
 
-    def test_append_persists_event_and_updates_checkpoint(self):
+    def test_append_delegates_atomic_write_to_database_owned_routine(self):
         event = {
             "event_type": "authorization_evaluated",
             "allowed": True,
@@ -107,54 +107,34 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
         with patch.dict(sys.modules, self.modules):
             self.store.append(event)
 
-        self.assertEqual(len(self.cursor.calls), 5)
-
-        insert_call = self.cursor.calls[3]
-        update_call = self.cursor.calls[4]
-
+        self.assertEqual(len(self.cursor.calls), 1)
+        query, params = self.cursor.calls[0]
         self.assertIn(
-            "INSERT INTO jas_si_audit_events",
-            insert_call[0],
+            "SELECT public.jas_si_audit_append_event(%s::jsonb)",
+            query,
         )
-        self.assertIn(
-            "UPDATE jas_si_audit_chain_state",
-            update_call[0],
-        )
+        self.assertEqual(params[0].obj, event)
+        self.assertNotIn("INSERT INTO jas_si_audit_events", query)
+        self.assertNotIn("UPDATE jas_si_audit_chain_state", query)
 
-        expected_hash = _event_hash(event, GENESIS_HASH)
-
-        self.assertEqual(
-            insert_call[1][1],
-            GENESIS_HASH,
-        )
-        self.assertEqual(
-            insert_call[1][2],
-            expected_hash,
-        )
-        self.assertEqual(
-            update_call[1][0],
-            expected_hash,
-        )
-
-    def test_append_uses_existing_checkpoint(self):
-        previous_hash = "a" * 64
-        self.cursor.last_hash = previous_hash
-
+    def test_append_uses_one_database_call_for_every_checkpoint_state(self):
         event = {"event_type": "second_event"}
+        self.cursor.last_hash = "a" * 64
 
         with patch.dict(sys.modules, self.modules):
             self.store.append(event)
 
-        insert_call = self.cursor.calls[3]
+        self.assertEqual(len(self.cursor.calls), 1)
+        self.assertIn("jas_si_audit_append_event", self.cursor.calls[0][0])
 
-        self.assertEqual(
-            insert_call[1][1],
-            previous_hash,
-        )
-        self.assertEqual(
-            insert_call[1][2],
-            _event_hash(event, previous_hash),
-        )
+    def test_database_writer_failure_raises_store_error(self):
+        def fail_execute(query, params=None):
+            raise RuntimeError("database writer routine unavailable")
+
+        self.cursor.execute = fail_execute
+        with patch.dict(sys.modules, self.modules):
+            with self.assertRaises(SecurityEventStoreError):
+                self.store.append({"event_type": "test"})
 
     def test_rejects_non_mapping_event(self):
         with self.assertRaises(SecurityEventStoreError):
@@ -177,20 +157,6 @@ class TestPostgresSecurityEventStore(unittest.TestCase):
             self.store.append({
                 "data": "x" * MAX_EVENT_BYTES
             })
-
-    def test_rejects_missing_checkpoint(self):
-        self.cursor.fetchone = lambda: None
-
-        with patch.dict(sys.modules, self.modules):
-            with self.assertRaises(SecurityEventStoreError):
-                self.store.append({"event_type": "test"})
-
-    def test_rejects_invalid_checkpoint(self):
-        self.cursor.last_hash = "INVALID"
-
-        with patch.dict(sys.modules, self.modules):
-            with self.assertRaises(SecurityEventStoreError):
-                self.store.append({"event_type": "test"})
 
     def test_database_failure_raises_store_error(self):
         self.psycopg.connect = lambda dsn: (

@@ -7,6 +7,8 @@ on:
       - main
       - feat/customer-identity-onboarding-v1
       - fix/tenant-suspension-locking-after-onboarding-fix
+      - feat/durable-agent-task-store-v1
+      - feat/verifier-inconclusive-review-lifecycle-rebased
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -59,9 +61,11 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
+          import sys
           import psycopg
 
           root = Path.cwd()
+          sys.path.insert(0, str(root / "src"))
           migration_dir = root / "src" / "jas_si_agent" / "migrations"
           migrations = (
               "001_create_audit_tables.sql",
@@ -84,26 +88,70 @@ jobs:
               "20261117_runtime_usage_routine_only.sql",
               "20261118_shared_api_rate_limits.sql",
           )
-          # ACL hardening migrations are appended when present, preserving
-          # canonical dependency order for clean replay and repeat application.
-          for optional_acl_migration in (
+          # These security and agent migrations are required for this branch's
+          # complete schema chain. Missing files must fail replay rather than
+          # silently reducing the migration set being tested.
+          required_acl_migrations = (
               "20261119_general_runtime_customer_identity_acl.sql",
               "20261120_api_key_auth_runtime_tenant_acl.sql",
-          ):
-              if migration_dir.joinpath(optional_acl_migration).is_file():
-                  migrations = migrations + (optional_acl_migration,)
+              "20261115z_api_key_auth_tenant_lock_reassert.sql",
+              "20261121_security_audit_writer_boundary.sql",
+              "20261122_customer_rate_limit_owner_boundary.sql",
+              "20261123_agent_task_store.sql",
+              "20261123_agent_task_scope_allowlist.sql",
+              "20261124_agent_task_worker_lifecycle.sql",
+              "20261125_agent_task_usage_scope.sql",
+              "20261126_agent_task_nonretryable_failures.sql",
+              "20261127_agent_task_evidence_finalization.sql",
+              "20261128_agent_task_verifier_claims.sql",
+              "20261129_agent_runtime_default_acl_boundary.sql",
+              "20261130_customer_tenant_active_guard_reassert.sql",
+              "20261130a_general_runtime_default_acl_boundary.sql",
+              "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
+          )
+          missing_acl_migrations = [
+              name for name in required_acl_migrations
+              if not migration_dir.joinpath(name).is_file()
+          ]
+          if missing_acl_migrations:
+              raise SystemExit(
+                  "Missing required security/agent migrations: "
+                  + ", ".join(missing_acl_migrations)
+              )
+          migrations = migrations + required_acl_migrations
 
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
           with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-              # These three core service roles are platform bootstrap inputs,
-              # not customer migrations. Create them explicitly on the empty DB.
-              for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
+              for role in (
+                  "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
+                  "neondb_owner", "jas_si_agent_worker_login",
+                  "jas_si_agent_verifier_login",
+              ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
                       cur.execute(
                           f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
+
+              # Seed the known-bad future-object grants so the ACL boundary
+              # migration proves it removes them on every clean replay.
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO jas_si_agent_worker_login"
+              )
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT, USAGE, UPDATE ON SEQUENCES TO jas_si_agent_worker_login"
+              )
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT ON TABLES TO jas_si_agent_verifier_login"
+              )
+              cur.execute(
+                  "ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public "
+                  "GRANT SELECT ON SEQUENCES TO jas_si_agent_verifier_login"
+              )
 
               for replay in (1, 2):
                   for name in migrations:
@@ -176,4 +224,149 @@ jobs:
                       f"no_public_execute={no_public}"
                   )
               print(f"Verified {count} SECURITY DEFINER routines and runtime usage-table isolation")
+
+              # Exercise the worker failure transition as an actual LOGIN member
+              # of the worker capability role. Security/configuration failures
+              # must be terminal; a transient model timeout remains retryable.
+              from uuid import uuid4
+              tenant_id, key_id = uuid4(), uuid4()
+              worker_id = uuid4()
+              cur.execute(
+                  "INSERT INTO public.jas_si_tenants(tenant_id,tenant_name) VALUES (%s,%s)",
+                  (tenant_id, f"worker-retry-test-{tenant_id.hex}"),
+              )
+              cur.execute(
+                  """INSERT INTO public.jas_si_api_keys(
+                       key_id,tenant_id,key_name,key_prefix,secret_digest,
+                       pepper_version,scopes,created_by
+                     ) VALUES (%s,%s,%s,%s,%s,1,%s,%s)""",
+                  (key_id,tenant_id,"migration-test",
+                   f"jassi_test_{key_id.hex}",bytes([7])*32,
+                   ["agent:tasks:write"],"migration-replay"),
+              )
+              task_ids = {"ACTION_NOT_AUTHORIZED": uuid4(), "MODEL_TIMEOUT": uuid4()}
+              for error_code, task_id in task_ids.items():
+                  cur.execute(
+                      """INSERT INTO public.jas_si_agent_tasks(
+                           task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                           task_type,status,input_payload,attempt_count,max_attempts,
+                           lease_owner,lease_expires_at,lease_fence
+                         ) VALUES (%s,%s,%s,%s,%s,'reasoning','running','{}'::jsonb,
+                                   1,3,%s,clock_timestamp()+interval '2 minutes',1)""",
+                      (task_id,tenant_id,key_id,f"retry-{error_code}",
+                       bytes([len(error_code)])*32,str(worker_id)),
+                  )
+
+              cur.execute("CREATE ROLE jas_si_agent_worker_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
+              cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_test")
+              # The capability role is deliberately NOINHERIT; the worker
+              # process must explicitly SET ROLE to its narrowly granted API.
+              cur.execute("SET ROLE jas_si_agent_worker")
+              for error_code, task_id in task_ids.items():
+                  cur.execute(
+                      "SELECT public.jas_si_agent_task_fail(%s,%s,1,%s,0)",
+                      (worker_id,task_id,error_code),
+                  )
+                  expected = "failed" if error_code == "ACTION_NOT_AUTHORIZED" else "queued"
+                  actual = cur.fetchone()[0]
+                  if actual != expected:
+                      raise SystemExit(
+                          f"Worker failure transition mismatch for {error_code}: "
+                          f"expected {expected}, got {actual}"
+                      )
+              cur.execute("RESET SESSION AUTHORIZATION")
+              print("Verified worker LOGIN capability: deterministic denial is terminal; transient failure retries")
+
+              # Verify the application audit writer works through its SECURITY
+              # DEFINER routine while direct audit-table mutation remains denied.
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_runtime_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute(
+                  "GRANT jas_si_runtime TO jas_si_agent_runtime_test "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
+              conn.commit()
+              from jas_si_agent.postgres_security_event_store import PostgresSecurityEventStore
+              with psycopg.connect(dsn) as runtime_conn:
+                  with runtime_conn.cursor() as runtime_cur:
+                      runtime_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_runtime_test")
+                      runtime_cur.execute("SET ROLE jas_si_runtime")
+                  PostgresSecurityEventStore.append_in_transaction(
+                      runtime_conn,
+                      {"event_type":"migration_replay_runtime_audit_writer","verified":True},
+                  )
+                  audit_result = PostgresSecurityEventStore.verify_integrity_in_transaction(runtime_conn)
+                  if audit_result.get("valid") is not True:
+                      raise SystemExit(f"Runtime audit writer produced an invalid chain: {audit_result!r}")
+                  with runtime_conn.cursor() as runtime_cur:
+                      runtime_cur.execute("SAVEPOINT direct_audit_write_guard")
+                      try:
+                          runtime_cur.execute(
+                              """INSERT INTO public.jas_si_audit_events(
+                                   event_payload,previous_hash,event_hash
+                                 ) VALUES ('{}'::jsonb,%s,%s)""",
+                              ("0"*64,"1"*64),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          runtime_cur.execute("ROLLBACK TO SAVEPOINT direct_audit_write_guard")
+                      else:
+                          raise SystemExit("Runtime role retained direct audit-table INSERT")
+                      runtime_cur.execute("RELEASE SAVEPOINT direct_audit_write_guard")
+                      runtime_cur.execute("RESET SESSION AUTHORIZATION")
+              print("Verified runtime audit writer routine and denied direct audit-table INSERT")
+
+              # Customer email throttling also crosses a database-owned
+              # SECURITY DEFINER boundary; the runtime role cannot touch rows.
+              cur.execute(
+                  "CREATE ROLE jas_si_customer_runtime_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute(
+                  "GRANT jas_si_customer_runtime TO jas_si_customer_runtime_test "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
+              conn.commit()
+              rate_bucket = bytes([11])*32
+              with psycopg.connect(dsn) as customer_conn:
+                  with customer_conn.cursor() as customer_cur:
+                      customer_cur.execute("SET SESSION AUTHORIZATION jas_si_customer_runtime_test")
+                      customer_cur.execute("SET ROLE jas_si_customer_runtime")
+                      customer_cur.execute(
+                          """SELECT allowed,retry_after_seconds
+                               FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
+                          (rate_bucket,),
+                      )
+                      first_rate = customer_cur.fetchone()
+                      customer_cur.execute(
+                          """SELECT allowed,retry_after_seconds
+                               FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
+                          (rate_bucket,),
+                      )
+                      second_rate = customer_cur.fetchone()
+                      if first_rate is None or first_rate[0] is not True:
+                          raise SystemExit(f"First customer rate-limit request was not allowed: {first_rate!r}")
+                      if second_rate is None or second_rate[0] is not False:
+                          raise SystemExit(f"Customer rate-limit threshold was not enforced: {second_rate!r}")
+                      customer_cur.execute("SAVEPOINT direct_rate_limit_write_guard")
+                      try:
+                          customer_cur.execute(
+                              """INSERT INTO public.jas_si_customer_rate_limits(
+                                   bucket_key,window_started_at,request_count
+                                 ) VALUES (%s,clock_timestamp(),1)""",
+                              (bytes([12])*32,),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          customer_cur.execute("ROLLBACK TO SAVEPOINT direct_rate_limit_write_guard")
+                      else:
+                          raise SystemExit("Customer runtime retained direct rate-limit table INSERT")
+                      customer_cur.execute("RELEASE SAVEPOINT direct_rate_limit_write_guard")
+                      customer_cur.execute("RESET SESSION AUTHORIZATION")
+              print("Verified database-owned customer rate limiting and denied direct table INSERT")
           PY

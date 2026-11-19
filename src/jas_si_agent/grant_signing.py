@@ -13,6 +13,7 @@ import hmac
 import json
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from jas_si_agent.authorization import AuthorizationGrant
 
@@ -96,10 +97,14 @@ def canonical_grant_payload(grant: AuthorizationGrant) -> bytes:
     ):
         raise GrantSigningError("Invalid allowed_resources")
 
+    if grant.tenant_id is not None and not isinstance(grant.tenant_id, UUID):
+        raise GrantSigningError("tenant_id must be a UUID when provided")
+
     payload: dict[str, Any] = {
         "version": SIGNING_VERSION,
         "algorithm": ALGORITHM,
         "grant_id": grant.grant_id,
+        "tenant_id": str(grant.tenant_id) if grant.tenant_id is not None else None,
         "approved_by": grant.approved_by,
         "human_approved": grant.human_approved,
         "allowed_actions": list(grant.allowed_actions),
@@ -151,6 +156,52 @@ def verify_grant_signature(
             return False
 
         expected = sign_grant(grant, key)
+        return hmac.compare_digest(expected, signature)
+    except (GrantSigningError, TypeError, ValueError, OverflowError):
+        return False
+
+
+
+_TASK_DOMAIN = b"JAS-SI:AUTHORIZATION-GRANT-TASK:v1:"
+
+
+def _task_grant_message(grant: AuthorizationGrant, task_id: UUID) -> bytes:
+    """Bind an otherwise valid grant to one immutable task identifier."""
+    if not isinstance(task_id, UUID):
+        raise GrantSigningError("task_id must be a UUID")
+    return _TASK_DOMAIN + task_id.bytes + b"\x00" + canonical_grant_payload(grant)
+
+
+def sign_task_grant(
+    grant: AuthorizationGrant,
+    task_id: UUID,
+    key: bytes,
+) -> str:
+    """Sign a grant for exactly one task; signatures cannot be replayed across tasks."""
+    _validate_key(key)
+    return hmac.new(
+        key,
+        _task_grant_message(grant, task_id),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_task_grant_signature(
+    grant: AuthorizationGrant,
+    task_id: UUID,
+    signature: str,
+    key: bytes,
+) -> bool:
+    """Verify a task-bound grant signature; malformed or mismatched inputs fail closed."""
+    try:
+        _validate_key(key)
+        if (
+            not isinstance(signature, str)
+            or len(signature) != 64
+            or any(char not in "0123456789abcdef" for char in signature)
+        ):
+            return False
+        expected = sign_task_grant(grant, task_id, key)
         return hmac.compare_digest(expected, signature)
     except (GrantSigningError, TypeError, ValueError, OverflowError):
         return False

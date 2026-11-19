@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
+from uuid import UUID
 
 SAFE_ACTIONS = frozenset(
     {
@@ -61,6 +62,7 @@ class AuthorizationGrant:
     allowed_actions: tuple[str, ...]
     allowed_resources: tuple[str, ...]
     expires_at: datetime
+    tenant_id: UUID | None = None
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,8 @@ ALLOWED_SCOPES = frozenset({
     "outcomes:submit",
     "github:evidence:verify",
     "usage:read",
+    "agent:tasks:read",
+    "agent:tasks:write",
 })
 
 
@@ -217,11 +219,75 @@ class PostgresApiKeyRegistry:
                         to_regclass('public.jas_si_api_keys'),
                         to_regclass('public.jas_si_api_key_provisioning_runs'),
                         to_regclass('public.jas_si_audit_events'),
-                        to_regclass('public.jas_si_audit_chain_state')
+                        to_regclass('public.jas_si_audit_chain_state'),
+                        to_regprocedure('public.jas_si_audit_append_event(jsonb)')
                     """
                 )
                 row = cursor.fetchone()
                 return bool(row and all(row))
+
+    def verify_audit_writer_boundary(self) -> bool:
+        """Require one database-owned append boundary and no direct app-role mutation."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     p.prosecdef,
+                     p.proconfig,
+                     owner.rolname,
+                     owner.rolcanlogin,
+                     owner.rolsuper,
+                     owner.rolcreatedb,
+                     owner.rolcreaterole,
+                     owner.rolreplication,
+                     owner.rolbypassrls,
+                     owner.rolinherit,
+                     has_function_privilege('jas_si_runtime',p.oid,'EXECUTE'),
+                     has_function_privilege('jas_si_provisioner',p.oid,'EXECUTE'),
+                     EXISTS (
+                         SELECT 1 FROM pg_catalog.aclexplode(
+                             COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+                         ) acl
+                         WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                     ),
+                     (
+                         SELECT pg_catalog.bool_or(
+                             has_table_privilege(r.rolname,t.table_name,'INSERT')
+                             OR has_table_privilege(r.rolname,t.table_name,'UPDATE')
+                             OR has_table_privilege(r.rolname,t.table_name,'DELETE')
+                             OR has_table_privilege(r.rolname,t.table_name,'TRUNCATE')
+                             OR has_any_column_privilege(r.rolname,t.table_name,'INSERT')
+                             OR has_any_column_privilege(r.rolname,t.table_name,'UPDATE')
+                         )
+                         FROM pg_catalog.pg_roles r
+                         CROSS JOIN (VALUES
+                             ('public.jas_si_audit_chain_state'),
+                             ('public.jas_si_audit_events')
+                         ) AS t(table_name)
+                         WHERE r.rolname IN (
+                             'jas_si_runtime','jas_si_provisioner',
+                             'jas_si_customer_key_owner'
+                         )
+                     )
+                   FROM pg_catalog.pg_proc p
+                   JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                   JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
+                   WHERE n.nspname='public'
+                     AND p.proname='jas_si_audit_append_event'
+                     AND pg_catalog.oidvectortypes(p.proargtypes)='jsonb'"""
+            )
+            row = cursor.fetchone()
+        return bool(
+            row
+            and row[0] is True
+            and row[1] == ["search_path=pg_catalog"]
+            and row[2] == "jas_si_audit_writer_owner"
+            and row[3] is False and row[4] is False and row[5] is False
+            and row[6] is False and row[7] is False and row[8] is False
+            and row[9] is False and row[10] is True and row[11] is True
+            and row[12] is False and row[13] is False
+        )
 
     def verify_customer_runtime_role(self) -> bool:
         """Require the dedicated non-superuser, non-BYPASSRLS customer role."""
@@ -492,38 +558,10 @@ class PostgresApiKeyRegistry:
                             "SELECT set_config('jas_si.tenant_id', %s, true)",
                             (str(tenant_scope),),
                         )
-                    # Serialize all audit writers, then verify the exact chain
-                    # snapshot that this transaction will extend.
-                    cursor.execute(
-                        """
-                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                        VALUES (TRUE, %s)
-                        ON CONFLICT (singleton) DO NOTHING
-                        """,
-                        ("0" * 64,),
-                    )
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        FOR UPDATE
-                        """
-                    )
-                    if cursor.fetchone() is None:
-                        raise ApiKeyError(
-                            "Audit checkpoint unavailable; provisioning stopped"
-                        )
-                    integrity = (
-                        PostgresSecurityEventStore.verify_integrity_in_transaction(
-                            connection
-                        )
-                    )
-                    if integrity.get("valid") is not True:
-                        raise ApiKeyError(
-                            "Audit chain integrity check failed; provisioning stopped"
-                        )
-
+                    # Audit append obtains the global checkpoint lock and verifies
+                    # the full chain inside the same transaction after the key
+                    # and idempotency rows are staged. Any audit failure rolls
+                    # back all three writes atomically.
                     cursor.execute(
                         """
                         SELECT status
@@ -805,35 +843,9 @@ class PostgresApiKeyRegistry:
                             "SELECT set_config('jas_si.tenant_id', %s, true)",
                             (str(tenant_scope),),
                         )
-                    cursor.execute(
-                        """
-                        INSERT INTO jas_si_audit_chain_state (singleton, last_hash)
-                        VALUES (TRUE, %s)
-                        ON CONFLICT (singleton) DO NOTHING
-                        """,
-                        ("0" * 64,),
-                    )
-                    cursor.execute(
-                        """
-                        SELECT last_hash
-                        FROM jas_si_audit_chain_state
-                        WHERE singleton = TRUE
-                        FOR UPDATE
-                        """
-                    )
-                    if cursor.fetchone() is None:
-                        raise ApiKeyError(
-                            "Audit checkpoint unavailable; revocation stopped"
-                        )
-                    integrity = (
-                        PostgresSecurityEventStore.verify_integrity_in_transaction(
-                            connection
-                        )
-                    )
-                    if integrity.get("valid") is not True:
-                        raise ApiKeyError(
-                            "Audit chain integrity check failed; revocation stopped"
-                        )
+                    # The SECURITY DEFINER audit writer takes the checkpoint lock,
+                    # validates the complete chain, and appends within this
+                    # transaction. An audit failure rolls back the revocation.
                     cursor.execute(
                         """
                         UPDATE jas_si_api_keys

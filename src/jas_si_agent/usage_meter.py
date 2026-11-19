@@ -62,10 +62,14 @@ class PostgresUsageMeter:
             raise ValueError("Authenticated API key ID must be a UUID") from None
         if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
             raise ValueError("Authenticated API-key digest must be 32 bytes")
-        if required_scope not in {"authorization:check", "outcomes:submit", "github:evidence:verify"}:
-            raise ValueError("Unsupported server-mapped usage scope")
-        if operation not in {"authorization.evaluate", "outcome.submit", "github.evidence.verify"}:
-            raise ValueError("Unsupported usage operation")
+        allowed_usage = {
+            "authorization.evaluate": "authorization:check",
+            "outcome.submit": "outcomes:submit",
+            "github.evidence.verify": "github:evidence:verify",
+            "agent.task.submit": "agent:tasks:write",
+        }
+        if operation not in allowed_usage or required_scope != allowed_usage[operation]:
+            raise ValueError("Unsupported server-mapped usage operation/scope")
         if units != 1:
             raise ValueError("Usage units must be exactly one")
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 128:

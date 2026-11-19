@@ -3,17 +3,23 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import os
 import re
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 from urllib.parse import quote
 
 import httpx
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+
+from jas_si_agent.github_installations import (
+    GitHubCredentialResolutionError,
+    is_valid_github_repository,
+    resolve_tenant_github_credential,
+)
 
 router = APIRouter(
     prefix="/v1",
@@ -23,10 +29,6 @@ router = APIRouter(
 _GITHUB_API = "https://api.github.com"
 
 _SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-_REPO_PATTERN = re.compile(
-    r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
-)
-
 _MAX_FILES = 10
 _MAX_FILE_BYTES = 1_000_000
 _MAX_ENCODED_BYTES = ((_MAX_FILE_BYTES + 2) // 3) * 4
@@ -54,7 +56,7 @@ def _client_error(status_code: int, detail: str) -> HTTPException:
     )
 
 def _validate_request(payload: GitHubEvidenceRequest) -> None:
-    if not _REPO_PATTERN.fullmatch(payload.repository):
+    if not is_valid_github_repository(payload.repository):
         raise _client_error(
             422,
             "Invalid GitHub repository format.",
@@ -96,29 +98,30 @@ def _validate_request(payload: GitHubEvidenceRequest) -> None:
                 "Invalid repository file path.",
             )
 
-def _github_headers() -> dict[str, str]:
+def _github_headers(access_token: str | None = None) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "JAS-SI-Verify/0.1",
     }
 
-    token = os.getenv("JAS_SI_GITHUB_TOKEN")
-
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
+    # Only a request-scoped token returned by the trusted tenant installation
+    # provider may authorize private repository access. Never use process-wide
+    # service credentials for customer-supplied repository identifiers.
+    if access_token is not None:
+        headers["Authorization"] = f"Bearer {access_token}"
     return headers
 
 def _github_get(
     url: str,
     *,
     params: dict[str, str] | None = None,
+    access_token: str | None = None,
 ) -> dict[str, Any]:
     try:
         response = httpx.get(
             url,
-            headers=_github_headers(),
+            headers=_github_headers(access_token),
             params=params,
             timeout=_TIMEOUT_SECONDS,
             follow_redirects=False,
@@ -263,6 +266,9 @@ def _require_sha(value: Any, description: str) -> str:
 
 def _verify_github_evidence(
     payload: GitHubEvidenceRequest,
+    *,
+    access_token: str | None = None,
+    access_mode: str = "public_repository_only",
 ) -> dict[str, Any]:
     """
     Read-only GitHub evidence integrity verification.
@@ -282,7 +288,8 @@ def _verify_github_evidence(
     base_url = f"{_GITHUB_API}/repos/{repository}"
 
     commit_data = _github_get(
-        f"{base_url}/commits/{commit_sha}"
+        f"{base_url}/commits/{commit_sha}",
+        access_token=access_token,
     )
 
     actual_commit_sha = _require_sha(
@@ -327,6 +334,7 @@ def _verify_github_evidence(
         file_data = _github_get(
             safe_path_url,
             params={"ref": commit_sha},
+            access_token=access_token,
         )
 
         if file_data.get("type") != "file":
@@ -371,6 +379,7 @@ def _verify_github_evidence(
         "service": "JAS-SI Verify",
         "status": "EVIDENCE_INTEGRITY_VERIFIED",
         "verification_scope": "github_commit_and_file_integrity",
+        "access_mode": access_mode,
         "repository": repository,
         "commit_sha": actual_commit_sha,
         "tree_sha": tree_sha,
@@ -388,6 +397,7 @@ def _persist_evidence_audit_event(
     *,
     status_code: int,
     outcome: str,
+    access_mode: str,
 ) -> None:
     """Persist GitHub evidence verification outcome before returning it."""
     store = getattr(request.app.state, "security_event_store", None)
@@ -405,6 +415,7 @@ def _persist_evidence_audit_event(
         "endpoint": request.url.path,
         "status_code": status_code,
         "outcome": outcome,
+        "access_mode": access_mode,
         "repository": payload.repository,
         "commit_sha": payload.commit_sha,
         "requested_file_count": len(payload.paths),
@@ -430,13 +441,47 @@ def verify_github_evidence(
 ) -> dict[str, Any]:
     """Verify immutable GitHub evidence and durably audit the outcome."""
     try:
-        result = _verify_github_evidence(payload)
+        access_token = None
+        access_mode = "public_repository_only"
+        provider = getattr(request.app.state, "github_installation_provider", None)
+        if provider is not None:
+            access_mode = "tenant_github_app_installation"
+            raw_tenant_id = getattr(request.state, "tenant_id", None)
+            try:
+                tenant_id = UUID(str(raw_tenant_id))
+            except (TypeError, ValueError, AttributeError):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authenticated tenant identity is required for GitHub access",
+                ) from None
+            try:
+                credential = resolve_tenant_github_credential(
+                    provider,
+                    tenant_id=tenant_id,
+                    repository=payload.repository,
+                )
+            except GitHubCredentialResolutionError:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Tenant GitHub connection is unavailable",
+                ) from None
+            if credential is not None:
+                access_token = credential.access_token
+            else:
+                access_mode = "public_repository_only"
+
+        result = _verify_github_evidence(
+            payload,
+            access_token=access_token,
+            access_mode=access_mode,
+        )
     except HTTPException as exc:
         _persist_evidence_audit_event(
             request,
             payload,
             status_code=exc.status_code,
             outcome="rejected",
+            access_mode=access_mode,
         )
         raise
 
@@ -445,5 +490,6 @@ def verify_github_evidence(
         payload,
         status_code=200,
         outcome="integrity_verified",
+        access_mode=access_mode,
     )
     return result
