@@ -158,7 +158,7 @@ BEGIN
        OR pg_catalog.has_table_privilege('jas_si_agent_worker','public.jas_si_github_oauth_attempts','SELECT')
        OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_github_oauth_attempts','SELECT')
        OR NOT pg_catalog.has_function_privilege('jas_si_customer_runtime',
-           'public.customer_github_oauth_attempt_create(bytea,uuid,bytea,bytea,text,bytea,timestamptz)','EXECUTE')
+           'public.customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz)','EXECUTE')
        OR NOT pg_catalog.has_function_privilege('jas_si_customer_runtime',
            'public.customer_github_oauth_attempt_consume(bytea,bytea,bytea)','EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_runtime',
@@ -170,7 +170,7 @@ BEGIN
         RAISE EXCEPTION 'GitHub OAuth attempt storage ACL boundary is invalid';
     END IF;
     FOREACH v_name IN ARRAY ARRAY[
-        'customer_github_oauth_attempt_create(bytea,uuid,bytea,bytea,text,bytea,timestamptz)',
+        'customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz)',
         'customer_github_oauth_attempt_consume(bytea,bytea,bytea)'
     ] LOOP
         IF pg_catalog.pg_get_userbyid((
