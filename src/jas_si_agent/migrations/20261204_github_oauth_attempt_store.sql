@@ -22,7 +22,7 @@ GRANT SELECT (tenant_id,status)
 GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 SET LOCAL ROLE jas_si_customer_identity_owner;
 
-CREATE TABLE public.jas_si_github_oauth_attempts (
+CREATE TABLE IF NOT EXISTS public.jas_si_github_oauth_attempts (
     attempt_id uuid PRIMARY KEY,
     tenant_id uuid NOT NULL REFERENCES public.jas_si_tenants(tenant_id) ON DELETE CASCADE,
     account_id uuid NOT NULL REFERENCES public.jas_si_customer_accounts(account_id) ON DELETE CASCADE,
@@ -45,7 +45,7 @@ CREATE TABLE public.jas_si_github_oauth_attempts (
         expires_at > created_at AND expires_at <= created_at + interval '10 minutes'
     )
 );
-CREATE INDEX jas_si_github_oauth_attempts_expiry_idx
+CREATE INDEX IF NOT EXISTS jas_si_github_oauth_attempts_expiry_idx
     ON public.jas_si_github_oauth_attempts(expires_at)
     WHERE consumed_at IS NULL;
 
