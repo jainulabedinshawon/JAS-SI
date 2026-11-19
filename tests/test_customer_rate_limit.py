@@ -80,9 +80,10 @@ class TestPostgresCustomerRateLimiter(unittest.TestCase):
         self.assertIn("public.jas_si_customer_rate_limit_check", query)
         # During expand/deploy, legacy table grants intentionally remain.
         # Their removal is independently enforced by the contract migration.
-        self.assertNotIn("rate_table.oid,'SELECT'", query)
-        self.assertNotIn("rate_table.oid,'INSERT'", query)
-        self.assertNotIn("rate_table.oid,'UPDATE'", query)
+        self.assertIn("rate_table.oid,'SELECT'", query)
+        self.assertIn("rate_table.oid,'INSERT'", query)
+        self.assertIn("rate_table.oid,'UPDATE'", query)
+        self.assertIn("has_any_column_privilege", query)
 
     def test_invalid_ip_is_rejected_before_database_access(self):
         with self.assertRaises(CustomerRateLimitError):
