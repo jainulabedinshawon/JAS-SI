@@ -26,6 +26,7 @@ SET LOCAL ROLE jas_si_customer_identity_owner;
 
 CREATE TABLE IF NOT EXISTS public.jas_si_github_oauth_attempts (
     attempt_id uuid PRIMARY KEY,
+    candidate_installation_id bigint NOT NULL CHECK (candidate_installation_id > 0),
     tenant_id uuid NOT NULL REFERENCES public.jas_si_tenants(tenant_id) ON DELETE CASCADE,
     account_id uuid NOT NULL REFERENCES public.jas_si_customer_accounts(account_id) ON DELETE CASCADE,
     state_digest bytea NOT NULL UNIQUE,
@@ -57,6 +58,7 @@ REVOKE ALL ON public.jas_si_github_oauth_attempts FROM PUBLIC, jas_si_customer_r
 CREATE OR REPLACE FUNCTION public.customer_github_oauth_attempt_create(
     p_session_digest bytea,
     p_attempt_id uuid,
+    p_candidate_installation_id bigint,
     p_state_digest bytea,
     p_verifier_ciphertext bytea,
     p_verifier_key_version text,
@@ -73,7 +75,8 @@ BEGIN
         RAISE EXCEPTION 'Customer OAuth service identity is not authorized' USING ERRCODE='42501';
     END IF;
     IF p_session_digest IS NULL OR pg_catalog.octet_length(p_session_digest)<>32
-       OR p_attempt_id IS NULL OR p_state_digest IS NULL OR pg_catalog.octet_length(p_state_digest)<>32
+       OR p_attempt_id IS NULL OR p_candidate_installation_id IS NULL OR p_candidate_installation_id<=0
+       OR p_state_digest IS NULL OR pg_catalog.octet_length(p_state_digest)<>32
        OR p_verifier_ciphertext IS NULL OR pg_catalog.octet_length(p_verifier_ciphertext) NOT BETWEEN 71 AND 156
        OR p_verifier_key_version IS NULL OR p_verifier_key_version !~ '^[A-Za-z0-9._-]{1,32}$'
        OR p_redirect_uri_digest IS NULL OR pg_catalog.octet_length(p_redirect_uri_digest)<>32
@@ -92,10 +95,10 @@ BEGIN
         RAISE EXCEPTION 'Active customer session required' USING ERRCODE='28000';
     END IF;
     INSERT INTO public.jas_si_github_oauth_attempts(
-        attempt_id,tenant_id,account_id,state_digest,verifier_ciphertext,
+        attempt_id,candidate_installation_id,tenant_id,account_id,state_digest,verifier_ciphertext,
         verifier_key_version,redirect_uri_digest,expires_at
     ) VALUES (
-        p_attempt_id,v_tenant_id,v_account_id,p_state_digest,p_verifier_ciphertext,
+        p_attempt_id,p_candidate_installation_id,v_tenant_id,v_account_id,p_state_digest,p_verifier_ciphertext,
         p_verifier_key_version,p_redirect_uri_digest,p_expires_at
     );
     RETURN QUERY SELECT p_attempt_id,p_expires_at;
@@ -107,7 +110,7 @@ CREATE OR REPLACE FUNCTION public.customer_github_oauth_attempt_consume(
     p_state_digest bytea,
     p_redirect_uri_digest bytea
 ) RETURNS TABLE(attempt_id uuid,tenant_id uuid,account_id uuid,
-    verifier_ciphertext bytea,verifier_key_version text)
+    candidate_installation_id bigint,verifier_ciphertext bytea,verifier_key_version text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
@@ -130,14 +133,14 @@ BEGIN
        AND o.account_id=a.account_id AND o.tenant_id=a.tenant_id
        AND o.state_digest=p_state_digest AND o.redirect_uri_digest=p_redirect_uri_digest
        AND o.consumed_at IS NULL AND o.expires_at>v_now
-    RETURNING o.attempt_id,o.tenant_id,o.account_id,o.verifier_ciphertext,
-              o.verifier_key_version::text;
+    RETURNING o.attempt_id,o.tenant_id,o.account_id,o.candidate_installation_id,
+              o.verifier_ciphertext,o.verifier_key_version::text;
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.customer_github_oauth_attempt_create(bytea,uuid,bytea,bytea,text,bytea,timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.customer_github_oauth_attempt_consume(bytea,bytea,bytea) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.customer_github_oauth_attempt_create(bytea,uuid,bytea,bytea,text,bytea,timestamptz)
+GRANT EXECUTE ON FUNCTION public.customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz)
     TO jas_si_customer_runtime;
 GRANT EXECUTE ON FUNCTION public.customer_github_oauth_attempt_consume(bytea,bytea,bytea)
     TO jas_si_customer_runtime;
