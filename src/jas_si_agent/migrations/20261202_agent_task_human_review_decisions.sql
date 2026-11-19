@@ -137,6 +137,7 @@ GRANT SELECT,INSERT,TRIGGER ON TABLE public.jas_si_agent_task_review_events
 REVOKE UPDATE,DELETE,TRUNCATE ON TABLE public.jas_si_agent_task_review_events
     FROM jas_si_agent_task_owner;
 RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_agent_review_audit_owner;
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
