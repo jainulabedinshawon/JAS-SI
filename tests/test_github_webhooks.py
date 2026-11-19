@@ -69,7 +69,7 @@ class GitHubWebhookAuthenticationTests(unittest.TestCase):
                 "installation": {"id": 183349938},
             }).encode()
             event = parse_verified_github_webhook(
-                delivery_id=f"delivery-{action}",
+                delivery_id=f"delivery-{action.replace('_', '-')}",
                 event_name="installation",
                 raw_body=body,
             )
