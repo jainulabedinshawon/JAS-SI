@@ -1406,6 +1406,11 @@ def github_oauth_callback_complete(
         )
         raise HTTPException(status_code=400, detail="GitHub ownership could not be verified") from None
     except Exception:
+        response.delete_cookie(
+            "jassi_github_oauth_state", path="/v1/github/oauth/callback",
+            httponly=True, secure=settings.environment in {"preview", "production"},
+            samesite="lax",
+        )
         raise HTTPException(status_code=503, detail="GitHub ownership verification is unavailable") from None
     response.delete_cookie(
         "jassi_github_oauth_state", path="/v1/github/oauth/callback",
