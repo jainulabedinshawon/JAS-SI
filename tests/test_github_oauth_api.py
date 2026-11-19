@@ -198,6 +198,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         started = self.client.post(
             "/v1/customer/github/oauth/start",
             headers={"X-JAS-SI-CSRF": "C" * 43},
+            json={"installation_id": 98765},
         )
         self.assertEqual(started.status_code, 200)
         page = self.client.get(
