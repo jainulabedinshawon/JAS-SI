@@ -75,6 +75,49 @@ class GitHubOAuthAttemptPostgresTests(unittest.TestCase):
             )
             return cur.fetchone()
 
+    def _record_claim(self, session_digest, installation_id, *, user_id=12345):
+        with self._runtime_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT claim_id,status,installation_id
+                     FROM public.customer_github_installation_claim_record(
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s
+                     )""",
+                (
+                    session_digest, uuid.uuid4(), installation_id, user_id,
+                    "jas-user", 7654321, "jas-org", "Organization", 4567,
+                ),
+            )
+            return cur.fetchone()
+
+    def test_verified_installation_claim_is_durable_and_pending(self):
+        _, _, session_digest = self._fixture()
+        result = self._record_claim(session_digest, 9876501)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[1], "pending_reconciliation")
+        self.assertEqual(result[2], 9876501)
+        with self._runtime_connection() as conn, conn.cursor() as cur:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                cur.execute(
+                    "SELECT installation_id FROM public.jas_si_github_installation_claims"
+                )
+            conn.rollback()
+
+    def test_installation_claim_is_idempotent_for_same_identity(self):
+        _, _, session_digest = self._fixture()
+        first = self._record_claim(session_digest, 9876502)
+        second = self._record_claim(session_digest, 9876502)
+        self.assertEqual(first, second)
+
+    def test_installation_claim_rejects_different_customer_or_github_identity(self):
+        _, _, session_digest = self._fixture()
+        _, _, other_session_digest = self._fixture()
+        first = self._record_claim(session_digest, 9876503)
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self._record_claim(other_session_digest, 9876503)
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self._record_claim(session_digest, 9876503, user_id=54321)
+        self.assertEqual(first[1], "pending_reconciliation")
+
     def test_oauth_attempt_is_session_bound_and_direct_table_access_is_denied(self):
         _, _, session_digest = self._fixture()
         state_digest = hashlib.sha256(uuid.uuid4().bytes).digest()
