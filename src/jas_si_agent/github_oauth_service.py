@@ -39,6 +39,7 @@ class ConsumedGitHubOAuthAttempt:
     attempt_id: uuid.UUID
     tenant_id: uuid.UUID
     account_id: uuid.UUID
+    installation_id: int
     code_verifier: str = field(repr=False)
 
     def __repr__(self) -> str:
@@ -60,7 +61,7 @@ class GitHubOAuthAttemptStore(Protocol):
     def consume(
         self, *, session_digest: bytes, state_digest: bytes,
         redirect_uri_digest: bytes,
-    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, bytes, str] | None: ...
+    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, int, bytes, str] | None: ...
 
 
 class PostgresGitHubOAuthAttemptStore:
@@ -92,9 +93,9 @@ class PostgresGitHubOAuthAttemptStore:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
                 cur.execute(
                     """SELECT * FROM public.customer_github_oauth_attempt_create(
-                         %s,%s,%s,%s,%s,%s,%s)""",
-                    (session_digest, attempt_id, state_digest, verifier_ciphertext,
-                     verifier_key_version, redirect_uri_digest, expires_at),
+                         %s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (session_digest, attempt_id, candidate_installation_id, state_digest,
+                     verifier_ciphertext, verifier_key_version, redirect_uri_digest, expires_at),
                 )
                 if cur.fetchone() is None:
                     raise GitHubOAuthServiceError("OAuth attempt could not be persisted")
@@ -108,7 +109,7 @@ class PostgresGitHubOAuthAttemptStore:
     def consume(
         self, *, session_digest: bytes, state_digest: bytes,
         redirect_uri_digest: bytes,
-    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, bytes, str] | None:
+    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, int, bytes, str] | None:
         import psycopg
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
@@ -120,7 +121,7 @@ class PostgresGitHubOAuthAttemptStore:
                 row = cur.fetchone()
             if row is None:
                 return None
-            return (row[0], row[1], row[2], bytes(row[3]), str(row[4]))
+            return (row[0], row[1], row[2], int(row[3]), bytes(row[4]), str(row[5]))
         except Exception:
             raise GitHubOAuthServiceError(
                 "OAuth callback could not be validated"
@@ -197,9 +198,11 @@ class GitHubOAuthService:
             raise GitHubOAuthServiceError("OAuth store cannot authenticate customer sessions")
         return digest_method(session_token)
 
-    def begin(self, *, session_token: str, account) -> str:
+    def begin(self, *, session_token: str, account, installation_id: int) -> str:
         """Create and persist an attempt before returning GitHub's redirect URL."""
         try:
+            if isinstance(installation_id, bool) or not isinstance(installation_id, int) or installation_id <= 0:
+                raise GitHubOAuthServiceError("A candidate GitHub Installation ID is required")
             if getattr(account, "status", None) != "active":
                 raise GitHubOAuthServiceError("Active customer account required")
             tenant_id = account.tenant_id
@@ -225,6 +228,7 @@ class GitHubOAuthService:
             self._store.create(
                 session_digest=session_digest,
                 attempt_id=attempt_id,
+                candidate_installation_id=installation_id,
                 state_digest=attempt.state_digest,
                 verifier_ciphertext=envelope.ciphertext,
                 verifier_key_version=envelope.key_version,
@@ -257,7 +261,7 @@ class GitHubOAuthService:
             )
             if row is None:
                 raise GitHubOAuthServiceError("OAuth callback is invalid, expired, or already used")
-            attempt_id, tenant_id, account_id, ciphertext, key_version = row
+            attempt_id, tenant_id, account_id, installation_id, ciphertext, key_version = row
             verifier = self._cipher.decrypt(
                 EncryptedGitHubOAuthVerifier(ciphertext, key_version),
                 attempt_id=attempt_id,
@@ -267,7 +271,8 @@ class GitHubOAuthService:
             )
             return ConsumedGitHubOAuthAttempt(
                 attempt_id=attempt_id, tenant_id=tenant_id,
-                account_id=account_id, code_verifier=verifier,
+                account_id=account_id, installation_id=installation_id,
+                code_verifier=verifier,
             )
         except (GitHubOAuthServiceError, GitHubOAuthError, GitHubOAuthEncryptionError):
             raise
