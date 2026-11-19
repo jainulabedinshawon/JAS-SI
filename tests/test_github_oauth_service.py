@@ -48,7 +48,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
         self.service = GitHubOAuthService(
             store=self.store, cipher=self.cipher,
             client_id="Iv1.testClient",
-            redirect_uri="https://jas-si.example.test/oauth/callback",
+            redirect_uri="https://jas-si.example.test/v1/github/oauth/callback",
         )
         self.account = CustomerAccount(
             account_id=uuid.uuid4(), tenant_id=uuid.uuid4(),
@@ -58,7 +58,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
         self.session = "S" * 43
 
     def test_begin_persists_ciphertext_before_returning_redirect(self):
-        url = self.service.begin(session_token=self.session, account=self.account)
+        url = self.service.begin(session_token=self.session, account=self.account, installation_id=98765)
         self.assertEqual(self.store.events, ["persist"])
         self.assertTrue(url.startswith("https://github.com/login/oauth/authorize?"))
         query = parse_qs(urlsplit(url).query)
@@ -75,7 +75,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
             status="suspended",
         )
         with self.assertRaises(GitHubOAuthServiceError):
-            self.service.begin(session_token=self.session, account=inactive)
+            self.service.begin(session_token=self.session, account=inactive, installation_id=98765)
         self.assertEqual(self.store.events, [])
 
     def test_callback_consumes_before_decrypting_and_returns_bound_identity(self):
@@ -87,7 +87,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
             verifier, attempt_id=attempt_id,
             tenant_id=self.account.tenant_id, account_id=self.account.account_id,
             redirect_uri_digest=hashlib.sha256(
-                b"https://jas-si.example.test/oauth/callback"
+                b"https://jas-si.example.test/v1/github/oauth/callback"
             ).digest(),
         )
         self.store.row = (
@@ -102,6 +102,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
         self.assertEqual(result.attempt_id, attempt_id)
         self.assertEqual(result.tenant_id, self.account.tenant_id)
         self.assertEqual(result.account_id, self.account.account_id)
+        self.assertEqual(result.installation_id, 98765)
         self.assertEqual(result.code_verifier, verifier)
         self.assertNotIn(verifier, repr(result))
 
