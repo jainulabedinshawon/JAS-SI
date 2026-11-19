@@ -8,6 +8,7 @@ on:
     paths:
       - "requirements.in"
       - "requirements.txt"
+      - "requirements.lock.txt"
       - "src/**"
       - "tests/**"
       - ".github/workflows/dependency-lock-verification.yml"
@@ -18,6 +19,7 @@ on:
     paths:
       - "requirements.in"
       - "requirements.txt"
+      - "requirements.lock.txt"
       - "src/**"
       - "tests/**"
       - ".github/workflows/dependency-lock-verification.yml"
