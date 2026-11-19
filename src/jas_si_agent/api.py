@@ -85,6 +85,21 @@ from jas_si_agent.github_webhooks import (
     parse_verified_github_webhook,
     verify_github_webhook_signature,
 )
+from jas_si_agent.github_oauth_service import (
+    GitHubOAuthService,
+    GitHubOAuthServiceError,
+    PostgresGitHubOAuthAttemptStore,
+)
+from jas_si_agent.github_oauth_crypto import GitHubOAuthVerifierCipher
+from jas_si_agent.github_oauth_provider import (
+    GitHubOAuthProvider,
+    GitHubOAuthProviderError,
+)
+from jas_si_agent.github_installation_ownership import (
+    GitHubInstallationOwnershipError,
+    GitHubUserInstallationAccessVerifier,
+)
+
 from jas_si_agent.github_webhook_inbox import (
     GitHubWebhookInboxError,
     PostgresGitHubWebhookInbox,
@@ -910,6 +925,12 @@ class CustomerTokenRequest(BaseModel):
     token: str = Field(min_length=32, max_length=128)
 
 
+class GitHubOAuthCallbackRequest(BaseModel):
+    state: str = Field(min_length=32, max_length=128)
+    code: str = Field(min_length=1, max_length=512)
+    installation_id: int = Field(gt=0)
+
+
 class CustomerApiKeyCreateRequest(BaseModel):
     key_name: str = Field(min_length=1, max_length=120)
     scopes: list[str] = Field(min_length=1, max_length=6)
@@ -1195,6 +1216,195 @@ def customer_create_session(
         account_id=str(session.account.account_id),
     )
     return _customer_account_response(session.account)
+
+
+def _get_github_oauth_components(request: Request):
+    """Build OAuth components only from complete server-side configuration."""
+    if not all((
+        settings.customer_database_url,
+        settings.customer_token_pepper,
+        settings.github_oauth_client_id,
+        settings.github_oauth_client_secret,
+        settings.github_oauth_redirect_uri,
+        settings.github_oauth_encryption_keyring,
+        settings.github_oauth_active_key_version,
+        settings.github_app_id,
+    )):
+        raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+    try:
+        service = getattr(request.app.state, "github_oauth_service", None)
+        if service is None:
+            store = PostgresGitHubOAuthAttemptStore(
+                settings.customer_database_url, settings.customer_token_pepper
+            )
+            cipher = GitHubOAuthVerifierCipher(
+                keys=settings.github_oauth_encryption_keyring,
+                active_key_version=settings.github_oauth_active_key_version,
+            )
+            service = GitHubOAuthService(
+                store=store, cipher=cipher,
+                client_id=settings.github_oauth_client_id,
+                redirect_uri=settings.github_oauth_redirect_uri,
+            )
+        provider = getattr(request.app.state, "github_oauth_provider", None)
+        if provider is None:
+            provider = GitHubOAuthProvider(
+                client_id=settings.github_oauth_client_id,
+                client_secret=settings.github_oauth_client_secret,
+            )
+        verifier = getattr(request.app.state, "github_installation_ownership_verifier", None)
+        if verifier is None:
+            verifier = GitHubUserInstallationAccessVerifier(
+                expected_app_id=settings.github_app_id
+            )
+        return service, provider, verifier
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="GitHub OAuth service is unavailable") from None
+
+
+@app.post("/v1/customer/github/oauth/start")
+def customer_github_oauth_start(request: Request, response: Response) -> dict:
+    """Begin OAuth only from an authenticated, CSRF-protected customer session."""
+    account = _require_customer_session(request)
+    _require_customer_csrf(request)
+    session_token = request.cookies.get("jassi_customer_session") or ""
+    service, _, _ = _get_github_oauth_components(request)
+    try:
+        authorization_url = service.begin(session_token=session_token, account=account)
+        from urllib.parse import parse_qs, urlsplit
+        states = parse_qs(urlsplit(authorization_url).query, strict_parsing=True).get("state", [])
+        if len(states) != 1 or not states[0]:
+            raise GitHubOAuthServiceError("OAuth state was not generated")
+    except (GitHubOAuthServiceError, ValueError):
+        raise HTTPException(status_code=503, detail="GitHub OAuth could not be started") from None
+    secure = settings.environment in {"preview", "production"}
+    response.set_cookie(
+        "jassi_github_oauth_state", states[0], max_age=300,
+        httponly=True, secure=secure, samesite="lax",
+        path="/v1/github/oauth/callback",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {"authorization_url": authorization_url, "expires_in": 300}
+
+
+@app.get("/v1/github/oauth/callback", response_class=HTMLResponse, include_in_schema=False)
+def github_oauth_callback_page(request: Request) -> HTMLResponse:
+    """Same-origin handoff: Lax state cookie on GET, Strict session on POST."""
+    from urllib.parse import parse_qs
+    query = parse_qs(request.url.query, keep_blank_values=True)
+    states, codes = query.get("state", []), query.get("code", [])
+    state_cookie = request.cookies.get("jassi_github_oauth_state")
+    if (
+        query.get("error") or len(states) != 1 or len(codes) != 1
+        or not states[0] or not codes[0] or not state_cookie
+        or not hmac.compare_digest(states[0], state_cookie)
+        or len(query.get("installation_id", [])) != 1
+    ):
+        response = HTMLResponse(
+            "<!doctype html><html><body><h1>GitHub connection could not be verified</h1></body></html>",
+            status_code=400,
+        )
+    else:
+        response = HTMLResponse(
+            """<!doctype html><html><head><meta charset="utf-8">
+<meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width">
+<title>Connecting GitHub — JAS-SI</title></head><body>
+<p id="status">Verifying your GitHub connection…</p>
+<script nonce="__NONCE__">
+(async()=>{
+ const q=new URLSearchParams(location.search);
+ const one=k=>{const a=q.getAll(k);return a.length===1?a[0]:null};
+ const state=one("state"),code=one("code"),iid=one("installation_id");
+ const csrf=(()=>{const m=document.cookie.match(/(?:^|; )jassi_customer_csrf=([^;]+)/);return m?decodeURIComponent(m[1]):""})();
+ if(!state||!code||!iid||!/^\\d+$/.test(iid)||!csrf){document.getElementById("status").textContent="Invalid callback. Return to JAS-SI and try again.";return;}
+ try{
+  const r=await fetch("/v1/github/oauth/callback/complete",{method:"POST",credentials:"same-origin",
+   headers:{"Content-Type":"application/json","X-JAS-SI-CSRF":csrf},
+   body:JSON.stringify({state,code,installation_id:Number(iid)})});
+  const data=await r.json();
+  document.getElementById("status").textContent=r.ok
+   ?"GitHub identity verified. Installation is awaiting repository reconciliation."
+   :(data.detail||"GitHub connection could not be verified.");
+ }catch(_){document.getElementById("status").textContent="GitHub connection could not be verified.";}
+})();
+</script></body></html>""".replace("__NONCE__", secrets.token_urlsafe(18))
+        )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'none'; script-src 'nonce-" +
+        response.body.decode("utf-8").split('nonce="')[1].split('"')[0] +
+        "'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ) if response.status_code == 200 else "default-src 'none'; frame-ancestors 'none'"
+    return response
+
+
+@app.post("/v1/github/oauth/callback/complete")
+def github_oauth_callback_complete(
+    payload: GitHubOAuthCallbackRequest, request: Request, response: Response
+) -> dict:
+    """Complete callback same-origin so Strict customer session/CSRF cookies return."""
+    _require_customer_csrf(request)
+    account = _require_customer_session(request)
+    state_cookie = request.cookies.get("jassi_github_oauth_state")
+    if not state_cookie or not hmac.compare_digest(state_cookie, payload.state):
+        raise HTTPException(status_code=400, detail="GitHub OAuth callback is invalid")
+    session_token = request.cookies.get("jassi_customer_session") or ""
+    service, provider, verifier = _get_github_oauth_components(request)
+    try:
+        consumed = service.consume_callback(
+            session_token=session_token, state=payload.state,
+            authorization_code=payload.code,
+        )
+        if consumed.tenant_id != account.tenant_id or consumed.account_id != account.account_id:
+            raise GitHubOAuthServiceError("OAuth customer identity binding mismatch")
+        token = provider.exchange_code(
+            code=payload.code, code_verifier=consumed.code_verifier,
+            redirect_uri=settings.github_oauth_redirect_uri,
+        )
+        github_user = provider.authenticated_user(token)
+        proof = verifier.verify(
+            user_access_token=token.access_token,
+            installation_id=payload.installation_id,
+        )
+        if (
+            proof.user.user_id != github_user.github_user_id
+            or proof.user.login.casefold() != github_user.login.casefold()
+        ):
+            raise GitHubInstallationOwnershipError("GitHub user identity mismatch")
+    except (GitHubOAuthServiceError, GitHubOAuthProviderError, GitHubInstallationOwnershipError):
+        response.delete_cookie(
+            "jassi_github_oauth_state", path="/v1/github/oauth/callback",
+            httponly=True, secure=settings.environment in {"preview", "production"},
+            samesite="lax",
+        )
+        raise HTTPException(status_code=400, detail="GitHub ownership could not be verified") from None
+    except Exception:
+        raise HTTPException(status_code=503, detail="GitHub ownership verification is unavailable") from None
+    response.delete_cookie(
+        "jassi_github_oauth_state", path="/v1/github/oauth/callback",
+        httponly=True, secure=settings.environment in {"preview", "production"},
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "status": "ownership_verified_pending_reconciliation",
+        "github_user": {"id": github_user.github_user_id, "login": github_user.login},
+        "installation": {
+            "installation_id": proof.installation_id,
+            "app_id": proof.app_id,
+            "account_id": proof.account_id,
+            "account_login": proof.account_login,
+            "account_type": proof.account_type,
+        },
+        "reconciliation_required": True,
+        "activation": "not_performed",
+    }
 
 
 @app.get("/v1/customer/me")
