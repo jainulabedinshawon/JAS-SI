@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_oauth_attempts (
     consumed_at timestamptz,
     CONSTRAINT jas_si_github_oauth_state_digest_length CHECK (pg_catalog.octet_length(state_digest)=32),
     CONSTRAINT jas_si_github_oauth_verifier_ciphertext_length CHECK (
-        pg_catalog.octet_length(verifier_ciphertext) BETWEEN 16 AND 512
+        pg_catalog.octet_length(verifier_ciphertext) BETWEEN 71 AND 156
     ),
     CONSTRAINT jas_si_github_oauth_key_version_check CHECK (
         verifier_key_version ~ '^[A-Za-z0-9._-]{1,32}$'
@@ -74,7 +74,7 @@ BEGIN
     END IF;
     IF p_session_digest IS NULL OR pg_catalog.octet_length(p_session_digest)<>32
        OR p_attempt_id IS NULL OR p_state_digest IS NULL OR pg_catalog.octet_length(p_state_digest)<>32
-       OR p_verifier_ciphertext IS NULL OR pg_catalog.octet_length(p_verifier_ciphertext) NOT BETWEEN 16 AND 512
+       OR p_verifier_ciphertext IS NULL OR pg_catalog.octet_length(p_verifier_ciphertext) NOT BETWEEN 71 AND 156
        OR p_verifier_key_version IS NULL OR p_verifier_key_version !~ '^[A-Za-z0-9._-]{1,32}$'
        OR p_redirect_uri_digest IS NULL OR pg_catalog.octet_length(p_redirect_uri_digest)<>32
        OR p_expires_at IS NULL OR p_expires_at<=v_now
