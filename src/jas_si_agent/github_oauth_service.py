@@ -53,7 +53,7 @@ class ConsumedGitHubOAuthAttempt:
 class GitHubOAuthAttemptStore(Protocol):
     def create(
         self, *, session_digest: bytes, attempt_id: uuid.UUID,
-        state_digest: bytes, verifier_ciphertext: bytes,
+        candidate_installation_id: int, state_digest: bytes, verifier_ciphertext: bytes,
         verifier_key_version: str, redirect_uri_digest: bytes,
         expires_at: datetime,
     ) -> None: ...
@@ -84,7 +84,7 @@ class PostgresGitHubOAuthAttemptStore:
 
     def create(
         self, *, session_digest: bytes, attempt_id: uuid.UUID,
-        state_digest: bytes, verifier_ciphertext: bytes,
+        candidate_installation_id: int, state_digest: bytes, verifier_ciphertext: bytes,
         verifier_key_version: str, redirect_uri_digest: bytes,
         expires_at: datetime,
     ) -> None:
