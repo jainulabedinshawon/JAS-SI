@@ -14,6 +14,7 @@ on:
       - "tests/test_github_webhook_inbox_postgres_integration.py"
   pull_request:
     branches:
+      - feat/github-webhook-http-ingress-v1
       - main
       - feat/customer-identity-onboarding-v1
       - fix/tenant-suspension-locking-after-onboarding-fix
