@@ -71,6 +71,7 @@ CREATE OR REPLACE FUNCTION public.jas_si_github_installation_reconcile_apply(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
 DECLARE
     v_claim public.jas_si_github_installation_claims%ROWTYPE;
+    v_tenant_active boolean;
     v_repo jsonb;
     v_repo_count integer := 0;
     v_repo_id bigint;
@@ -88,6 +89,7 @@ BEGIN
            OR p_account_id IS NULL OR p_account_id<=0
            OR p_account_login IS NULL
            OR p_account_login !~ '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'
+           OR p_account_type IS NULL
            OR p_account_type NOT IN ('User','Organization')
            OR p_repositories IS NULL
            OR pg_catalog.jsonb_typeof(p_repositories)<>'array'
@@ -103,6 +105,14 @@ BEGIN
     IF NOT FOUND THEN
         RETURN QUERY SELECT 'NO_CLAIM'::text,'UNCHANGED'::text,0;
         RETURN;
+    END IF;
+
+    SELECT (t.status='active') INTO v_tenant_active
+      FROM public.jas_si_tenants t
+     WHERE t.tenant_id=v_claim.tenant_id;
+    IF NOT FOUND OR v_tenant_active IS DISTINCT FROM true THEN
+        RAISE EXCEPTION 'Installation claim tenant is not active'
+            USING ERRCODE='55000';
     END IF;
 
     IF p_missing THEN
@@ -218,6 +228,9 @@ REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
 -- The dedicated reconciler may claim and finish inbox deliveries, but cannot
 -- receive public HTTP events or directly inspect/mutate inbox tables.
+GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
+SET LOCAL ROLE jas_si_agent_task_owner;
+
 CREATE OR REPLACE FUNCTION public.jas_si_github_webhook_claim(
     p_limit integer DEFAULT 10,
     p_lease_seconds integer DEFAULT 120
@@ -298,6 +311,9 @@ BEGIN
     RETURN FOUND;
 END;
 $function$;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_claim(integer,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_processed(text,uuid) FROM PUBLIC;
