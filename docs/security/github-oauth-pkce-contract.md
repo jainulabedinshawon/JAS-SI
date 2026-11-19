@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This change supplies protocol primitives for the authenticated GitHub App user-authorization step that precedes Installation ownership verification. It includes protocol primitives and a PostgreSQL persistence boundary for authenticated customer sessions. It does not implement the OAuth HTTP routes, token exchange, or Installation activation.
+This change supplies protocol primitives, tenant-bound durable state, an AEAD verifier envelope, an application service for persist-before-redirect/consume-before-decrypt orchestration, and a strict GitHub token-exchange/user-identity client. It does not implement the OAuth HTTP routes or Installation activation.
 
 ## Authorization initiation
 
@@ -12,13 +12,19 @@ This change supplies protocol primitives for the authenticated GitHub App user-a
 4. Before redirecting, call the durable `customer_github_oauth_attempt_create` routine to persist the state digest, authenticated tenant/account IDs, expiry, redirect-URI digest, and AEAD ciphertext for the PKCE verifier. The database never receives raw state or plaintext verifier. The application must encrypt the verifier with `GitHubOAuthVerifierCipher` before passing the ciphertext to PostgreSQL.
 5. Redirect to the returned GitHub authorization URL.
 
-## Callback requirements (not implemented by this PR)
+## Application service and provider client
+
+`GitHubOAuthService.begin()` derives no tenant identity from browser input: it accepts the already-authenticated customer account and session token, encrypts the PKCE verifier, persists the state digest and ciphertext, and only then returns the authorization URL. `consume_callback()` validates callback syntax, atomically consumes the session-bound database record, and decrypts only after consumption succeeds. Its result binds the verifier to the database-returned attempt, tenant, and account IDs.
+
+`GitHubOAuthProvider.exchange_code()` sends the authorization code, PKCE verifier, client credentials, and configured redirect URI to GitHub over HTTPS with bounded timeouts and redirects disabled. `authenticated_user()` validates the `/user` response. The short-lived access token is kept in memory and is not persisted or logged by this client. Provider HTTP behavior has no-network mock tests.
+
+## Callback requirements for HTTP integration
 
 1. Require exactly one state and one authorization-code parameter; reject duplicate or missing parameters and provider error callbacks.
 2. Call `customer_github_oauth_attempt_consume` with the authenticated session digest, SHA-256 state digest, and configured redirect-URI digest. The database routine atomically consumes a matching, unexpired, session-bound attempt; concurrent callers cannot both receive the same record.
 3. Derive tenant/account identity only from that consumed record, not callback parameters or webhook payloads.
-4. Decrypt the PKCE verifier only inside the callback service and exchange the code with GitHub using the same redirect URI and verifier.
-5. Verify the resulting user access token against GitHub's `/user` endpoint, then use the existing `GitHubUserInstallationAccessVerifier` to independently verify the exact Installation and expected App ID.
+4. Use `GitHubOAuthService.consume_callback()` to atomically consume and decrypt; exchange the code with `GitHubOAuthProvider.exchange_code()` using the same redirect URI and verifier.
+5. Verify the resulting user access token with `GitHubOAuthProvider.authenticated_user()`, then use the existing `GitHubUserInstallationAccessVerifier` to independently verify the exact Installation and expected App ID.
 6. Keep the Installation pending until authoritative Installation and repository reconciliation has completed. Do not trust webhook payload account/repository fields as ownership proof.
 7. Redact authorization codes, state, PKCE verifiers, access tokens, and provider response bodies from logs and exception messages.
 
@@ -30,10 +36,9 @@ The PKCE verifier must be protected at rest with authenticated encryption using 
 
 ## Explicitly incomplete
 
-- OAuth client configuration and secret/key storage
-- Wiring the AEAD envelope into the OAuth start/callback service and deployment secret manager
-- Authenticated start and callback HTTP routes, including CSRF and cookie policy
-- Authorization-code token exchange and token response validation
+- OAuth client configuration and external secret/key-manager integration
+- Authenticated start and callback HTTP routes, including duplicate-query rejection, CSRF, and cross-site callback cookie policy
+- Wiring the verified GitHub user identity into the Installation ownership verifier
 - Durable Installation ownership proof persistence
 - Installation/repository reconciliation and lifecycle event processor
 - End-to-end Staging verification
