@@ -107,14 +107,6 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT (t.status='active') INTO v_tenant_active
-      FROM public.jas_si_tenants t
-     WHERE t.tenant_id=v_claim.tenant_id;
-    IF NOT FOUND OR v_tenant_active IS DISTINCT FROM true THEN
-        RAISE EXCEPTION 'Installation claim tenant is not active'
-            USING ERRCODE='55000';
-    END IF;
-
     IF p_missing THEN
         UPDATE public.jas_si_github_installation_claims
            SET status='revoked',reconciled_at=pg_catalog.clock_timestamp()
@@ -149,6 +141,14 @@ BEGIN
          WHERE installation_id=p_installation_id;
         RETURN QUERY SELECT 'suspended'::text,'revoked'::text,0;
         RETURN;
+    END IF;
+
+    SELECT (t.status='active') INTO v_tenant_active
+      FROM public.jas_si_tenants t
+     WHERE t.tenant_id=v_claim.tenant_id;
+    IF NOT FOUND OR v_tenant_active IS DISTINCT FROM true THEN
+        RAISE EXCEPTION 'Installation claim tenant is not active'
+            USING ERRCODE='55000';
     END IF;
 
     INSERT INTO public.jas_si_github_app_installations(
