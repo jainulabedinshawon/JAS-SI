@@ -58,7 +58,7 @@ class GitHubAppRuntimeWiringTests(unittest.TestCase):
             private_key_path=env["GITHUB_APP_PRIVATE_KEY_PATH"],
         )
         self.assertIs(worker_factory.call_args.kwargs["credential_provider"], provider)
-        self.assertIs(worker_factory.call_args.kwargs["worker_dsn"], env["JAS_SI_AGENT_WORKER_DSN"])
+        self.assertEqual(worker_factory.call_args.kwargs["worker_dsn"], env["JAS_SI_AGENT_WORKER_DSN"])
         run_loop.assert_called_once()
         self.assertTrue(health.started)
         self.assertTrue(health.closed)
@@ -104,7 +104,7 @@ class GitHubAppRuntimeWiringTests(unittest.TestCase):
         self.assertIs(
             verifier_factory.call_args.kwargs["credential_provider"], provider
         )
-        self.assertIs(
+        self.assertEqual(
             verifier_factory.call_args.kwargs["verifier_dsn"],
             env["JAS_SI_AGENT_VERIFIER_DSN"],
         )
