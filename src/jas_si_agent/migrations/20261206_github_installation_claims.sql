@@ -28,9 +28,6 @@ GRANT REFERENCES (account_id) ON public.jas_si_customer_accounts
 GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 SET LOCAL ROLE jas_si_customer_identity_owner;
 
-CREATE UNIQUE INDEX IF NOT EXISTS jas_si_customer_accounts_account_tenant_unique
-    ON public.jas_si_customer_accounts(account_id,tenant_id);
-
 CREATE TABLE IF NOT EXISTS public.jas_si_github_installation_claims (
     claim_id uuid PRIMARY KEY,
     installation_id bigint NOT NULL UNIQUE CHECK (installation_id > 0),
@@ -51,10 +48,6 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_installation_claims (
         CHECK (status='pending_reconciliation'),
     proof_verified_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
     created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
-    CONSTRAINT jas_si_github_claim_account_tenant_fk
-        FOREIGN KEY (customer_account_id,tenant_id)
-        REFERENCES public.jas_si_customer_accounts(account_id,tenant_id)
-        ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS jas_si_github_installation_claims_tenant_idx
