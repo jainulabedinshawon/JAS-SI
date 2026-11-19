@@ -1335,7 +1335,7 @@ def github_oauth_callback_page(request: Request) -> HTMLResponse:
    body:JSON.stringify({state,code})});
   const data=await r.json();
   document.getElementById("status").textContent=r.ok
-   ?"GitHub ownership proof verified. The Installation record has not yet been persisted."
+   ?"GitHub ownership proof verified. A pending Installation claim was recorded; activation still requires reconciliation."
    :(data.detail||"GitHub connection could not be verified.");
  }catch(_){document.getElementById("status").textContent="GitHub connection could not be verified.";}
 })();
