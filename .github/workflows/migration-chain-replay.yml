@@ -158,7 +158,7 @@ jobs:
                       if not path.is_file():
                           raise SystemExit(f"Missing migration in canonical replay order: {name}")
                       cur.execute(path.read_text(encoding="utf-8"))
-                      if name == "20261122_customer_rate_limit_owner_boundary.sql":
+                      if replay == 1 and name == "20261122_customer_rate_limit_owner_boundary.sql":
                           # Expand phase: the new SECURITY DEFINER path must be ready
                           # while legacy SELECT/INSERT/UPDATE grants remain intact.
                           cur.execute("""
