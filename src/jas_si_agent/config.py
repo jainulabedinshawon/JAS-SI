@@ -18,6 +18,22 @@ _MIN_HMAC_SECRET_BYTES = 32
 _MIN_API_KEY_PEPPER_BYTES = 32
 _MIN_CUSTOMER_TOKEN_PEPPER_BYTES = 32
 _GITHUB_OAUTH_KEY_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+def _read_github_app_private_key() -> Optional[bytes]:
+    """Read a base64-encoded PEM private key for the isolated reconciler host."""
+    raw = os.getenv("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64")
+    if not raw:
+        return None
+    if len(raw) > 24000:
+        raise ValueError("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64 is too large")
+    try:
+        value = base64.b64decode(raw, validate=True)
+    except Exception:
+        raise ValueError("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64 must be valid base64") from None
+    if not value.startswith(b"-----BEGIN ") or b"PRIVATE KEY-----" not in value[:80]:
+        raise ValueError("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64 must encode a PEM private key")
+    return value
+
+
 _MIN_API_RATE_LIMIT_PEPPER_BYTES = 32
 
 
@@ -217,6 +233,9 @@ class Settings:
     github_oauth_encryption_keyring: Optional[dict[str, bytes]] = field(default=None, repr=False)
     github_oauth_active_key_version: Optional[str] = None
     github_app_id: Optional[int] = None
+    github_app_private_key_pem: Optional[bytes] = field(default=None, repr=False)
+    github_reconciler_database_url: Optional[str] = field(default=None, repr=False)
+    github_reconciler_poll_seconds: int = 15
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -246,6 +265,10 @@ class Settings:
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
         github_oauth = _read_github_oauth_config()
+        github_app_private_key_pem = _read_github_app_private_key()
+        github_reconciler_poll_seconds = _read_positive_int("JAS_SI_GITHUB_RECONCILER_POLL_SECONDS", 15)
+        if github_reconciler_poll_seconds > 300:
+            raise ValueError("JAS_SI_GITHUB_RECONCILER_POLL_SECONDS must be at most 300")
         raw_webhook_secret = os.getenv("JAS_SI_GITHUB_WEBHOOK_SECRET")
         github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
         if github_webhook_secret is not None and len(github_webhook_secret) < 32:
@@ -310,4 +333,7 @@ class Settings:
             github_oauth_encryption_keyring=github_oauth[3],
             github_oauth_active_key_version=github_oauth[4],
             github_app_id=github_oauth[5],
+            github_app_private_key_pem=github_app_private_key_pem,
+            github_reconciler_database_url=(os.getenv("JAS_SI_GITHUB_RECONCILER_DATABASE_URL") or None),
+            github_reconciler_poll_seconds=github_reconciler_poll_seconds,
         )
