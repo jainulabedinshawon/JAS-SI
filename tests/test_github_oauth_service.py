@@ -79,7 +79,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
         self.assertEqual(self.store.events, [])
 
     def test_callback_consumes_before_decrypting_and_returns_bound_identity(self):
-        url = self.service.begin(session_token=self.session, account=self.account)
+        url = self.service.begin(session_token=self.session, account=self.account, installation_id=98765)
         state = parse_qs(urlsplit(url).query)["state"][0]
         attempt_id = uuid.uuid4()
         verifier = "A" * 43
@@ -115,7 +115,7 @@ class GitHubOAuthServiceTests(unittest.TestCase):
         self.assertEqual(self.store.events, ["consume"])
 
     def test_callback_rejects_wrong_customer_session(self):
-        url = self.service.begin(session_token=self.session, account=self.account)
+        url = self.service.begin(session_token=self.session, account=self.account, installation_id=98765)
         state = parse_qs(urlsplit(url).query)["state"][0]
         with self.assertRaises(GitHubOAuthServiceError):
             self.service.consume_callback(
