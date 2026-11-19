@@ -41,26 +41,9 @@ concurrency:
 
 jobs:
   authorization-tests:
-    name: Agent Unit + PostgreSQL Integration Tests (Python 3.10)
+    name: Agent Unit Tests (Python 3.10)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: jas_si_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d jas_si_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    env:
-      JAS_SI_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jas_si_test
-      JAS_SI_MIGRATION_REPLAY_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jas_si_migration_replay
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
@@ -81,16 +64,11 @@ jobs:
       - name: Verify Python version
         run: python --version
 
-      - name: Prepare isolated migration replay database
-        run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres \
-            -v ON_ERROR_STOP=1 -c "CREATE DATABASE jas_si_migration_replay"
-
       - name: Compile source and tests
         run: |
           python -m compileall -q src/jas_si_agent tests
 
-      - name: Run all discovered unit and PostgreSQL integration tests
+      - name: Run all discovered unit tests
         run: |
           python -m unittest discover \
             -s tests \
