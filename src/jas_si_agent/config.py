@@ -134,25 +134,34 @@ def _read_optional_provider_id() -> Optional[str]:
 
 
 def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict[str, bytes]], Optional[str], Optional[int]]:
-    names = (
+    oauth_names = (
         "JAS_SI_GITHUB_OAUTH_CLIENT_ID",
         "JAS_SI_GITHUB_OAUTH_CLIENT_SECRET",
         "JAS_SI_GITHUB_OAUTH_REDIRECT_URI",
         "JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING",
         "JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION",
-        "JAS_SI_GITHUB_APP_ID",
     )
-    values = {name: os.getenv(name) for name in names}
-    if not any(value for value in values.values()):
-        return None, None, None, None, None, None
-    if not all(values.values()):
-        raise ValueError("GitHub OAuth configuration must be supplied as a complete set")
+    values = {name: os.getenv(name) for name in oauth_names}
+    raw_app_id = os.getenv("JAS_SI_GITHUB_APP_ID")
+    app_id = None
+    if raw_app_id:
+        try:
+            app_id = int(raw_app_id)
+        except ValueError:
+            raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer") from None
+        if app_id <= 0:
+            raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer")
 
-    client_id = values[names[0]]
-    client_secret = values[names[1]]
-    redirect_uri = values[names[2]]
-    active_version = values[names[4]]
-    if not client_id or not re.fullmatch(r"^(?:Iv1\.)?[A-Za-z0-9_-]{8,128}$", client_id):
+    if not any(value for value in values.values()):
+        return None, None, None, None, None, app_id
+    if not all(values.values()) or app_id is None:
+        raise ValueError("GitHub OAuth configuration and App ID must be supplied as a complete set")
+
+    client_id = values[oauth_names[0]]
+    client_secret = values[oauth_names[1]]
+    redirect_uri = values[oauth_names[2]]
+    active_version = values[oauth_names[4]]
+    if not client_id or not re.fullmatch(r"^(?:Iv1\\.)?[A-Za-z0-9_-]{8,128}$", client_id):
         raise ValueError("JAS_SI_GITHUB_OAUTH_CLIENT_ID is invalid")
     if not client_secret or not 20 <= len(client_secret) <= 512:
         raise ValueError("JAS_SI_GITHUB_OAUTH_CLIENT_SECRET is invalid")
@@ -168,7 +177,7 @@ def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[
     if not active_version or not _GITHUB_OAUTH_KEY_VERSION_RE.fullmatch(active_version):
         raise ValueError("JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION is invalid")
     try:
-        encoded_ring = json.loads(values[names[3]] or "")
+        encoded_ring = json.loads(values[oauth_names[3]] or "")
         if not isinstance(encoded_ring, dict) or not encoded_ring:
             raise ValueError
         keyring = {
@@ -183,12 +192,6 @@ def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[
             raise ValueError
     except Exception:
         raise ValueError("JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING must be a valid base64 JSON keyring") from None
-    try:
-        app_id = int(values[names[5]] or "")
-    except ValueError:
-        raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer") from None
-    if app_id <= 0:
-        raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer")
     return client_id, client_secret, redirect_uri, keyring, active_version, app_id
 
 
