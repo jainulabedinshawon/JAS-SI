@@ -22,6 +22,14 @@ class AgentTaskIdempotencyConflict(AgentTaskStoreError):
     """An idempotency key was reused for a different request."""
 
 
+class AgentTaskReviewConflict(AgentTaskStoreError):
+    """A human review decision conflicts with the current task state."""
+
+
+class AgentTaskNotFound(AgentTaskStoreError):
+    """A task is absent or not visible to the authenticated tenant."""
+
+
 @dataclass(frozen=True)
 class AgentTask:
     task_id: uuid.UUID
@@ -283,3 +291,191 @@ class PostgresAgentTaskStore:
                 return bool(cursor.fetchone()[0])
         except Exception as exc:
             raise AgentTaskStoreError("Unable to cancel agent task") from exc
+
+    def verify_review_schema(self) -> bool:
+        """Verify the isolated human-review routine and append-only audit boundary."""
+        import psycopg
+
+        with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT
+                     pg_catalog.to_regclass('public.jas_si_agent_task_review_events') IS NOT NULL,
+                     pg_catalog.to_regprocedure(
+                       'public.jas_si_agent_task_human_review_decide(uuid,uuid,uuid,text,text,text)'
+                     ) IS NOT NULL,
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_human_review_decide(uuid,uuid,uuid,text,text,text)',
+                       'EXECUTE'
+                     ),
+                     pg_catalog.to_regprocedure(
+                       'public.jas_si_agent_task_human_review_queue(uuid,integer)'
+                     ) IS NOT NULL,
+                     pg_catalog.to_regprocedure(
+                       'public.jas_si_agent_task_human_review_history(uuid,uuid,integer)'
+                     ) IS NOT NULL,
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_human_review_queue(uuid,integer)',
+                       'EXECUTE'
+                     ),
+                     pg_catalog.has_function_privilege(
+                       current_user,
+                       'public.jas_si_agent_task_human_review_history(uuid,uuid,integer)',
+                       'EXECUTE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','SELECT'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','INSERT'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','UPDATE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','DELETE'
+                     ),
+                     NOT pg_catalog.has_table_privilege(
+                       current_user,'public.jas_si_agent_task_review_events','TRUNCATE'
+                     ),
+                     EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_trigger t
+                        WHERE t.tgrelid='public.jas_si_agent_task_review_events'::regclass
+                          AND t.tgname='jas_si_agent_task_review_events_immutable'
+                          AND t.tgenabled='O'
+                     ),
+                     EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_trigger t
+                        WHERE t.tgrelid='public.jas_si_agent_task_review_events'::regclass
+                          AND t.tgname='jas_si_agent_task_review_events_no_truncate'
+                          AND t.tgenabled='O'
+                     )
+                """
+            )
+            row = cursor.fetchone()
+        return bool(row and all(value is True for value in row))
+
+    def record_human_review_decision(
+        self, *, task_id: uuid.UUID, tenant_id: uuid.UUID,
+        reviewer_account_id: uuid.UUID, decision: str, reason_code: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Record an authenticated tenant-owner decision through one DB routine."""
+        if not all(isinstance(value, uuid.UUID) for value in (
+            task_id, tenant_id, reviewer_account_id
+        )):
+            raise ValueError("Task, tenant, and reviewer identifiers must be UUIDs")
+        if decision not in {"request_more_evidence", "close_unverified"}:
+            raise ValueError("Unsupported human review decision")
+        if not isinstance(reason_code, str) or re.fullmatch(
+            r"[A-Z0-9_]{1,64}", reason_code
+        ) is None:
+            raise ValueError("Invalid human review reason code")
+        if not isinstance(idempotency_key, str) or re.fullmatch(
+            r"[A-Za-z0-9._:-]{1,128}", idempotency_key
+        ) is None:
+            raise ValueError("Invalid review idempotency key")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT decision_event_id,task_status,created,decided_at
+                       FROM public.jas_si_agent_task_human_review_decide(
+                         %s,%s,%s,%s,%s,%s)""",
+                    (task_id,tenant_id,reviewer_account_id,decision,reason_code,idempotency_key),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise AgentTaskNotFound("Task is not available for this tenant")
+            return {
+                "decision_event_id": str(row[0]),
+                "task_status": row[1],
+                "created": bool(row[2]),
+                "decided_at": row[3].isoformat(),
+            }
+        except (ValueError, AgentTaskStoreError):
+            raise
+        except Exception as exc:
+            if getattr(exc, "sqlstate", None) in {"22023", "55000", "40001"}:
+                raise AgentTaskReviewConflict(
+                    "Task review decision conflicts with the current task state"
+                ) from exc
+            raise AgentTaskStoreError("Unable to record human review decision") from exc
+
+    def list_human_review_queue(
+        self, *, tenant_id: uuid.UUID, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List sanitized human-review tasks for one authenticated tenant."""
+        if not isinstance(tenant_id, uuid.UUID):
+            raise ValueError("tenant_id must be a UUID")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("review queue limit must be between 1 and 100")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT task_id,task_type,task_status,verification_status,
+                              verification_reason_code,verifier_attempt_count,
+                              created_at,updated_at
+                         FROM public.jas_si_agent_task_human_review_queue(%s,%s)""",
+                    (tenant_id,limit),
+                )
+                rows = cursor.fetchall()
+            return [
+                {
+                    "task_id": str(row[0]),
+                    "task_type": row[1],
+                    "status": row[2],
+                    "verification_status": row[3],
+                    "verification_reason_code": row[4],
+                    "verifier_attempt_count": row[5],
+                    "created_at": row[6].isoformat(),
+                    "updated_at": row[7].isoformat(),
+                }
+                for row in rows
+            ]
+        except (ValueError, AgentTaskStoreError):
+            raise
+        except Exception as exc:
+            raise AgentTaskStoreError("Unable to retrieve human review queue") from exc
+
+    def get_human_review_history(
+        self, *, tenant_id: uuid.UUID, task_id: uuid.UUID, limit: int = 50,
+    ) -> dict[str, Any] | None:
+        """Return tenant-scoped review history without exposing the audit table."""
+        if not isinstance(tenant_id, uuid.UUID) or not isinstance(task_id, uuid.UUID):
+            raise ValueError("tenant_id and task_id must be UUIDs")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("review history limit must be between 1 and 100")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT task_exists,decision_event_id,decision,reason_code,
+                              previous_status,resulting_status,decided_at
+                         FROM public.jas_si_agent_task_human_review_history(%s,%s,%s)""",
+                    (tenant_id,task_id,limit),
+                )
+                rows = cursor.fetchall()
+            if not rows or not rows[0][0]:
+                return None
+            return {
+                "task_id": str(task_id),
+                "items": [
+                    {
+                        "decision_event_id": str(row[1]),
+                        "decision": row[2],
+                        "reason_code": row[3],
+                        "previous_status": row[4],
+                        "resulting_status": row[5],
+                        "decided_at": row[6].isoformat(),
+                    }
+                    for row in rows if row[1] is not None
+                ],
+            }
+        except (ValueError, AgentTaskStoreError):
+            raise
+        except Exception as exc:
+            raise AgentTaskStoreError("Unable to retrieve human review history") from exc
+

@@ -108,6 +108,8 @@ jobs:
               "20261130_customer_tenant_active_guard_reassert.sql",
               "20261130a_general_runtime_default_acl_boundary.sql",
               "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
+              "20261202_agent_task_human_review_decisions.sql",
+              "20261203_agent_task_human_review_queue.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
@@ -369,4 +371,190 @@ jobs:
                       customer_cur.execute("RELEASE SAVEPOINT direct_rate_limit_write_guard")
                       customer_cur.execute("RESET SESSION AUTHORIZATION")
               print("Verified database-owned customer rate limiting and denied direct table INSERT")
+              # Exercise the customer-review routine through the runtime role.
+              # The caller receives no direct task or audit-table privileges.
+              from uuid import uuid4
+              review_task_id, review_reviewer_id = uuid4(), uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,verifier_attempt_count,
+                       verifier_last_status,verifier_last_reason
+                     ) VALUES (%s,%s,%s,%s,%s,'github.read_repository',
+                               'human_review_required','{}'::jsonb,3,
+                               'INCONCLUSIVE','EVIDENCE_MISSING')""",
+                  (review_task_id,tenant_id,key_id,"review-close",
+                   bytes([9])*32),
+              )
+              review_task_more_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,verifier_attempt_count,
+                       verifier_last_status,verifier_last_reason
+                     ) VALUES (%s,%s,%s,%s,%s,'github.read_repository',
+                               'human_review_required','{}'::jsonb,3,
+                               'INCONCLUSIVE','EVIDENCE_MISSING')""",
+                  (review_task_more_id,tenant_id,key_id,"review-more",
+                   bytes([10])*32),
+              )
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_runtime_test")
+              cur.execute("SET ROLE jas_si_runtime")
+
+              close_args = (
+                  review_task_id,tenant_id,review_reviewer_id,
+                  "close_unverified","OWNER_CONFIRMED","review-close-001",
+              )
+              cur.execute(
+                  """SELECT decision_event_id,task_status,created,decided_at
+                       FROM public.jas_si_agent_task_human_review_decide(
+                         %s,%s,%s,%s,%s,%s)""",
+                  close_args,
+              )
+              close_first = cur.fetchone()
+              if close_first is None or close_first[1] != "closed_unverified" or close_first[2] is not True:
+                  raise SystemExit(f"Human review close transition failed: {close_first!r}")
+
+              cur.execute(
+                  """SELECT decision_event_id,task_status,created,decided_at
+                       FROM public.jas_si_agent_task_human_review_decide(
+                         %s,%s,%s,%s,%s,%s)""",
+                  close_args,
+              )
+              close_replay = cur.fetchone()
+              if close_replay is None or close_replay[0] != close_first[0] or close_replay[2] is not False:
+                  raise SystemExit(f"Human review idempotent replay failed: {close_replay!r}")
+
+              cur.execute("SAVEPOINT review_conflicting_replay")
+              try:
+                  cur.execute(
+                      """SELECT * FROM public.jas_si_agent_task_human_review_decide(
+                           %s,%s,%s,%s,%s,%s)""",
+                      (
+                          review_task_id,tenant_id,review_reviewer_id,
+                          "request_more_evidence","NEED_MORE_EVIDENCE","review-close-001",
+                      ),
+                  )
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "22023":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT review_conflicting_replay")
+              else:
+                  raise SystemExit("Conflicting review idempotency replay was accepted")
+              cur.execute("RELEASE SAVEPOINT review_conflicting_replay")
+
+              # Cross-tenant task IDs must resolve to no record, not disclose state.
+              cur.execute(
+                  """SELECT * FROM public.jas_si_agent_task_human_review_decide(
+                       %s,%s,%s,%s,%s,%s)""",
+                  (
+                      review_task_id,uuid4(),review_reviewer_id,
+                      "close_unverified","OWNER_CONFIRMED","review-cross-tenant",
+                  ),
+              )
+              if cur.fetchone() is not None:
+                  raise SystemExit("Cross-tenant human review task was disclosed")
+
+              more_args = (
+                  review_task_more_id,tenant_id,review_reviewer_id,
+                  "request_more_evidence","NEED_MORE_EVIDENCE","review-more-001",
+              )
+              cur.execute(
+                  """SELECT decision_event_id,task_status,created,decided_at
+                       FROM public.jas_si_agent_task_human_review_decide(
+                         %s,%s,%s,%s,%s,%s)""",
+                  more_args,
+              )
+              more_result = cur.fetchone()
+              if more_result is None or more_result[1] != "human_review_required" or more_result[2] is not True:
+                  raise SystemExit(f"Request-more-evidence transition failed: {more_result!r}")
+
+              cur.execute(
+                  """SELECT task_id,task_status,verification_status,verification_reason_code
+                       FROM public.jas_si_agent_task_human_review_queue(%s,%s)""",
+                  (tenant_id,10),
+              )
+              queue_rows = cur.fetchall()
+              if len(queue_rows) != 1 or queue_rows[0][0] != review_task_more_id:
+                  raise SystemExit(f"Tenant review queue returned wrong tasks: {queue_rows!r}")
+
+              cur.execute(
+                  """SELECT task_exists,decision_event_id,decision,reason_code,
+                            previous_status,resulting_status
+                       FROM public.jas_si_agent_task_human_review_history(%s,%s,%s)""",
+                  (tenant_id,review_task_id,10),
+              )
+              history_rows = cur.fetchall()
+              if (
+                  len(history_rows) != 1
+                  or history_rows[0][0] is not True
+                  or history_rows[0][2] != "close_unverified"
+                  or history_rows[0][5] != "closed_unverified"
+              ):
+                  raise SystemExit(f"Tenant review history returned wrong events: {history_rows!r}")
+
+              cur.execute(
+                  """SELECT * FROM public.jas_si_agent_task_human_review_history(%s,%s,%s)""",
+                  (uuid4(),review_task_id,10),
+              )
+              if cur.fetchall():
+                  raise SystemExit("Cross-tenant review history disclosed task events")
+
+              cur.execute("RESET SESSION AUTHORIZATION")
+              cur.execute(
+                  "SELECT status,completed_at FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                  (review_task_id,),
+              )
+              closed_task = cur.fetchone()
+              if closed_task is None or closed_task[0] != "closed_unverified" or closed_task[1] is None:
+                  raise SystemExit(f"Closed review task is not a terminal unverified state: {closed_task!r}")
+              cur.execute(
+                  "SELECT count(*) FROM public.jas_si_agent_task_review_events WHERE task_id IN (%s,%s)",
+                  (review_task_id,review_task_more_id),
+              )
+              review_event_count = cur.fetchone()[0]
+              if review_event_count != 2:
+                  raise SystemExit(f"Expected two immutable review events, found {review_event_count}")
+
+              # Even the isolated audit-table owner cannot mutate review events;
+              # UPDATE and TRUNCATE triggers must reject changes.
+              cur.execute("SET ROLE jas_si_agent_review_audit_owner")
+              cur.execute("SAVEPOINT review_audit_update_guard")
+              try:
+                  cur.execute(
+                      """UPDATE public.jas_si_agent_task_review_events
+                            SET reason_code='TAMPERED'
+                          WHERE task_id=%s""",
+                      (review_task_id,),
+                  )
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "55000":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT review_audit_update_guard")
+              else:
+                  raise SystemExit("Append-only review audit accepted UPDATE")
+              cur.execute("RELEASE SAVEPOINT review_audit_update_guard")
+
+              cur.execute("SAVEPOINT review_audit_truncate_guard")
+              try:
+                  cur.execute("TRUNCATE public.jas_si_agent_task_review_events")
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "55000":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT review_audit_truncate_guard")
+              else:
+                  raise SystemExit("Append-only review audit accepted TRUNCATE")
+              cur.execute("RELEASE SAVEPOINT review_audit_truncate_guard")
+              cur.execute("RESET ROLE")
+
+              cur.execute(
+                  """SELECT count(*),bool_and(reason_code<>'TAMPERED')
+                       FROM public.jas_si_agent_task_review_events
+                      WHERE task_id IN (%s,%s)""",
+                  (review_task_id,review_task_more_id),
+              )
+              immutable_audit = cur.fetchone()
+              if immutable_audit != (2, True):
+                  raise SystemExit(f"Human review audit was mutated: {immutable_audit!r}")
+              print("Verified Human Review runtime boundary: tenant isolation, atomic disposition, idempotency and immutable audit")
           PY
