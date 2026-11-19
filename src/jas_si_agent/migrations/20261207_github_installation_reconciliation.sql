@@ -45,6 +45,13 @@ ALTER TABLE public.jas_si_github_app_installation_repositories
 ALTER TABLE public.jas_si_github_app_installation_repositories
     ADD COLUMN IF NOT EXISTS is_private boolean;
 
+-- A repository ID is globally stable within one Installation snapshot. Do not
+-- allow malformed/ambiguous snapshots to bind one GitHub ID to multiple names.
+CREATE UNIQUE INDEX IF NOT EXISTS jas_si_github_repository_id_per_installation_unique
+    ON public.jas_si_github_app_installation_repositories
+       (installation_id,github_repository_id)
+    WHERE github_repository_id IS NOT NULL;
+
 -- The reconciliation function is owned by the existing agent task owner. Give
 -- it narrowly scoped read/update authority over the non-secret ownership proof.
 GRANT SELECT ON public.jas_si_github_installation_claims TO jas_si_agent_task_owner;
