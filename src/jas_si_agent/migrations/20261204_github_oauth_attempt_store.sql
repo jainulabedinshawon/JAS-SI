@@ -146,12 +146,18 @@ RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 
 DO $assert$
+DECLARE v_name text;
 BEGIN
     IF pg_catalog.has_table_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','SELECT')
        OR pg_catalog.has_table_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','INSERT')
        OR pg_catalog.has_table_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','UPDATE')
+       OR pg_catalog.has_any_column_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','SELECT')
        OR pg_catalog.has_table_privilege('jas_si_agent_worker','public.jas_si_github_oauth_attempts','SELECT')
        OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_github_oauth_attempts','SELECT')
+       OR NOT pg_catalog.has_function_privilege('jas_si_customer_runtime',
+           'public.customer_github_oauth_attempt_create(bytea,uuid,bytea,bytea,text,bytea,timestamptz)','EXECUTE')
+       OR NOT pg_catalog.has_function_privilege('jas_si_customer_runtime',
+           'public.customer_github_oauth_attempt_consume(bytea,bytea,bytea)','EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_runtime',
            'public.customer_github_oauth_attempt_consume(bytea,bytea,bytea)','EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_worker',
@@ -160,5 +166,18 @@ BEGIN
            'public.customer_github_oauth_attempt_consume(bytea,bytea,bytea)','EXECUTE') THEN
         RAISE EXCEPTION 'GitHub OAuth attempt storage ACL boundary is invalid';
     END IF;
+    FOREACH v_name IN ARRAY ARRAY[
+        'customer_github_oauth_attempt_create(bytea,uuid,bytea,bytea,text,bytea,timestamptz)',
+        'customer_github_oauth_attempt_consume(bytea,bytea,bytea)'
+    ] LOOP
+        IF pg_catalog.pg_get_userbyid((
+            SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid=('public.'||v_name)::regprocedure
+        ))<>'jas_si_customer_identity_owner'
+        OR NOT (SELECT p.prosecdef FROM pg_catalog.pg_proc p WHERE p.oid=('public.'||v_name)::regprocedure)
+        OR NOT (SELECT COALESCE(p.proconfig,ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog']::text[]
+                  FROM pg_catalog.pg_proc p WHERE p.oid=('public.'||v_name)::regprocedure) THEN
+            RAISE EXCEPTION 'GitHub OAuth routine owner/SECURITY DEFINER boundary is invalid: %',v_name;
+        END IF;
+    END LOOP;
 END
 $assert$;
