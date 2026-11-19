@@ -94,8 +94,10 @@ class GitHubOAuthApiTests(unittest.TestCase):
         api.app.state.github_oauth_provider = FakeProvider()
         api.app.state.github_installation_ownership_verifier = FakeOwnershipVerifier()
         self.old_identity_helper = api._get_customer_identity_store
+        self.old_session_helper = api._require_customer_session
         self.old_oauth_components = api._get_github_oauth_components
         api._get_customer_identity_store = lambda request: api.app.state.customer_identity_store
+        api._require_customer_session = lambda request: self.account
         api._get_github_oauth_components = lambda request: (
             api.app.state.github_oauth_service,
             api.app.state.github_oauth_provider,
@@ -109,6 +111,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         self.client.close()
         api.settings = self.old_settings
         api._get_customer_identity_store = self.old_identity_helper
+        api._require_customer_session = self.old_session_helper
         api._get_github_oauth_components = self.old_oauth_components
         for name, value in self.old_state.items():
             if value is None:
@@ -162,7 +165,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
             + "&state=" + "A" * 43
             + "&code=github-authorization-code&installation_id=98765"
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 400, response.text)
 
     def test_callback_completes_user_and_installation_ownership_but_not_activation(self):
         started = self.client.post(
