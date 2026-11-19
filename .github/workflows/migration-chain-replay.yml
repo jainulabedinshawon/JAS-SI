@@ -11,6 +11,7 @@ on:
       - ".github/workflows/migration-chain-replay.yml"
   pull_request:
     branches:
+      - feat/github-installation-onboarding-security-v1
       - main
       - feat/customer-identity-onboarding-v1
       - fix/tenant-suspension-locking-after-onboarding-fix

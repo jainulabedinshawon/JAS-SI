@@ -17,6 +17,7 @@ on:
 
   pull_request:
     branches:
+      - feat/tenant-github-installation-binding-v1
       - main
       - feat/jas-si-agent-mvp-safety-core
       - feat/customer-identity-onboarding-v1
