@@ -30,7 +30,7 @@ SET LOCAL ROLE jas_si_customer_identity_owner;
 
 CREATE TABLE IF NOT EXISTS public.jas_si_github_installation_claims (
     claim_id uuid PRIMARY KEY,
-    installation_id bigint NOT NULL UNIQUE CHECK (installation_id > 0),
+    installation_id bigint NOT NULL CHECK (installation_id > 0),
     tenant_id uuid NOT NULL REFERENCES public.jas_si_tenants(tenant_id)
         ON UPDATE RESTRICT ON DELETE RESTRICT,
     customer_account_id uuid NOT NULL REFERENCES public.jas_si_customer_accounts(account_id)
@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_installation_claims (
     status varchar(32) NOT NULL DEFAULT 'pending_reconciliation'
         CHECK (status='pending_reconciliation'),
     proof_verified_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
-    created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
+    created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+    CONSTRAINT jas_si_github_installation_claims_installation_id_unique
+        UNIQUE (installation_id)
 );
 
 CREATE INDEX IF NOT EXISTS jas_si_github_installation_claims_tenant_idx
@@ -97,6 +99,7 @@ BEGIN
        OR p_github_account_id IS NULL OR p_github_account_id<=0
        OR p_github_account_login IS NULL
        OR p_github_account_login !~ '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'
+       OR p_github_account_type IS NULL
        OR p_github_account_type NOT IN ('User','Organization')
        OR p_app_id IS NULL OR p_app_id<=0 THEN
         RAISE EXCEPTION 'Invalid verified GitHub Installation claim input'
@@ -124,7 +127,8 @@ BEGIN
         p_claim_id,p_installation_id,v_tenant_id,v_account_id,
         p_github_user_id,p_github_user_login,p_github_account_id,
         p_github_account_login,p_github_account_type,p_app_id
-    ) ON CONFLICT (installation_id) DO NOTHING;
+    ) ON CONFLICT ON CONSTRAINT jas_si_github_installation_claims_installation_id_unique
+      DO NOTHING;
 
     SELECT c.* INTO v_claim
       FROM public.jas_si_github_installation_claims c
