@@ -38,11 +38,14 @@ class GitHubOAuthAttemptPostgresTests(unittest.TestCase):
             )
             cur.execute(
                 """INSERT INTO public.jas_si_customer_accounts(
-                     account_id,tenant_id,email,email_normalized,organization_name,
-                     status,email_verified_at
-                   ) VALUES (%s,%s,%s,%s,%s,'active',clock_timestamp())""",
+                     account_id,tenant_id,email,email_normalized,organization_name
+                   ) VALUES (%s,%s,%s,%s,%s)""",
                 (account_id, tenant_id, account_id.hex+"@example.test",
                  account_id.hex+"@example.test", "OAuth Integration"),
+            )
+            cur.execute(
+                "UPDATE public.jas_si_customer_accounts SET status='active',email_verified_at=clock_timestamp() WHERE account_id=%s",
+                (account_id,),
             )
             cur.execute(
                 """INSERT INTO public.jas_si_customer_sessions(
