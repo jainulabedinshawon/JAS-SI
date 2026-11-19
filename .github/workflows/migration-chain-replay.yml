@@ -127,6 +127,7 @@ jobs:
               "20261202_github_webhook_inbox.sql",
               "20261203_api_key_provisioner_rls_policies.sql",
               "20261204_github_oauth_attempt_store.sql",
+              "20261206_github_installation_claims.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
