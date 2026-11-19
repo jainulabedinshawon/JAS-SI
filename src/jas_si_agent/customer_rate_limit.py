@@ -71,6 +71,27 @@ class PostgresCustomerRateLimiter:
                                   current_user,rate_table.oid,'REFERENCES')
                               AND NOT pg_catalog.has_table_privilege(
                                   current_user,rate_table.oid,'TRIGGER')
+                              -- Table-level legacy grants are temporarily allowed during
+                              -- expand/deploy, but explicit column ACLs are never allowed.
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                    FROM pg_catalog.pg_attribute column_info
+                                    CROSS JOIN LATERAL pg_catalog.aclexplode(
+                                      column_info.attacl
+                                    ) column_acl
+                                   WHERE column_info.attrelid=rate_table.oid
+                                     AND column_info.attnum>0
+                                     AND NOT column_info.attisdropped
+                                     AND column_acl.grantee IN (
+                                       0,
+                                       (SELECT role_info.oid
+                                          FROM pg_catalog.pg_roles role_info
+                                         WHERE role_info.rolname=current_user)
+                                     )
+                                     AND column_acl.privilege_type IN (
+                                       'SELECT','INSERT','UPDATE','REFERENCES'
+                                     )
+                              )
                               AND (
                                 (
                                   pg_catalog.has_table_privilege(
