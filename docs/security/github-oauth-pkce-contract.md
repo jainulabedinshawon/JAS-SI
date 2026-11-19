@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This change supplies protocol primitives, tenant-bound durable state, an AEAD verifier envelope, an application service for persist-before-redirect/consume-before-decrypt orchestration, and a strict GitHub token-exchange/user-identity client. It does not implement the OAuth HTTP routes or Installation activation.
+This change supplies protocol primitives, tenant-bound durable state, an AEAD verifier envelope, an application service for persist-before-redirect/consume-before-decrypt orchestration, and a strict GitHub token-exchange/user-identity client. It does not persist the verified Installation ownership claim or activate the Installation.
 
 ## Authorization initiation
 
@@ -43,4 +43,4 @@ The PKCE verifier must be protected at rest with authenticated encryption using 
 - Installation/repository reconciliation and lifecycle event processor
 - End-to-end Staging verification
 
-PostgreSQL replay and concurrency integration tests are added for CI. No production credentials, live database, or external GitHub App configuration are changed.
+PostgreSQL replay and concurrency integration tests are added for CI. No production credentials, live database, or external GitHub App configuration are changed.\n\nThe FastAPI start and callback routes are implemented. The callback uses a short-lived HttpOnly `SameSite=Lax` state cookie for the cross-site GitHub top-level GET, then performs the completion POST from a same-origin callback page so the existing `SameSite=Strict` customer session and CSRF cookies are sent. The callback page rejects duplicate state/code/installation parameters, uses a nonce-based CSP, disables caching/referrers, and removes the authorization code from browser history before POSTing it. The API verifies the GitHub user and exact Installation/App ownership, but intentionally returns `ownership_proof_verified_not_persisted`; it does not yet write a durable pending claim or activate an Installation.
