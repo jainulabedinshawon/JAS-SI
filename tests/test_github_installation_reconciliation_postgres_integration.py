@@ -122,6 +122,23 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
                 ("jas-org/beta", "active", 1002, False),
             ])
 
+    def test_duplicate_repository_id_in_snapshot_is_rejected(self):
+        _, installation_id, _ = self._fixture()
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self._reconcile(
+                installation_id,
+                repositories=[
+                    self._repo(1001, "jas-org/alpha"),
+                    self._repo(1001, "jas-org/renamed-alpha"),
+                ],
+            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM public.jas_si_github_app_installations WHERE installation_id=%s",
+                (installation_id,),
+            )
+            self.assertEqual(cur.fetchone()[0], 0)
+
     def test_full_snapshot_revokes_removed_repository(self):
         _, installation_id, _ = self._fixture()
         self._reconcile(
