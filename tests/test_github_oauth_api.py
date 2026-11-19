@@ -31,9 +31,10 @@ class FakeOAuthService:
         self.account = account
         self.consumed = None
 
-    def begin(self, *, session_token, account):
+    def begin(self, *, session_token, account, installation_id):
         assert session_token == "S" * 43
         assert account == self.account
+        assert installation_id == 98765
         return "https://github.com/login/oauth/authorize?client_id=Iv1.example&state=" + "A" * 43
 
     def consume_callback(self, *, session_token, state, authorization_code):
@@ -145,11 +146,12 @@ class GitHubOAuthApiTests(unittest.TestCase):
                 setattr(api.app.state, name, value)
 
     def test_start_requires_csrf_and_sets_short_lived_lax_state_cookie(self):
-        denied = self.client.post("/v1/customer/github/oauth/start")
+        denied = self.client.post("/v1/customer/github/oauth/start", json={"installation_id": 98765})
         self.assertEqual(denied.status_code, 403, denied.text)
         response = self.client.post(
             "/v1/customer/github/oauth/start",
             headers={"X-JAS-SI-CSRF": "C" * 43},
+            json={"installation_id": 98765},
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["expires_in"], 300)
@@ -168,7 +170,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         self.assertEqual(started.status_code, 200, started.text)
         response = self.client.get(
             "/v1/github/oauth/callback?state=" + "A" * 43
-            + "&code=github-authorization-code&installation_id=98765"
+            + "&code=github-authorization-code"
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("history.replaceState", response.text)
@@ -206,7 +208,6 @@ class GitHubOAuthApiTests(unittest.TestCase):
             json={
                 "state": "A" * 43,
                 "code": "github-authorization-code",
-                "installation_id": 98765,
             },
         )
         self.assertEqual(response.status_code, 200)
