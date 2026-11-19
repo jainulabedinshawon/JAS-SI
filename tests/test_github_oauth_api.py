@@ -79,6 +79,10 @@ class GitHubOAuthApiTests(unittest.TestCase):
         self.old_settings = api.settings
         self.settings = SimpleNamespace(
             environment="test",
+            database_url=None,
+            api_rate_limit_pepper=None,
+            rate_limit_requests=60,
+            rate_limit_window_seconds=60,
             customer_database_url="postgresql://not-used",
             customer_token_pepper=b"P" * 32,
             github_oauth_client_id="Iv1.example",
