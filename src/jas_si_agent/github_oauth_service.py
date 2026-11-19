@@ -34,6 +34,10 @@ class GitHubOAuthServiceError(ValueError):
     """OAuth service failed closed."""
 
 
+class GitHubInstallationClaimStoreError(RuntimeError):
+    """A verified Installation ownership claim could not be persisted."""
+
+
 @dataclass(frozen=True)
 class ConsumedGitHubOAuthAttempt:
     attempt_id: uuid.UUID
@@ -164,12 +168,12 @@ class PostgresGitHubInstallationClaimStore:
                 )
                 row = cur.fetchone()
             if row is None:
-                raise GitHubOAuthServiceError("Installation claim was not recorded")
+                raise GitHubInstallationClaimStoreError("Installation claim was not recorded")
             return row[0], str(row[1]), int(row[2])
-        except GitHubOAuthServiceError:
+        except GitHubInstallationClaimStoreError:
             raise
         except Exception:
-            raise GitHubOAuthServiceError(
+            raise GitHubInstallationClaimStoreError(
                 "Verified GitHub Installation claim could not be recorded"
             ) from None
 
