@@ -23,6 +23,7 @@ on:
       - feat/customer-identity-onboarding-v1
       - feat/github-webhook-durable-inbox-v1
       - fix/shared-api-rate-limiter-v1
+      - feat/github-installation-onboarding-security-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
