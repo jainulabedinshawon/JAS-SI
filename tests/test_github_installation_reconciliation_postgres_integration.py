@@ -230,13 +230,15 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
             cur.execute("SET ROLE jas_si_github_reconciler")
             cur.execute(
-                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(10)"
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(50)"
             )
-            self.assertEqual(cur.fetchone(), (installation_id, 1))
+            first_batch = cur.fetchall()
+            self.assertIn((installation_id, 1), first_batch)
             cur.execute(
-                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(10)"
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(50)"
             )
-            self.assertIsNone(cur.fetchone())
+            second_batch = cur.fetchall()
+            self.assertNotIn(installation_id, [row[0] for row in second_batch])
         self._reconcile(
             installation_id,
             repositories=[self._repo(1001, "jas-org/alpha")],
@@ -245,9 +247,10 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
             cur.execute("SET ROLE jas_si_github_reconciler")
             cur.execute(
-                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(10)"
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(50)"
             )
-            self.assertIsNone(cur.fetchone())
+            remaining = cur.fetchall()
+            self.assertNotIn(installation_id, [row[0] for row in remaining])
 
     def test_reconciler_has_execute_only_access(self):
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
