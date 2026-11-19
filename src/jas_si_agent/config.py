@@ -145,9 +145,10 @@ def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[
         parsed.scheme != "https" or not parsed.hostname
         or parsed.username is not None or parsed.password is not None
         or parsed.fragment or parsed.query
+        or parsed.path != "/v1/github/oauth/callback"
         or parsed.port not in (None, 443)
     ):
-        raise ValueError("JAS_SI_GITHUB_OAUTH_REDIRECT_URI must be a fixed HTTPS callback URL")
+        raise ValueError("JAS_SI_GITHUB_OAUTH_REDIRECT_URI must be the fixed HTTPS JAS-SI callback path")
     if not active_version or not _GITHUB_OAUTH_KEY_VERSION_RE.fullmatch(active_version):
         raise ValueError("JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION is invalid")
     try:
