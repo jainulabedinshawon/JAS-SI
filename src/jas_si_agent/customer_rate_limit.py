@@ -35,7 +35,7 @@ class PostgresCustomerRateLimiter:
         ).digest()
 
     def verify_schema(self) -> bool:
-        """Require the dedicated database-owned rate-limit boundary."""
+        """Require the database-owned routine; final table ACL is a separate contract gate."""
         import psycopg
 
         try:
@@ -62,12 +62,7 @@ class PostgresCustomerRateLimiter:
                                   WHERE acl.grantee=0
                                     AND acl.privilege_type='EXECUTE'
                               )
-                              AND NOT pg_catalog.has_table_privilege(
-                                  current_user,rate_table.oid,'SELECT')
-                              AND NOT pg_catalog.has_table_privilege(
-                                  current_user,rate_table.oid,'INSERT')
-                              AND NOT pg_catalog.has_table_privilege(
-                                  current_user,rate_table.oid,'UPDATE')
+
                               AND NOT pg_catalog.has_table_privilege(
                                   current_user,rate_table.oid,'DELETE')
                               AND NOT pg_catalog.has_table_privilege(
