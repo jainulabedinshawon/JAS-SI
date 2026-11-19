@@ -1318,6 +1318,7 @@ def github_oauth_callback_page(request: Request) -> HTMLResponse:
  const q=new URLSearchParams(location.search);
  const one=k=>{const a=q.getAll(k);return a.length===1?a[0]:null};
  const state=one("state"),code=one("code"),iid=one("installation_id");
+ history.replaceState(null,"",location.pathname);
  const csrf=(()=>{const m=document.cookie.match(/(?:^|; )jassi_customer_csrf=([^;]+)/);return m?decodeURIComponent(m[1]):""})();
  if(!state||!code||!iid||!/^\\d+$/.test(iid)||!csrf){document.getElementById("status").textContent="Invalid callback. Return to JAS-SI and try again.";return;}
  try{
