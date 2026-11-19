@@ -392,7 +392,12 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                      has_table_privilege('jas_si_customer_runtime', 'jas_si_customer_rate_limits', 'DELETE')"""
             )
             privileges = cur.fetchone()
-        self.assertEqual(privileges, (False, False, False, False, False, False, False, False, False, False, False, False, False))
+        # Expand/deploy deliberately preserves legacy table-level access until
+        # the contract migration runs after the routine-backed runtime is deployed.
+        self.assertEqual(
+            privileges,
+            (False, False, False, False, False, False, False, False, False, True, True, True, False),
+        )
 
     def test_customer_usage_reads_are_session_bound_and_not_directly_selectable(self):
         from datetime import datetime, timezone
