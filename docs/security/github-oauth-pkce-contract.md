@@ -2,45 +2,55 @@
 
 ## Purpose
 
-This change supplies protocol primitives, tenant-bound durable state, an AEAD verifier envelope, an application service for persist-before-redirect/consume-before-decrypt orchestration, and a strict GitHub token-exchange/user-identity client. It does not persist the verified Installation ownership claim or activate the Installation.
+JAS-SI implements a customer-session-bound GitHub App user-authorization flow. OAuth proves that the authenticated GitHub user can access a candidate Installation for the configured App. A successful proof is persisted as a pending customer claim; it does not activate the Installation or any repository.
 
-## Authorization initiation
+## Start and state binding
 
-1. Authenticate the customer using the existing JAS-SI customer session and CSRF protections.
-2. Derive the tenant and customer-account IDs only from the authenticated session; never accept them from browser parameters.
-3. Call `create_github_oauth_attempt()` to create a cryptographically random state value and PKCE verifier using S256.
-4. Before redirecting, call the durable `customer_github_oauth_attempt_create` routine to persist the state digest, authenticated tenant/account IDs, expiry, redirect-URI digest, and AEAD ciphertext for the PKCE verifier. The database never receives raw state or plaintext verifier. The application must encrypt the verifier with `GitHubOAuthVerifierCipher` before passing the ciphertext to PostgreSQL.
-5. Redirect to the returned GitHub authorization URL.
+1. Require an active JAS-SI customer session and CSRF validation.
+2. Derive tenant and customer-account IDs only from that authenticated session.
+3. Accept a positive candidate Installation ID at the OAuth-start endpoint. Treat it as untrusted input; it is only a lookup candidate.
+4. Generate high-entropy OAuth state and a PKCE verifier using S256.
+5. Encrypt the verifier with AES-256-GCM. Persist only the state digest, candidate Installation ID, authenticated tenant/account IDs, expiry, redirect-URI digest, ciphertext, and key version through the database-owned create routine.
+6. Only after persistence succeeds, return the GitHub authorization URL.
+7. The browser receives a five-minute, HttpOnly, path-scoped, SameSite=Lax state cookie. Production and preview use Secure.
 
-## Application service and provider client
+Raw state, plaintext PKCE verifier, authorization code, and access token are not persisted in PostgreSQL.
 
-`GitHubOAuthService.begin()` derives no tenant identity from browser input: it accepts the already-authenticated customer account and session token plus a candidate Installation ID supplied at OAuth start, encrypts the PKCE verifier, persists the state digest, candidate Installation ID and ciphertext, and only then returns the authorization URL. The candidate ID is untrusted input; it is not accepted as proof. `consume_callback()` validates callback syntax, atomically consumes the session-bound database record, and decrypts only after consumption succeeds. Its result binds the verifier to the database-returned attempt, tenant, and account IDs.
+## Callback and same-origin handoff
 
-`GitHubOAuthProvider.exchange_code()` sends the authorization code, PKCE verifier, client credentials, and configured redirect URI to GitHub over HTTPS with bounded timeouts and redirects disabled. `authenticated_user()` validates the `/user` response. The short-lived access token is kept in memory and is not persisted or logged by this client. Provider HTTP behavior has no-network mock tests.
+GitHub's OAuth callback is expected to return `code` and `state`; the candidate Installation ID is not trusted from the provider callback. It was bound to the OAuth attempt at start and is returned by the atomic consume routine.
 
-## Callback requirements for HTTP integration
+The callback page:
 
-1. Require exactly one state and one authorization-code parameter; reject duplicate or missing parameters and provider error callbacks.
-2. Call `customer_github_oauth_attempt_consume` with the authenticated session digest, SHA-256 state digest, and configured redirect-URI digest. The database routine atomically consumes a matching, unexpired, session-bound attempt; concurrent callers cannot both receive the same record.
-3. Derive tenant/account identity only from that consumed record, not callback parameters or webhook payloads.
-4. Use `GitHubOAuthService.consume_callback()` to atomically consume and decrypt; exchange the code with `GitHubOAuthProvider.exchange_code()` using the same redirect URI and verifier.
-5. Verify the resulting user access token with `GitHubOAuthProvider.authenticated_user()`, then use the existing `GitHubUserInstallationAccessVerifier` to independently verify the exact Installation and expected App ID.
-6. Keep the Installation pending until authoritative Installation and repository reconciliation has completed. Do not trust webhook payload account/repository fields as ownership proof.
-7. Redact authorization codes, state, PKCE verifiers, access tokens, and provider response bodies from logs and exception messages.
+- Requires exactly one state and one code and rejects provider error responses.
+- Constant-time compares state against the short-lived cookie.
+- Uses a nonce-based Content Security Policy, no-store caching, and no-referrer policy.
+- Removes the authorization code from browser history before submitting the same-origin completion POST.
+- Uses the existing SameSite=Strict customer session and CSRF cookies on that same-origin POST.
 
-## Security boundary
+The completion route atomically consumes the state record for the same active customer session before decrypting the verifier. It exchanges the code with GitHub, verifies the resulting `/user` identity, then independently checks that the candidate Installation appears in the authenticated user's complete Installation list and belongs to the expected GitHub App ID.
 
-The pure callback validator compares the supplied state against a SHA-256 digest using constant-time comparison and validates the authorization code's syntax. This alone is not replay protection. Replay protection exists only when the caller atomically consumes the durable state record before code exchange.
+## Pending claim persistence
 
-The PKCE verifier must be protected at rest with authenticated encryption using a key held outside the database. The migration `20261204_github_oauth_attempt_store.sql` creates a dedicated table and narrowly scoped create/consume routines. Only the customer identity owner can access the table; the customer runtime receives routine EXECUTE only, while general runtime and agent Worker/Verifier roles are denied. The verifier ciphertext is opaque to PostgreSQL. The `GitHubOAuthVerifierCipher` implements AES-256-GCM with a 96-bit random nonce and 128-bit authentication tag. Its keyring is injected from an external secret manager/KMS; PostgreSQL stores only ciphertext and a key version. Associated data binds attempt ID, tenant ID, account ID, and redirect-URI digest. The callback service must decrypt only after the atomic consume routine succeeds. Key rotation must retain old key versions only for the maximum outstanding attempt lifetime.
+After user and Installation identity match, the API records a durable row through `customer_github_installation_claim_record`. The database routine derives tenant/account ownership from the current customer session; it does not accept tenant/account IDs from the browser. The Installation ID is unique across claims. Repeated claims from the same customer and same GitHub identities are idempotent; a different customer or identity cannot take over an existing Installation claim.
 
-## Explicitly incomplete
+The claim remains `pending_reconciliation`. It records the verified GitHub user ID/login, GitHub account ID/login/type, App ID, customer tenant/account, Installation ID, and proof timestamp. The customer runtime has EXECUTE-only access to the claim routine; direct table access is denied. Worker, Verifier, and general runtime roles cannot read or mutate claims.
 
-- OAuth client configuration and external secret/key-manager integration
-- Authenticated start and callback HTTP routes, including duplicate-query rejection, CSRF, and cross-site callback cookie policy
-- Wiring the verified GitHub user identity into the Installation ownership verifier
-- Durable Installation ownership proof persistence
-- Installation/repository reconciliation and lifecycle event processor
-- End-to-end Staging verification
+## Security and operational boundaries
 
-PostgreSQL replay and concurrency integration tests are added for CI. No production credentials, live database, or external GitHub App configuration are changed.\n\nThe FastAPI start and callback routes are implemented. The customer supplies the candidate Installation ID at the authenticated OAuth-start endpoint; it is bound to the durable state record so the callback cannot substitute another Installation ID. The callback uses a short-lived HttpOnly `SameSite=Lax` state cookie for the cross-site GitHub top-level GET, then performs the completion POST from a same-origin callback page so the existing `SameSite=Strict` customer session and CSRF cookies are sent. The callback page rejects duplicate state/code/installation parameters, uses a nonce-based CSP, disables caching/referrers, and removes the authorization code from browser history before POSTing it. The API verifies the GitHub user and exact Installation/App ownership, but intentionally returns `ownership_proof_verified_not_persisted`; it does not yet write a durable pending claim or activate an Installation.
+- The configured redirect URI is HTTPS-only and pinned to `/v1/github/oauth/callback`.
+- OAuth attempt lifetime is five minutes (database permits at most ten minutes).
+- State consumption is atomic and single-use; concurrent callback requests cannot both succeed.
+- PKCE ciphertext uses authenticated encryption; key material is supplied through environment configuration backed by an external secret manager/KMS. The database stores no encryption key.
+- The GitHub access token is short-lived, used in memory for identity/Installation verification, and not stored or logged.
+- Installation activation and repository allowlisting are separate authority. A webhook payload is a lifecycle signal, not ownership proof.
+- OAuth completion does not itself reconcile GitHub webhooks or activate a tenant Installation.
+
+## Remaining work
+
+1. Capture candidate Installation IDs from the GitHub App setup/install callback and expose a safe customer selection flow. The OAuth start API currently requires the candidate ID; it does not yet discover it automatically.
+2. Build an authoritative webhook reconciliation processor that checks current GitHub API state and matches the pending claim, App ID, tenant, and selected repository allowlist.
+3. Persist reconciled Installation/repository bindings and enable activation only through the controlled reconciliation authority.
+4. Run end-to-end Staging verification using a real configured GitHub App and isolated test tenant.
+
+PostgreSQL migration replay and CI integration tests use disposable databases. No production credentials, live Neon migration, external GitHub App configuration, or Installation activation has been performed.
