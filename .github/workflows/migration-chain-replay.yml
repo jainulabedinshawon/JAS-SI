@@ -119,6 +119,7 @@ jobs:
               "20261130_customer_tenant_active_guard_reassert.sql",
               "20261201_github_installation_binding.sql",
               "20261202_github_webhook_inbox.sql",
+              "20261203_api_key_provisioner_rls_policies.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
