@@ -80,6 +80,15 @@ from jas_si_agent.security_event_store_interface import SecurityEventStore
 from jas_si_agent.verification import ActionReport, VerificationEvidence
 from jas_si_agent.verify_router import router as github_verify_router
 from jas_si_agent.github_installations import is_valid_github_repository
+from jas_si_agent.github_webhooks import (
+    GitHubWebhookError,
+    parse_verified_github_webhook,
+    verify_github_webhook_signature,
+)
+from jas_si_agent.github_webhook_inbox import (
+    GitHubWebhookInboxError,
+    PostgresGitHubWebhookInbox,
+)
 
 
 settings = Settings.from_env()
@@ -1756,3 +1765,93 @@ app.include_router(
     github_verify_router,
     dependencies=[Depends(_require_api_key)],
 )
+
+
+@app.post("/webhooks/github", include_in_schema=False)
+async def receive_github_webhook(request: Request) -> JSONResponse:
+    """Authenticate and durably enqueue a GitHub App webhook delivery.
+
+    No tenant or repository binding is derived from this request. The inbox is
+    only a signal for a later GitHub API reconciliation process.
+    """
+    secret = settings.github_webhook_secret
+    if not isinstance(secret, bytes) or len(secret) < 32:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub webhook intake is not configured",
+        )
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) < 0 or int(content_length) > 2_000_000:
+                raise HTTPException(status_code=413, detail="Webhook body exceeds the size limit")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid webhook content length") from None
+
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 2_000_000:
+            raise HTTPException(status_code=413, detail="Webhook body exceeds the size limit")
+    raw_body = bytes(raw)
+
+    try:
+        verify_github_webhook_signature(
+            secret=secret,
+            raw_body=raw_body,
+            signature_header=request.headers.get("x-hub-signature-256", ""),
+        )
+    except GitHubWebhookError:
+        raise HTTPException(status_code=401, detail="GitHub webhook signature is invalid") from None
+
+    try:
+        event = parse_verified_github_webhook(
+            delivery_id=request.headers.get("x-github-delivery", ""),
+            event_name=request.headers.get("x-github-event", ""),
+            raw_body=raw_body,
+        )
+    except GitHubWebhookError:
+        raise HTTPException(status_code=400, detail="GitHub webhook event is invalid") from None
+
+    inbox = getattr(request.app.state, "github_webhook_inbox", None)
+    if inbox is None:
+        database_dsn = settings.github_webhook_database_url
+        if not database_dsn:
+            raise HTTPException(
+                status_code=503,
+                detail="GitHub webhook persistence is not configured",
+            )
+        try:
+            inbox = PostgresGitHubWebhookInbox(database_dsn)
+            request.app.state.github_webhook_inbox = inbox
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="GitHub webhook persistence is unavailable",
+            ) from None
+
+    try:
+        receipt = inbox.receive(
+            delivery_id=event.delivery_id,
+            event_name=event.event_name,
+            action=event.action,
+            installation_id=event.installation_id,
+            raw_body_sha256=hashlib.sha256(raw_body).digest(),
+            payload=event.payload,
+        )
+    except GitHubWebhookInboxError:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub webhook delivery could not be durably recorded",
+        ) from None
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "accepted": True,
+            "delivery_id": receipt.delivery_id,
+            "duplicate": not receipt.inserted,
+            "state": receipt.status,
+        },
+    )

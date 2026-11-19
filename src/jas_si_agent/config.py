@@ -145,6 +145,8 @@ class Settings:
     customer_smtp_password: Optional[str] = field(default=None, repr=False)
     customer_smtp_sender: Optional[str] = None
     customer_public_base_url: str = "https://jas-si.vercel.app"
+    github_webhook_secret: Optional[bytes] = field(default=None, repr=False)
+    github_webhook_database_url: Optional[str] = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -173,6 +175,10 @@ class Settings:
         api_rate_limit_pepper = _read_optional_api_rate_limit_pepper()
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
+        raw_webhook_secret = os.getenv("JAS_SI_GITHUB_WEBHOOK_SECRET")
+        github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
+        if github_webhook_secret is not None and len(github_webhook_secret) < 32:
+            raise ValueError("JAS_SI_GITHUB_WEBHOOK_SECRET must contain at least 32 UTF-8 bytes")
 
         if (hmac_secret is None) != (provider_id is None):
             raise ValueError(
@@ -225,4 +231,6 @@ class Settings:
             customer_public_base_url=os.getenv(
                 "JAS_SI_CUSTOMER_PUBLIC_URL", "https://jas-si.vercel.app"
             ).strip(),
+            github_webhook_secret=github_webhook_secret,
+            github_webhook_database_url=(os.getenv("JAS_SI_GITHUB_WEBHOOK_DATABASE_URL") or None),
         )

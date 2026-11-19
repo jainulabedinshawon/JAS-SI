@@ -144,5 +144,26 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
                 Settings.from_env()
 
 
+    def test_github_webhook_secret_is_loaded_and_not_exposed(self) -> None:
+        secret = "github-webhook-secret-with-at-least-32-bytes"
+        with patch.dict(
+            os.environ,
+            {"JAS_SI_GITHUB_WEBHOOK_SECRET": secret},
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertEqual(settings.github_webhook_secret, secret.encode("utf-8"))
+        self.assertNotIn(secret, repr(settings))
+
+    def test_short_github_webhook_secret_is_rejected(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"JAS_SI_GITHUB_WEBHOOK_SECRET": "too-short"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "JAS_SI_GITHUB_WEBHOOK_SECRET"):
+                Settings.from_env()
+
+
 if __name__ == "__main__":
     unittest.main()
