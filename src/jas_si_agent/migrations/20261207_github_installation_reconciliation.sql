@@ -48,7 +48,8 @@ ALTER TABLE public.jas_si_github_app_installation_repositories
 -- The reconciliation function is owned by the existing agent task owner. Give
 -- it narrowly scoped read/update authority over the non-secret ownership proof.
 GRANT SELECT ON public.jas_si_github_installation_claims TO jas_si_agent_task_owner;
-GRANT UPDATE (status,reconciled_at) ON public.jas_si_github_installation_claims
+GRANT UPDATE (status,reconciled_at,reconcile_attempt_count,reconcile_next_attempt_at)
+    ON public.jas_si_github_installation_claims
     TO jas_si_agent_task_owner;
 DROP POLICY IF EXISTS jas_si_github_claims_reconciler_select
     ON public.jas_si_github_installation_claims;
