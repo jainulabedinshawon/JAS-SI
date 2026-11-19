@@ -8,6 +8,7 @@ on:
       - feat/github-webhook-durable-inbox-v1
       - feat/github-webhook-http-ingress-v1
       - feat/github-installation-user-ownership-proof-v1
+      - feat/github-oauth-state-pkce-contract-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -21,6 +22,7 @@ on:
       - feat/github-app-token-issuer-v1
       - feat/github-installation-onboarding-security-v1
       - feat/github-webhook-durable-inbox-v1
+      - feat/github-installation-user-ownership-proof-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
