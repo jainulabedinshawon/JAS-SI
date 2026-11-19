@@ -67,6 +67,37 @@ class PostgresCustomerRateLimiter:
                                   current_user,rate_table.oid,'DELETE')
                               AND NOT pg_catalog.has_table_privilege(
                                   current_user,rate_table.oid,'TRUNCATE')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'REFERENCES')
+                              AND NOT pg_catalog.has_table_privilege(
+                                  current_user,rate_table.oid,'TRIGGER')
+                              AND (
+                                (
+                                  pg_catalog.has_table_privilege(
+                                    current_user,rate_table.oid,'SELECT')
+                                  AND pg_catalog.has_table_privilege(
+                                    current_user,rate_table.oid,'INSERT')
+                                  AND pg_catalog.has_table_privilege(
+                                    current_user,rate_table.oid,'UPDATE')
+                                )
+                                OR
+                                (
+                                  NOT pg_catalog.has_table_privilege(
+                                    current_user,rate_table.oid,'SELECT')
+                                  AND NOT pg_catalog.has_table_privilege(
+                                    current_user,rate_table.oid,'INSERT')
+                                  AND NOT pg_catalog.has_table_privilege(
+                                    current_user,rate_table.oid,'UPDATE')
+                                  AND NOT pg_catalog.has_any_column_privilege(
+                                    current_user,rate_table.oid,'SELECT')
+                                  AND NOT pg_catalog.has_any_column_privilege(
+                                    current_user,rate_table.oid,'INSERT')
+                                  AND NOT pg_catalog.has_any_column_privilege(
+                                    current_user,rate_table.oid,'UPDATE')
+                                  AND NOT pg_catalog.has_any_column_privilege(
+                                    current_user,rate_table.oid,'REFERENCES')
+                                )
+                              )
                            FROM (
                                SELECT c.oid,c.relowner
                                  FROM pg_catalog.pg_class c
