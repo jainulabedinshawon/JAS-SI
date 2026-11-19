@@ -92,6 +92,14 @@ class GitHubOAuthApiTests(unittest.TestCase):
         api.app.state.github_oauth_service = FakeOAuthService(self.account)
         api.app.state.github_oauth_provider = FakeProvider()
         api.app.state.github_installation_ownership_verifier = FakeOwnershipVerifier()
+        self.old_identity_helper = api._get_customer_identity_store
+        self.old_oauth_components = api._get_github_oauth_components
+        api._get_customer_identity_store = lambda request: api.app.state.customer_identity_store
+        api._get_github_oauth_components = lambda request: (
+            api.app.state.github_oauth_service,
+            api.app.state.github_oauth_provider,
+            api.app.state.github_installation_ownership_verifier,
+        )
         self.client = TestClient(api.app, base_url="https://jas-si.example.test")
         self.client.cookies.set("jassi_customer_session", "S" * 43, path="/")
         self.client.cookies.set("jassi_customer_csrf", "C" * 43, path="/")
@@ -99,6 +107,8 @@ class GitHubOAuthApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         api.settings = self.old_settings
+        api._get_customer_identity_store = self.old_identity_helper
+        api._get_github_oauth_components = self.old_oauth_components
         for name, value in self.old_state.items():
             if value is None:
                 try:
