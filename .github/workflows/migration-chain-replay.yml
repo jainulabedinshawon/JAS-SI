@@ -189,8 +189,9 @@ jobs:
                                   "legacy runtime access and enable the new routine: "
                                   f"{expand_state!r}"
                               )
-                          # Exercise the SECURITY DEFINER routine before the
-                          # contract phase, not merely its catalog metadata.
+                          # Exercise the SECURITY DEFINER routine as the
+                          # actual customer runtime role before contract.
+                          cur.execute("SET LOCAL ROLE jas_si_customer_runtime")
                           cur.execute(
                               """SELECT allowed,retry_after_seconds
                                    FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
@@ -211,7 +212,8 @@ jobs:
                               raise SystemExit(
                                   "Expand-phase routine did not persist its rate-limit bucket"
                               )
-                          print("Verified rate-limit expand phase: routine executes and legacy runtime access remains available")
+                          cur.execute("RESET ROLE")
+                          print("Verified rate-limit expand phase as customer runtime: routine executes and legacy runtime access remains available")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
               cur.execute("""
