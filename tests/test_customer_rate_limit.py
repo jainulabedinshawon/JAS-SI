@@ -78,7 +78,6 @@ class TestPostgresCustomerRateLimiter(unittest.TestCase):
         self.assertEqual(len(self.cursor.calls), 1)
         query, _ = self.cursor.calls[0]
         self.assertIn("public.jas_si_customer_rate_limit_check", query)
-        self.assertIn("SECURITY", query.upper()) if False else None
         # During expand/deploy, legacy table grants intentionally remain.
         # Their removal is independently enforced by the contract migration.
         self.assertNotIn("has_table_privilege", query)
