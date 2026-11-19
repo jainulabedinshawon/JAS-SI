@@ -89,6 +89,7 @@ from jas_si_agent.github_oauth_service import (
     GitHubOAuthService,
     GitHubOAuthServiceError,
     PostgresGitHubOAuthAttemptStore,
+    PostgresGitHubInstallationClaimStore,
 )
 from jas_si_agent.github_oauth_crypto import GitHubOAuthVerifierCipher
 from jas_si_agent.github_oauth_provider import (
@@ -1378,6 +1379,18 @@ def github_oauth_callback_complete(
             or proof.user.login.casefold() != github_user.login.casefold()
         ):
             raise GitHubInstallationOwnershipError("GitHub user identity mismatch")
+        claim_store = getattr(
+            request.app.state, "github_installation_claim_store", None
+        )
+        if claim_store is None:
+            claim_store = PostgresGitHubInstallationClaimStore(
+                settings.customer_database_url, settings.customer_token_pepper
+            )
+        claim_id, claim_status, claimed_installation_id = claim_store.record(
+            session_token=session_token, proof=proof
+        )
+        if claimed_installation_id != proof.installation_id:
+            raise GitHubOAuthServiceError("Persisted Installation claim identity mismatch")
     except (GitHubOAuthServiceError, GitHubOAuthProviderError, GitHubInstallationOwnershipError):
         response.delete_cookie(
             "jassi_github_oauth_state", path="/v1/github/oauth/callback",
@@ -1394,7 +1407,7 @@ def github_oauth_callback_complete(
     )
     response.headers["Cache-Control"] = "no-store"
     return {
-        "status": "ownership_proof_verified_not_persisted",
+        "status": "ownership_proof_verified_pending_reconciliation",
         "github_user": {"id": github_user.github_user_id, "login": github_user.login},
         "installation": {
             "installation_id": proof.installation_id,
@@ -1404,7 +1417,9 @@ def github_oauth_callback_complete(
             "account_type": proof.account_type,
         },
         "reconciliation_required": True,
-        "persistence": "not_recorded",
+        "claim_id": str(claim_id),
+        "persistence": "recorded",
+        "claim_status": claim_status,
         "activation": "not_performed",
     }
 
