@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS public.jas_si_github_installation_claims (
     status varchar(32) NOT NULL DEFAULT 'pending_reconciliation'
         CHECK (status='pending_reconciliation'),
     proof_verified_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
-    created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+    created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
 );
 
 CREATE INDEX IF NOT EXISTS jas_si_github_installation_claims_tenant_idx
