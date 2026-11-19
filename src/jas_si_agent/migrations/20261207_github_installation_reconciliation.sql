@@ -32,6 +32,12 @@ ALTER TABLE public.jas_si_github_installation_claims
     CHECK (status IN ('pending_reconciliation','active','suspended','revoked'));
 ALTER TABLE public.jas_si_github_installation_claims
     ADD COLUMN IF NOT EXISTS reconciled_at timestamptz;
+ALTER TABLE public.jas_si_github_installation_claims
+    ADD COLUMN IF NOT EXISTS reconcile_attempt_count integer NOT NULL DEFAULT 0
+        CHECK (reconcile_attempt_count BETWEEN 0 AND 10);
+ALTER TABLE public.jas_si_github_installation_claims
+    ADD COLUMN IF NOT EXISTS reconcile_next_attempt_at timestamptz NOT NULL
+        DEFAULT pg_catalog.clock_timestamp();
 
 ALTER TABLE public.jas_si_github_app_installation_repositories
     ADD COLUMN IF NOT EXISTS github_repository_id bigint
@@ -216,6 +222,43 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.jas_si_github_installation_claim_pending(
+    p_limit integer DEFAULT 10
+) RETURNS TABLE(installation_id bigint,attempt_count integer)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
+BEGIN
+    IF NOT pg_catalog.pg_has_role(session_user,'jas_si_github_reconciler','MEMBER') THEN
+        RAISE EXCEPTION 'GitHub reconciler identity is not authorized' USING ERRCODE='42501';
+    END IF;
+    IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 50 THEN
+        RAISE EXCEPTION 'Invalid pending Installation claim limit' USING ERRCODE='22023';
+    END IF;
+    RETURN QUERY
+    WITH candidates AS (
+        SELECT c.claim_id
+          FROM public.jas_si_github_installation_claims c
+          JOIN public.jas_si_tenants t ON t.tenant_id=c.tenant_id
+         WHERE c.status='pending_reconciliation'
+           AND c.reconcile_attempt_count<10
+           AND c.reconcile_next_attempt_at<=pg_catalog.clock_timestamp()
+           AND t.status='active'
+         ORDER BY c.proof_verified_at,c.claim_id
+         LIMIT p_limit
+         FOR UPDATE OF c SKIP LOCKED
+    )
+    UPDATE public.jas_si_github_installation_claims c
+       SET reconcile_attempt_count=c.reconcile_attempt_count+1,
+           reconcile_next_attempt_at=pg_catalog.clock_timestamp()+interval '60 seconds'
+      FROM candidates q
+     WHERE c.claim_id=q.claim_id
+    RETURNING c.installation_id,c.reconcile_attempt_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.jas_si_github_installation_claim_pending(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_claim_pending(integer)
+    TO jas_si_github_reconciler;
+
 REVOKE ALL ON FUNCTION public.jas_si_github_installation_reconcile_apply(
     bigint,bigint,bigint,text,text,boolean,boolean,jsonb
 ) FROM PUBLIC;
@@ -346,7 +389,9 @@ BEGIN
        OR pg_catalog.has_table_privilege('jas_si_github_reconciler',
             'public.jas_si_github_webhook_inbox','SELECT')
        OR pg_catalog.has_function_privilege('jas_si_github_reconciler',
-            'public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)','EXECUTE') THEN
+            'public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)','EXECUTE')
+       OR NOT pg_catalog.has_function_privilege('jas_si_github_reconciler',
+            'public.jas_si_github_installation_claim_pending(integer)','EXECUTE') THEN
         RAISE EXCEPTION 'GitHub reconciler privilege boundary is invalid';
     END IF;
 END
