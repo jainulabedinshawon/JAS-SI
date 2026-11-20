@@ -14,12 +14,12 @@ The current implementation is in the stacked GitHub integration PR chain. The St
 4. `20261204_github_oauth_attempt_store.sql` — single-use OAuth state/PKCE attempt store; requires `jas_si_customer_identity_owner` and `jas_si_customer_runtime`.
 5. `20261206_github_installation_claims.sql` — customer-session-bound pending Installation claims; requires the customer identity roles and customer session/account/tenant tables.
 6. `20261207_github_installation_reconciliation.sql` — authoritative snapshot reconciliation and the dedicated `jas_si_github_reconciler` capability role.
-7. `20261208_github_webhook_login_boundary.sql` — creates the dedicated `jas_si_github_webhook_login` as NOLOGIN/NOINHERIT and grants only the four webhook inbox routine EXECUTE permissions. Its membership in `jas_si_runtime` is MEMBER-only: INHERIT=false and SET=false, preventing broad runtime/audit capability use.
-8. `20261209_github_reconciler_login_boundary.sql` — creates the dedicated `jas_si_github_reconciler_login` as NOLOGIN/NOINHERIT and grants SET-only membership in `jas_si_github_reconciler`; the application must explicitly SET ROLE on every connection.
+7. `20261208_github_webhook_login_boundary.sql` — initially creates the dedicated `jas_si_github_webhook_login` as NOLOGIN/NOINHERIT and grants only the four webhook inbox routine EXECUTE permissions. Under the later, separately approved Staging credential provisioning, this role was enabled LOGIN. Its membership in `jas_si_runtime` remains MEMBER-only: INHERIT=false and SET=false, preventing broad runtime/audit capability use.
+8. `20261209_github_reconciler_login_boundary.sql` — initially creates the dedicated `jas_si_github_reconciler_login` as NOLOGIN/NOINHERIT and grants SET-only membership in `jas_si_github_reconciler`; under the later, separately approved Staging credential provisioning, this login was enabled LOGIN. The application must explicitly SET ROLE on every connection.
 
 The migration-chain CI replays the complete branch chain, including the 20261203 prerequisite, rather than only the GitHub-specific migrations. Keep this exact order when validating the branch; do not omit the RLS prerequisite.
 
-Migrations 20261208 and 20261209 intentionally create **NOLOGIN** identities. They do not create passwords or configure database URLs. Enabling LOGIN, generating credentials, and placing dedicated DSNs in the approved secret manager are separate operator actions requiring separate approval. The webhook login must not inherit or SET `jas_si_runtime`; the reconciler login must SET only `jas_si_github_reconciler`. Do not replace either identity with the broad `jas_si_runtime` login.
+Migrations 20261208 and 20261209 intentionally create **NOLOGIN** identities and do not create passwords or configure database URLs. Subsequently, the user separately approved enabling LOGIN and provisioning dedicated Staging credentials for these two roles. Current Staging catalog checks confirm both are LOGIN=true and NOINHERIT, with no superuser, CREATEDB, CREATEROLE, or BYPASSRLS attributes. The webhook login must not inherit or SET `jas_si_runtime`; the reconciler login must SET only `jas_si_github_reconciler`. Do not replace either identity with the broad `jas_si_runtime` login.
 
 ## Hard rollout gates
 
@@ -34,7 +34,7 @@ Migrations 20261208 and 20261209 intentionally create **NOLOGIN** identities. Th
 
 ## Staging runtime configuration manifest
 
-Configure these names only in the Vercel **Preview** environment for the exact JAS-SI Staging deployment. Do not put values in Git, this runbook, PR comments, CI output, or chat. The current project Preview inventory has not yet shown these GitHub integration keys, and the target feature branch currently has no Vercel Preview deployment; therefore this manifest is a required preflight, not evidence of a live configuration.
+Configure these names only in the Vercel **Preview** environment for the exact JAS-SI Staging deployment. Do not put values in Git, this runbook, PR comments, CI output, or chat. The exact-branch Vercel Preview inventory currently contains only the two dedicated database DSNs listed below; the other GitHub App/OAuth/webhook/reconciler settings remain absent from that branch inventory. The target feature branch has no Preview deployment, so this manifest remains a bootstrap checklist, not evidence of a live runtime configuration.
 
 | Variable | Type | Requirement / validation |
 |---|---|---|
@@ -306,7 +306,7 @@ After credentials, GitHub App settings, webhook configuration, and the reconcile
 
 Before the November 20, 2026 Staging rollout, the branch had been observed without the GitHub integration tables and without the `jas_si_github_reconciler` role. That observation is historical and is superseded by the supplemental post-migration evidence below. Re-run the read-only inventory immediately before any future rollout; this note is not a substitute for a live preflight.
 
-No Staging or Production migration, service login creation, secret configuration, GitHub App setup, webhook registration, Installation activation, or deployment is authorized by this document.
+This document is a runbook and does not itself authorize any future Staging or Production migration, service login creation, secret configuration, GitHub App setting change, webhook registration, Installation activation, Worker/Cron activation, or deployment. Historical Staging-only operations listed in the dated evidence addenda were separately authorized and must not be repeated.
 
 
 ## Supplemental Staging catalog evidence — 2026-11-20
@@ -386,7 +386,7 @@ No deployment, GitHub App setting change, webhook activation, secret creation, o
 
 A live Vercel project metadata read showed Vercel Authentication / SSO Deployment Protection enabled for non-custom deployment URLs. The protected Preview branch URL therefore cannot be treated as an unauthenticated public webhook destination. Do not disable project Deployment Protection.
 
-The Staging Cloudflare Worker now provides a dedicated webhook proxy at `/github/webhook`:
+The Cloudflare Worker source in the integration branch defines a dedicated webhook proxy at `/github/webhook` (the Worker is not deployed):
 - GitHub sends its signed delivery to the Worker URL, not directly to the protected Vercel Preview.
 - The Worker verifies the exact raw-body HMAC-SHA256 signature, bounds the body to 2 MB, validates delivery/event headers, and forwards the unchanged raw body to the exact Preview `/webhooks/github` endpoint.
 - The Worker adds Vercel's `x-vercel-protection-bypass` header server-to-server. The Vercel API independently verifies the same GitHub signature again and persists through the dedicated webhook login.
@@ -396,3 +396,18 @@ The Staging Cloudflare Worker now provides a dedicated webhook proxy at `/github
 The Worker requires the following Cloudflare secrets: `JAS_SI_GITHUB_WEBHOOK_SECRET`, `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET`, and `JAS_SI_VERCEL_PROTECTION_BYPASS_SECRET`. Its plain variables include the exact webhook-forward endpoint, reconciliation endpoint, and shared Preview hostname. The GitHub webhook URL must be the deployed Worker URL ending in `/github/webhook`.
 
 This is a code/documentation correction only. No Vercel protection setting was changed, no bypass credential was generated or stored, no Worker was deployed, no GitHub webhook URL was changed, no Cron Trigger was enabled, and no Preview deployment or Production change was made. These actions remain separately approval-gated.
+
+
+## Current integrated-branch and staging readiness snapshot — 2026-11-20
+
+This is the latest consolidated status snapshot for the integration branch. It supersedes older statements above wherever they describe current login provisioning, Preview variable inventory, or deployment state.
+
+- The eight Staging migrations in the canonical list above were applied to Neon project `odd-violet-93299575`, Staging branch `br-wandering-bonus-b32u1xg2`, under the separately recorded Staging-only approvals. Do not rerun them to reconcile documentation. Production was not migrated.
+- Both dedicated PostgreSQL login roles are enabled and constrained: `jas_si_github_webhook_login` and `jas_si_github_reconciler_login` are LOGIN=true, NOINHERIT, non-superuser, and have no CREATEDB, CREATEROLE, or BYPASSRLS. The reconciler capability `jas_si_github_reconciler` remains NOLOGIN. The webhook login's runtime membership is MEMBER-only (INHERIT=false, SET=false); the reconciler login's capability membership is SET-only (INHERIT=false, SET=true), with no ADMIN OPTION.
+- The two dedicated Staging DSNs are stored as Vercel encrypted Preview secrets, scoped only to branch `feat/github-oauth-state-pkce-contract-v1`: `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` and `JAS_SI_GITHUB_RECONCILER_DATABASE_URL`. The inventory was read with `decrypt=false`; values were not accessed. Both report no Vercel security issues.
+- That exact-branch Vercel inventory contains only those two GitHub integration keys. App ID/private key, OAuth client settings, callback URI, encryption keyring, webhook signing secret, and reconciler trigger secret are not present in that inventory. Do not infer that secrets stored in a Render Environment Group are available to Vercel.
+- Vercel reports zero deployments for this feature branch. Render has zero services; its review Blueprint is created with `autoSync=false` and an empty resource list. Cloudflare has no deployed Worker Script or enabled Cron Trigger for this integration. The Worker source code in this branch is not a deployed service.
+- The current integration head at the time of this snapshot was `259f268ca3d6072b93f0d39bf990e80d28d31697`. The commit workflow inventory returned two PR-triggered workflows for that exact SHA: Agent Authorization Tests (run `44688420461`) and Clean Migration Chain Replay (run `44688420467`); both completed successfully. Do not extrapolate this two-run result into a broader all-workflows pass.
+- No live GitHub OAuth, signed webhook, pending-claim, authoritative repository reconciliation, or revocation lifecycle has been verified. No PR was merged and Production remains unchanged.
+
+The next safe milestone is a separately approved, Preview-only bootstrap plan. It must first establish the deployment hostname and base readiness without enabling GitHub lifecycle actions; only afterward can separately approved secrets and GitHub App callback/webhook settings be provisioned. Worker deployment/Cron activation and live test-Installation lifecycle each require their own explicit approval. This status note changes documentation only and does not authorize those operations.
