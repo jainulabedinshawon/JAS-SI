@@ -2104,6 +2104,11 @@ def trigger_github_installation_reconciliation(request: Request) -> JSONResponse
     The scheduler only wakes this endpoint. PostgreSQL owns claim leases and
     retry timing; GitHub App API snapshots remain the source of truth.
     """
+    # This internal wake-up endpoint is Staging Preview-only. A valid bearer
+    # secret must never enable reconciliation from a Production deployment.
+    if settings.environment != "preview":
+        raise HTTPException(status_code=404, detail="Not found")
+
     expected = settings.github_reconciler_trigger_secret
     if not isinstance(expected, bytes) or len(expected) < 32:
         raise HTTPException(
