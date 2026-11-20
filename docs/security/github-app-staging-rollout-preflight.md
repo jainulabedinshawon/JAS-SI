@@ -162,7 +162,9 @@ WITH identities(role_name) AS (
          ('jas_si_customer_runtime'),
          ('jas_si_agent_worker'),
          ('jas_si_agent_verifier'),
-         ('jas_si_github_reconciler')
+         ('jas_si_github_reconciler'),
+         ('jas_si_github_webhook_login'),
+         ('jas_si_github_reconciler_login')
 ),
 tables(table_name) AS (
   VALUES ('jas_si_github_app_installations'),
@@ -185,7 +187,7 @@ ORDER BY 1, 2;
 
 This checks effective privileges inherited through role membership as well as direct grants. It is not a substitute for checking column-level privileges: inspect `information_schema.column_privileges` for these identities and relations too.
 
-Expected: reconciler, worker, and verifier have no direct/effective table privileges on the protected GitHub tables; the webhook/runtime role has no direct/effective inbox table privileges; customer runtime has no direct/effective OAuth-attempt or Installation-claim table privileges. Review every non-zero result against the reviewed migration ACLs. The migration's embedded assertion checks selected reconciler/worker/verifier table privileges and selected routine grants; this expanded matrix is an additional rollout gate, not a claim that the migration itself asserts every privilege shown.
+Expected: reconciler capability, reconciler login, webhook login, worker, and verifier have no direct/effective table privileges on the protected GitHub tables; customer runtime has no direct/effective OAuth-attempt or Installation-claim table privileges. The broad `jas_si_runtime` identity is not the webhook application login and must not be used for webhook processing. Review every non-zero result against the reviewed migration ACLs. The migration's embedded assertion checks selected capability/login privileges; this expanded matrix is an additional rollout gate.
 
 Inspect routine ACLs by exact signature, including:
 - `jas_si_github_installation_claim_pending(integer)`
@@ -199,8 +201,8 @@ Inspect routine ACLs by exact signature, including:
 - `customer_github_installation_claim_record(bytea,uuid,bigint,bigint,text,bigint,text,text,bigint)`
 
 Expected:
-- `jas_si_github_reconciler` receives EXECUTE on pending-claim, reconcile-apply, and inbox claim/finish routines; it must not receive EXECUTE on public webhook receive.
-- `jas_si_runtime` receives EXECUTE on webhook receive/claim/finish routines, but no direct inbox table access.
+- `jas_si_github_reconciler` receives EXECUTE on pending-claim, reconcile-apply, and inbox claim/finish routines; it must not receive EXECUTE on public webhook receive. The login `jas_si_github_reconciler_login` must receive SET-only membership in this capability, not inherited EXECUTE privileges or direct table grants.
+- `jas_si_github_webhook_login` receives EXECUTE on webhook receive/claim/finish routines; `jas_si_runtime` must not retain those grants. The webhook login has no direct inbox/audit table access and cannot INHERIT or SET the broad runtime role.
 - `jas_si_customer_runtime` receives EXECUTE on OAuth attempt create/consume and customer Installation claim-record routines, but no direct access to the OAuth-attempt or claim tables.
 - Worker and verifier capability roles must not receive direct access to protected GitHub tables or EXECUTE on customer-only claim-record and reconciler-only privileged routines.
 - Privileged routines must not have broad PUBLIC EXECUTE. Confirm each routine's owner, SECURITY DEFINER flag, and fixed `search_path=pg_catalog`.
@@ -232,7 +234,7 @@ FROM routines r JOIN pg_catalog.pg_proc p ON p.oid=r.signature
 ORDER BY 1;
 ```
 
-For each routine, evaluate `has_function_privilege(role_name, signature, 'EXECUTE')` for all five service/capability roles and `PUBLIC`. PUBLIC must be checked from `aclexplode(COALESCE(proacl, acldefault('f', proowner)))`, because a NULL `proacl` means default function privileges, not "no grants".
+For each routine, evaluate `has_function_privilege(role_name, signature, 'EXECUTE')` for the service/capability identities listed above and `PUBLIC`. For `jas_si_github_reconciler_login`, a false result before `SET ROLE jas_si_github_reconciler` is expected; after the application explicitly sets that capability, verify EXECUTE as `current_user`. PUBLIC must be checked from `aclexplode(COALESCE(proacl, acldefault('f', proowner)))`, because a NULL `proacl` means default function privileges, not "no grants".
 
 ### 3. Verify real service logins
 
@@ -241,10 +243,12 @@ Catalog checks alone do not prove the host can authenticate or that the applicat
 ```sql
 SELECT session_user, current_user,
        pg_has_role(session_user, 'jas_si_github_reconciler', 'MEMBER')
-         AS is_reconciler_member;
+         AS is_reconciler_member,
+       pg_has_role(session_user, 'jas_si_github_reconciler', 'SET')
+         AS can_set_reconciler;
 ```
 
-Run the equivalent membership check for the exact intended worker, verifier, customer-identity, and webhook capability. Execute an approved positive routine call only with a disposable fixture and an approved test procedure. Negative tests must prove direct table reads/writes and unauthorized routine execution fail with permission denial. Do not run a reconciliation mutation against a real Installation as an ACL probe.
+For the reconciler connection, require `session_user=jas_si_github_reconciler_login`, then verify the adapter executes `SET ROLE jas_si_github_reconciler` and that `current_user` changes to that capability. For the webhook connection, require `session_user=jas_si_github_webhook_login`; do not SET or inherit `jas_si_runtime`. Run equivalent checks for worker, verifier, and customer-identity identities. Execute approved positive routine calls only with disposable fixtures. Negative tests must prove direct table reads/writes, broad-runtime access from the webhook login, and unauthorized routine execution fail with permission denial. Do not run a reconciliation mutation against a real Installation as an ACL probe.
 
 ### 4. Verify RLS and object ownership
 
