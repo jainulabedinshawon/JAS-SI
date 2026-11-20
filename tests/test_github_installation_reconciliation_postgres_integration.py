@@ -269,6 +269,55 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             remaining = cur.fetchall()
             self.assertNotIn(installation_id, [row[0] for row in remaining])
 
+    def test_retry_exhaustion_moves_claim_to_needs_review(self):
+        _, installation_id, claim = self._fixture()
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE public.jas_si_github_installation_claims
+                      SET reconcile_attempt_count=9,
+                          reconcile_next_attempt_at=clock_timestamp()
+                    WHERE claim_id=%s""",
+                (claim[0],),
+            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
+            cur.execute("SET ROLE jas_si_github_reconciler")
+            cur.execute(
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(50)"
+            )
+            self.assertIn((installation_id, 10), cur.fetchall())
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE public.jas_si_github_installation_claims
+                      SET reconcile_next_attempt_at=clock_timestamp()
+                    WHERE claim_id=%s""",
+                (claim[0],),
+            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
+            cur.execute("SET ROLE jas_si_github_reconciler")
+            cur.execute(
+                "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(50)"
+            )
+            self.assertNotIn(installation_id, [row[0] for row in cur.fetchall()])
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT status,reconcile_attempt_count,reconcile_exhausted_at
+                     FROM public.jas_si_github_installation_claims WHERE claim_id=%s""",
+                (claim[0],),
+            )
+            status, attempts, exhausted_at = cur.fetchone()
+            self.assertEqual(status, "needs_review")
+            self.assertEqual(attempts, 10)
+            self.assertIsNotNone(exhausted_at)
+        self.assertEqual(
+            self._reconcile(
+                installation_id,
+                repositories=[self._repo(1001, "jas-org/alpha")],
+            ),
+            ("needs_review", "UNCHANGED", 0),
+        )
+
     def test_reconciler_has_execute_only_access(self):
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
