@@ -72,7 +72,11 @@ Expected before migration: existing prerequisites must be present. The reconcile
 ```sql
 SELECT granted.rolname AS granted_role,
        member.rolname AS member_role,
-       m.admin_option
+       m.admin_option,
+       m.inherit_option,
+       m.set_option,
+       pg_catalog.pg_has_role(member.oid, granted.oid, 'MEMBER') AS is_member,
+       pg_catalog.pg_has_role(member.oid, granted.oid, 'USAGE') AS privileges_inherited
 FROM pg_catalog.pg_auth_members AS m
 JOIN pg_catalog.pg_roles AS granted ON granted.oid = m.roleid
 JOIN pg_catalog.pg_roles AS member ON member.oid = m.member
@@ -80,6 +84,8 @@ WHERE granted.rolname LIKE 'jas_si_%'
    OR member.rolname LIKE 'jas_si_%'
 ORDER BY 1, 2;
 ```
+
+Interpret the membership direction carefully: `granted_role` is the role being granted; `member_role` is the role receiving membership. A row showing `neondb_owner` as member of an application capability is not the same as an application login being a member of `neondb_owner`. `INHERIT` controls automatic privilege inheritance; `SET` controls whether the member can explicitly switch into the granted role; `ADMIN OPTION` controls whether it can grant that membership onward. Record all three flags and check both `MEMBER` and `USAGE` semantics.
 
 Before migration, record the actual worker, verifier, customer-identity, webhook/runtime, and migration-executor memberships. After service logins are provisioned, verify each exact login is a member of only its intended capability role(s). Do not grant service logins membership in owner, superuser, provisioner, or unrelated runtime roles.
 
