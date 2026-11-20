@@ -248,7 +248,7 @@ jobs:
                               quote = migration_sql[i]
                               i += 1
                           elif migration_sql[i] == "$":
-                              match = re.match(r"\\$[A-Za-z_0-9]*\\$", migration_sql[i:])
+                              match = re.match(r"\$[A-Za-z_0-9]*\$", migration_sql[i:])
                               if match:
                                   dollar_tag = match.group(0)
                                   i += len(dollar_tag)
