@@ -199,7 +199,7 @@ jobs:
                       block_depth = 0
                       while i < len(migration_sql):
                           if line_comment:
-                              if migration_sql[i] == "\\n":
+                              if migration_sql[i] == "\n":
                                   line_comment = False
                               i += 1
                               continue
@@ -281,7 +281,7 @@ jobs:
                                   f"session_user={session_user}; current_user={current_user}; "
                                   f"public_usage={has_usage}; public_create={has_create}"
                               )
-                              print("Failing SQL statement:\\n" + statement[:4000])
+                              print("Failing SQL statement:\n" + statement[:4000])
                               conn.rollback()
                               raise
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
