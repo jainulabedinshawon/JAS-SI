@@ -95,7 +95,10 @@ class GitHubReconcilerTriggerApiTests(unittest.TestCase):
         self.mock_factory.assert_not_called()
 
     def test_fails_closed_when_scheduler_secret_is_not_configured(self):
-        api.settings = SimpleNamespace(github_reconciler_trigger_secret=None)
+        api.settings = SimpleNamespace(
+            environment="preview",
+            github_reconciler_trigger_secret=None,
+        )
         response = self.client.post(
             "/internal/github/reconcile",
             headers={"Authorization": "Bearer " + self.secret.decode()},
