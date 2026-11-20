@@ -187,7 +187,29 @@ jobs:
                       path = migration_dir / name
                       if not path.is_file():
                           raise SystemExit(f"Missing migration in canonical replay order: {name}")
-                      cur.execute(path.read_text(encoding="utf-8"))
+                      migration_sql = path.read_text(encoding="utf-8")
+                      try:
+                          cur.execute(migration_sql)
+                      except psycopg.Error as exc:
+                          cur.execute("""
+                              SELECT session_user,current_user,
+                                     pg_catalog.has_schema_privilege(current_user,'public','USAGE'),
+                                     pg_catalog.has_schema_privilege(current_user,'public','CREATE')
+                          """)
+                          session_user,current_user,has_usage,has_create = cur.fetchone()
+                          print(
+                              f"Migration failed: {name}; SQLSTATE={exc.sqlstate}; "
+                              f"session_user={session_user}; current_user={current_user}; "
+                              f"public_usage={has_usage}; public_create={has_create}"
+                          )
+                          position = exc.diag.statement_position
+                          if position:
+                              offset = int(position)-1
+                              print(
+                                  "Failing SQL context: "
+                                  + migration_sql[max(0,offset-240):offset+240]
+                              )
+                          raise
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
               cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_github_reconciler_test'")
