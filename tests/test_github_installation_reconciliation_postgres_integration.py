@@ -322,8 +322,7 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
         test_password = "integration-only-reconciler-login-password"
         with psycopg.connect(DSN, autocommit=True) as admin, admin.cursor() as cur:
             cur.execute(
-                "ALTER ROLE jas_si_github_reconciler_login LOGIN PASSWORD %s",
-                (test_password,),
+                "ALTER ROLE jas_si_github_reconciler_login LOGIN PASSWORD 'integration-only-reconciler-login-password'"
             )
         login_dsn = psycopg.conninfo.make_conninfo(
             DSN,
