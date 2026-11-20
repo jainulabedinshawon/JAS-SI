@@ -18,11 +18,6 @@ from jas_si_agent.agent_task_host_preflight import (
 )
 from jas_si_agent.agent_task_worker import AgentTaskWorker
 from jas_si_agent.agent_task_worker_runtime import build_github_repository_worker
-from jas_si_agent.github_app_tokens import (
-    GitHubAppTokenError,
-    build_github_app_tenant_credential_provider,
-    decode_github_app_private_key_b64,
-)
 
 _LOG = logging.getLogger("jas_si_agent.worker")
 
@@ -103,34 +98,18 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Worker database readiness preflight failed") from None
 
-    app_id_raw = os.environ.get(
-        "JAS_SI_GITHUB_APP_ID", os.environ.get("GITHUB_APP_ID", "")
-    ).strip()
-    private_key_b64 = os.environ.get("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64", "").strip()
-    private_key_path = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
-    if private_key_b64 and private_key_path:
-        raise SystemExit("Configure only one GitHub App private-key source")
-    has_key = bool(private_key_b64 or private_key_path)
-    if bool(app_id_raw) != has_key:
+    # GitHub App signing material is restricted to the isolated reconciler.
+    # Until an authenticated capability broker exists, this host is public-only.
+    if any(os.environ.get(name, "").strip() for name in (
+        "JAS_SI_GITHUB_APP_ID",
+        "GITHUB_APP_ID",
+        "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64",
+        "GITHUB_APP_PRIVATE_KEY_PATH",
+    )):
         raise SystemExit(
-            "GitHub App ID and exactly one private-key source must be configured together"
+            "GitHub App signing configuration is restricted to the isolated reconciler"
         )
-    if app_id_raw:
-        try:
-            app_id = int(app_id_raw)
-            key_kwargs = (
-                {"private_key_pem": decode_github_app_private_key_b64(private_key_b64)}
-                if private_key_b64 else {"private_key_path": private_key_path}
-            )
-            credential_provider = build_github_app_tenant_credential_provider(
-                database_dsn=dsn,
-                app_id=app_id,
-                **key_kwargs,
-            )
-        except (ValueError, TypeError, GitHubAppTokenError):
-            raise SystemExit("GitHub App runtime configuration is invalid") from None
-    else:
-        credential_provider = _PublicRepositoryOnlyProvider()
+    credential_provider = _PublicRepositoryOnlyProvider()
 
     worker = build_github_repository_worker(
         worker_dsn=dsn,
