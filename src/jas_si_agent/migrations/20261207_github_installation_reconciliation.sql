@@ -395,6 +395,9 @@ $function$;
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
+-- Function ACLs are owner-only. Re-enter the owning capability role after
+-- removing its temporary schema CREATE grant, then reset before assertions.
+SET LOCAL ROLE jas_si_agent_task_owner;
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_claim(integer,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_processed(text,uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,uuid,integer) FROM PUBLIC;
@@ -404,6 +407,7 @@ GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_processed(text,uuid)
     TO jas_si_github_reconciler;
 GRANT EXECUTE ON FUNCTION public.jas_si_github_webhook_mark_failed(text,text,uuid,integer)
     TO jas_si_github_reconciler;
+RESET ROLE;
 
 DO $assert$
 DECLARE v_proc oid;
