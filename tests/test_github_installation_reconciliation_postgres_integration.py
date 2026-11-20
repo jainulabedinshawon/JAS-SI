@@ -35,6 +35,10 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
                 (tenant_id, "reconcile-" + tenant_id.hex),
             )
             cur.execute(
+                "UPDATE public.jas_si_tenants SET status='active' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+            cur.execute(
                 """INSERT INTO public.jas_si_customer_accounts(
                      account_id,tenant_id,email,email_normalized,organization_name
                    ) VALUES (%s,%s,%s,%s,%s)""",
