@@ -577,7 +577,59 @@ jobs:
                       if verifier_cur.fetchone()[0] != "awaiting_verification":
                           raise SystemExit("Owning verifier LOGIN could not record its inconclusive outcome")
                       verifier_cur.execute("RESET SESSION AUTHORIZATION")
+
+              # An expired verifier claim may be reclaimed by a different
+              # authenticated LOGIN; the replacement claim must bind to it.
+              expired_verifier_task_id = uuid4()
+              expired_verifier_token = uuid4()
+              with psycopg.connect(dsn) as host_conn:
+                  with host_conn.cursor() as host_cur:
+                      host_cur.execute(
+                          """INSERT INTO public.jas_si_agent_tasks(
+                               task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                               task_type,status,input_payload,result_payload,attempt_count,max_attempts,
+                               reported_at,verifier_claim_token,verifier_claimed_at,
+                               verifier_lease_expires_at,verifier_attempt_count,
+                               verifier_next_attempt_at,verifier_claim_owner
+                             ) VALUES (%s,%s,%s,%s,%s,'github.read_repository','awaiting_verification',
+                                       '{"repository":"jas-si-test/tenant-a","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["README.md"]}'::jsonb,
+                                       '{"claimed_success":true}'::jsonb,1,3,
+                                       clock_timestamp()-interval '1 day',%s,
+                                       clock_timestamp()-interval '2 minutes',
+                                       clock_timestamp()-interval '1 minute',1,
+                                       clock_timestamp()-interval '1 day',
+                                       'jas_si_agent_verifier_test')""",
+                          (expired_verifier_task_id,tenant_id,key_id,
+                           f"expired-verifier-{expired_verifier_task_id.hex}",
+                           bytes([29])*32,expired_verifier_token),
+                      )
+                      host_conn.commit()
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_other_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute(
+                          "SELECT task_id,verifier_claim_token FROM "
+                          "public.jas_si_agent_task_verification_claim(1,120)"
+                      )
+                      reclaimed_verifier = verifier_cur.fetchone()
+                      if reclaimed_verifier is None or reclaimed_verifier[0] != expired_verifier_task_id:
+                          raise SystemExit(
+                              f"Expired verifier claim was not reclaimed: {reclaimed_verifier!r}"
+                          )
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              with psycopg.connect(dsn) as host_conn:
+                  with host_conn.cursor() as host_cur:
+                      host_cur.execute(
+                          "SELECT verifier_claim_owner FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                          (expired_verifier_task_id,),
+                      )
+                      if host_cur.fetchone()[0] != "jas_si_agent_verifier_other_test":
+                          raise SystemExit(
+                              "Reclaimed verifier claim was not rebound to the new authenticated LOGIN"
+                          )
               print("Verified Worker lease and Verifier claim ownership against authenticated PostgreSQL LOGIN")
+
 
               for login_role, capability_role in (
                   ("jas_si_agent_worker_test","jas_si_agent_worker"),
