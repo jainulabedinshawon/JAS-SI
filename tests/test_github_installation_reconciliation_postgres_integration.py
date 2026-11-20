@@ -122,6 +122,39 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
                 ("jas-org/beta", "active", 1002, False),
             ])
 
+    def test_suspended_tenant_claim_is_not_polled_or_activated(self):
+        tenant_id, installation_id, claim = self._fixture()
+        # The replay DSN is the migration-test administrator; tenant status
+        # changes are deliberately outside the customer/reconciler capabilities.
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
+            cur.execute("SET ROLE jas_si_github_reconciler")
+            cur.execute(
+                "SELECT installation_id FROM public.jas_si_github_installation_claim_pending(50)"
+            )
+            self.assertNotIn(installation_id, [row[0] for row in cur.fetchall()])
+        with self.assertRaises(psycopg.errors.ObjectNotInPrerequisiteState):
+            self._reconcile(
+                installation_id,
+                repositories=[self._repo(1001, "jas-org/alpha")],
+            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM public.jas_si_github_installation_claims WHERE claim_id=%s",
+                (claim[0],),
+            )
+            self.assertEqual(cur.fetchone()[0], "pending_reconciliation")
+            cur.execute(
+                "SELECT count(*) FROM public.jas_si_github_app_installations WHERE installation_id=%s",
+                (installation_id,),
+            )
+            self.assertEqual(cur.fetchone()[0], 0)
+
     def test_duplicate_repository_id_in_snapshot_is_rejected(self):
         _, installation_id, _ = self._fixture()
         with self.assertRaises(psycopg.errors.UniqueViolation):
