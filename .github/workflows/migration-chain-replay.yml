@@ -191,6 +191,7 @@ jobs:
                       try:
                           cur.execute(migration_sql)
                       except psycopg.Error as exc:
+                          conn.rollback()
                           cur.execute("""
                               SELECT session_user,current_user,
                                      pg_catalog.has_schema_privilege(current_user,'public','USAGE'),
