@@ -162,9 +162,9 @@ class GitHubUserInstallationAccessVerifier:
                     "GitHub Installation list could not be completely verified"
                 )
 
-            if observed < (total_count or 0):
+            if observed != (total_count or 0):
                 raise GitHubInstallationOwnershipError(
-                    "GitHub Installation list was incomplete"
+                    "GitHub Installation count did not match the complete response"
                 )
             if found is None:
                 raise GitHubInstallationOwnershipError(
