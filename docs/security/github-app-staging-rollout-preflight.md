@@ -6,18 +6,20 @@ Scope: Staging-only preflight for the GitHub App webhook inbox, customer OAuth/P
 
 ## Verified implementation contract
 
-The current implementation is in the stacked GitHub integration PR chain. The five migration files are:
+The current implementation is in the stacked GitHub integration PR chain. The Staging rollout migration set contains eight files in canonical order:
 
 1. `20261201_github_installation_binding.sql` — tenant-owned Installation and repository binding tables; requires the existing tenant and agent capability roles.
 2. `20261202_github_webhook_inbox.sql` — durable, tenant-neutral inbox; requires `jas_si_agent_task_owner` and `jas_si_runtime`.
 3. `20261203_api_key_provisioner_rls_policies.sql` — required API-key provisioner RLS policy boundary in the complete branch migration chain; this is a prerequisite security migration, not a GitHub integration table migration.
 4. `20261204_github_oauth_attempt_store.sql` — single-use OAuth state/PKCE attempt store; requires `jas_si_customer_identity_owner` and `jas_si_customer_runtime`.
 5. `20261206_github_installation_claims.sql` — customer-session-bound pending Installation claims; requires the customer identity roles and customer session/account/tenant tables.
-6. `20261207_github_installation_reconciliation.sql` — authoritative snapshot reconciliation; requires the preceding GitHub tables and both owner roles.
+6. `20261207_github_installation_reconciliation.sql` — authoritative snapshot reconciliation and the dedicated `jas_si_github_reconciler` capability role.
+7. `20261208_github_webhook_login_boundary.sql` — creates the dedicated `jas_si_github_webhook_login` as NOLOGIN/NOINHERIT and grants only the four webhook inbox routine EXECUTE permissions. Its membership in `jas_si_runtime` is MEMBER-only: INHERIT=false and SET=false, preventing broad runtime/audit capability use.
+8. `20261209_github_reconciler_login_boundary.sql` — creates the dedicated `jas_si_github_reconciler_login` as NOLOGIN/NOINHERIT and grants SET-only membership in `jas_si_github_reconciler`; the application must explicitly SET ROLE on every connection.
 
-The migration-chain CI replays the full branch chain, including the 20261203 prerequisite, rather than only the five GitHub-specific migrations. Keep this exact order when validating the branch; do not omit the RLS prerequisite.
+The migration-chain CI replays the complete branch chain, including the 20261203 prerequisite, rather than only the GitHub-specific migrations. Keep this exact order when validating the branch; do not omit the RLS prerequisite.
 
-The final migration creates the capability role `jas_si_github_reconciler` as `NOLOGIN`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, `NOBYPASSRLS`, and `NOINHERIT` when absent. It does **not** create a service login or configure a database URL. A separately provisioned login must be granted membership in this capability through the approved secret/role-provisioning process. The same principle applies to customer-identity and webhook service logins.
+Migrations 20261208 and 20261209 intentionally create **NOLOGIN** identities. They do not create passwords or configure database URLs. Enabling LOGIN, generating credentials, and placing dedicated DSNs in the approved secret manager are separate operator actions requiring separate approval. The webhook login must not inherit or SET `jas_si_runtime`; the reconciler login must SET only `jas_si_github_reconciler`. Do not replace either identity with the broad `jas_si_runtime` login.
 
 ## Hard rollout gates
 
@@ -64,12 +66,14 @@ WHERE rolname IN (
   'jas_si_agent_verifier_login',
   'jas_si_customer_identity_owner',
   'jas_si_customer_runtime',
-  'jas_si_github_reconciler'
+  'jas_si_github_reconciler',
+  'jas_si_github_webhook_login',
+  'jas_si_github_reconciler_login'
 )
 ORDER BY rolname;
 ```
 
-Expected before migration: existing prerequisites must be present. The reconciler capability may be absent before migration 20261207. Do not pre-create it with ad hoc attributes; let the reviewed migration create it. Service login names are environment-specific and must be recorded in the operator's secret inventory, not guessed from this list.
+Expected before migration: existing prerequisites must be present. The reconciler capability may be absent before migration 20261207, and the two dedicated GitHub login identities may be absent before migrations 20261208 and 20261209. Do not pre-create these roles with ad hoc attributes; let the reviewed migrations create them. After the migrations, both dedicated login identities are expected to remain NOLOGIN until separately approved credential provisioning.
 
 ### 3. Inspect membership edges
 
@@ -268,7 +272,7 @@ After credentials, GitHub App settings, webhook configuration, and the reconcile
 
 ## Current known boundary at authoring time
 
-The Staging branch has previously been observed without the five GitHub integration tables and without the `jas_si_github_reconciler` role. Re-run the read-only inventory immediately before any rollout; this note is historical context, not a substitute for a live preflight.
+Before the November 20, 2026 Staging rollout, the branch had been observed without the GitHub integration tables and without the `jas_si_github_reconciler` role. That observation is historical and is superseded by the supplemental post-migration evidence below. Re-run the read-only inventory immediately before any future rollout; this note is not a substitute for a live preflight.
 
 No Staging or Production migration, service login creation, secret configuration, GitHub App setup, webhook registration, Installation activation, or deployment is authorized by this document.
 
@@ -284,3 +288,19 @@ A second read-only catalog pass on Neon Staging branch `br-wandering-bonus-b32u1
 - Existing Staging RLS is mixed: agent task/evidence tables have both RLS and FORCE RLS; API keys and tenants have RLS but not FORCE; other existing customer/session/usage/audit tables inspected have RLS disabled. Record table-by-table expectations and do not treat absence of RLS alone as a confirmed exploit without reviewing ownership, grants, and SECURITY DEFINER boundaries.
 
 This evidence refines catalog interpretation only. It does not authorize changing memberships, default privileges, RLS, or table grants. The Neon-managed `cloud_admin`/ `neondb_owner` delegation remains a provider-boundary review item; distinguish it from application-login membership and confirm intended provider semantics before proposing a change.
+
+
+## Supplemental Staging evidence — 2026-11-20, after approved migration rollout
+
+The eight migrations listed above were applied in canonical order to Neon project `odd-violet-93299575`, Staging branch `br-wandering-bonus-b32u1xg2`, under the user's explicit Staging-only approvals. Production was not changed.
+
+A live read-only catalog check after application confirmed:
+
+- `jas_si_runtime` is LOGIN.
+- `jas_si_github_webhook_login` is NOLOGIN, NOINHERIT, and a MEMBER of `jas_si_runtime` with INHERIT=false and SET=false. The migration grants this login direct EXECUTE only on the four webhook inbox routines; it is not permitted to use the broad runtime role.
+- `jas_si_github_reconciler` is NOLOGIN.
+- `jas_si_github_reconciler_login` is NOLOGIN, NOINHERIT, and a MEMBER of `jas_si_github_reconciler` with INHERIT=false and SET=true. The reconciler adapter verifies `session_user` and explicitly SET ROLE before using its capability.
+- Both dedicated login roles remain NOLOGIN; no passwords or service DSNs have been created.
+- No GitHub App OAuth, webhook, or live Installation lifecycle has been exercised. The five GitHub integration tables were empty at the last read-only row-count check.
+
+This evidence establishes role/catalog setup only. It does not prove successful password authentication, host connectivity, OAuth, webhook delivery, or live reconciliation. Those require separate Staging credential configuration and independent lifecycle verification. Production remains outside this approval.
