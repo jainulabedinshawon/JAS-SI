@@ -12,6 +12,9 @@ on:
       - "tests/test_api_key_registry.py"
       - "tests/test_customer_rate_limit.py"
       - "tests/test_postgres_security_event_store.py"
+      - "src/jas_si_agent/agent_task_*.py"
+      - "src/jas_si_agent/migrations/*agent_task*.sql"
+      - "tests/test_agent_task_*.py"
       - ".github/workflows/runtime-boundary-validation.yml"
 
 permissions:
@@ -49,4 +52,12 @@ jobs:
           python -m pytest -q \
             tests/test_postgres_security_event_store.py \
             tests/test_customer_rate_limit.py \
-            tests/test_api_key_registry.py
+            tests/test_api_key_registry.py \
+            tests/test_agent_task_api.py \
+            tests/test_agent_task_verifier.py \
+            tests/test_agent_task_verifier_store.py \
+            tests/test_agent_task_verifier_supervisor.py \
+            tests/test_agent_task_worker.py \
+            tests/test_agent_task_worker_runtime.py \
+            tests/test_agent_task_worker_store.py \
+            tests/test_agent_task_worker_supervisor.py

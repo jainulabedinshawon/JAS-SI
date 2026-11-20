@@ -61,6 +61,17 @@ class FakeTaskStore:
     def get(self, **kwargs):
         return self.task if kwargs["task_id"] == self.task.task_id else None
 
+    def get_review_metadata(self, **kwargs):
+        self.review_metadata_requests = getattr(self, "review_metadata_requests", [])
+        self.review_metadata_requests.append(kwargs)
+        if kwargs["task_id"] != self.task.task_id:
+            raise AssertionError("review metadata must only be requested for the fetched task")
+        return {
+            "review_required": self.task.status == "human_review_required",
+            "verification_status": "INCONCLUSIVE" if self.task.status == "human_review_required" else None,
+            "verification_reason_code": "EVIDENCE_MISSING" if self.task.status == "human_review_required" else None,
+        }
+
     def cancel(self, **kwargs):
         self.cancelled.append(kwargs)
         return kwargs["task_id"] == self.task.task_id
@@ -185,6 +196,36 @@ class TestAgentTaskAPI(TestCase):
             "/v1/agent/tasks/00000000-0000-0000-0000-000000000081"
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_get_task_includes_sanitized_review_metadata_for_authenticated_tenant(self):
+        self.store.task = self.store.task.__class__(
+            **{**self.store.task.__dict__, "status": "human_review_required"}
+        )
+        response = self.client.get(
+            "/v1/agent/tasks/00000000-0000-0000-0000-000000000080"
+        )
+        self.assertEqual(response.status_code, 200)
+        task = response.json()["task"]
+        self.assertTrue(task["review_required"])
+        self.assertEqual(task["verification_status"], "INCONCLUSIVE")
+        self.assertEqual(task["verification_reason_code"], "EVIDENCE_MISSING")
+        request = self.store.review_metadata_requests[0]
+        self.assertEqual(request["task_id"], self.store.task.task_id)
+        self.assertEqual(
+            request["api_key_id"],
+            __import__("uuid").UUID("00000000-0000-0000-0000-000000000022"),
+        )
+        self.assertEqual(request["candidate_digest"], b"x" * 32)
+
+    def test_get_task_returns_review_metadata_for_non_review_task(self):
+        response = self.client.get(
+            "/v1/agent/tasks/00000000-0000-0000-0000-000000000080"
+        )
+        self.assertEqual(response.status_code, 200)
+        task = response.json()["task"]
+        self.assertFalse(task["review_required"])
+        self.assertIsNone(task["verification_status"])
+        self.assertIsNone(task["verification_reason_code"])
 
     def test_cancel_task_uses_authenticated_key_context(self):
         response = self.client.post(
