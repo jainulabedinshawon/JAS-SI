@@ -48,17 +48,13 @@ Configure these names only in the Vercel **Preview** environment for the exact J
 | `JAS_SI_GITHUB_WEBHOOK_SECRET` | Secret | GitHub App webhook secret, at least 32 UTF-8 bytes |
 | `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` | Secret | Dedicated DSN authenticating as `jas_si_github_webhook_login`; never `jas_si_runtime` |
 | `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` | Secret | Dedicated DSN authenticating as `jas_si_github_reconciler_login`; adapter explicitly SET ROLE to `jas_si_github_reconciler` |
-| `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET` | Secret | Random bearer secret, at least 32 bytes; must match the Cloudflare Worker secret |
 | `JAS_SI_GITHUB_RECONCILER_POLL_SECONDS` | Non-secret, optional | Defaults to 15; allowed range 1–300 |
 
 The Vercel Preview hostname must be the actual deployment hostname used for the OAuth callback. Do not guess a deployment URL or use the Production hostname. The OAuth callback must be registered in the GitHub App configuration to match the configured redirect URI exactly.
 
-The Cloudflare Worker separately requires:
-- Secret `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET`, identical to the Vercel value.
-- Variable `JAS_SI_RECONCILER_ENDPOINT`, set to the exact Preview URL ending in `/internal/github/reconcile`.
-- Variable `JAS_SI_RECONCILER_ALLOWED_HOST`, set to only that Preview URL's hostname.
+The Cloudflare Worker is webhook-ingress-only. It requires the GitHub webhook signing secret and Vercel protection bypass secret, plus the exact `/webhooks/github` Preview endpoint and its hostname allowlist. It has no Cron Trigger or reconciliation endpoint configuration. The Render worker is the sole reconciler and alone receives the GitHub App private key and dedicated reconciler DSN.
 
-Before enabling the Cron Trigger, verify the deployed Preview reports the expected commit and that all required environment keys exist by name (never decrypt or print values). Run the dedicated database identity smoke tests and the negative authorization checks. Then perform a controlled GitHub App test installation and verify OAuth, webhook receipt, pending claim, authoritative repository snapshot, revocation, and audit evidence. Keep real customer repositories out of initial tests; use a disposable test tenant and test repository. A configured environment is not a verified lifecycle.
+Before enabling webhook ingress, verify the deployed Preview reports the expected commit and that all required environment keys exist by name (never decrypt or print values). Run the dedicated database identity smoke tests and the negative authorization checks. Then perform a controlled GitHub App test installation and verify OAuth, webhook receipt, pending claim, authoritative repository snapshot, revocation, and audit evidence. Keep real customer repositories out of initial tests; use a disposable test tenant and test repository. A configured environment is not a verified lifecycle.
 
 ## Read-only pre-migration inventory
 
@@ -378,7 +374,7 @@ This supports a safer two-stage rollout sequence:
 1. First, separately approve and create the Staging Preview deployment with OAuth/webhook/reconciler activation still disabled. Do not invent a callback URL before the actual Preview hostname exists.
 2. Verify the deployed commit, actual Preview hostname, API readiness, audit integrity, base rate-limit readiness, and exact-branch environment variable names without decrypting values.
 3. Only then, under separate explicit credential/configuration approval, provision the complete OAuth keyring/client settings, webhook signing secret, and reconciler trigger secret. Register the exact OAuth callback URL in the GitHub App settings and set the webhook delivery URL only after the endpoint is deployed and ready.
-4. Deploy/activate the Cloudflare Worker and Cron Trigger only after the Preview endpoint and matching trigger secret are verified; perform a disposable tenant/test repository lifecycle and independently inspect database/audit evidence.
+4. Deploy/activate the webhook-only Cloudflare Worker only after the Preview webhook endpoint and required secrets are verified. Start the single Render reconciler only after its isolated App credentials and dedicated DSN are provisioned. Perform a disposable tenant/test repository lifecycle and independently inspect database/audit evidence.
 
 No deployment, GitHub App setting change, webhook activation, secret creation, or Cloudflare activation is authorized by this documentation update.
 
@@ -390,10 +386,10 @@ The Cloudflare Worker source in the integration branch defines a dedicated webho
 - GitHub sends its signed delivery to the Worker URL, not directly to the protected Vercel Preview.
 - The Worker verifies the exact raw-body HMAC-SHA256 signature, bounds the body to 2 MB, validates delivery/event headers, and forwards the unchanged raw body to the exact Preview `/webhooks/github` endpoint.
 - The Worker adds Vercel's `x-vercel-protection-bypass` header server-to-server. The Vercel API independently verifies the same GitHub signature again and persists through the dedicated webhook login.
-- The reconciler scheduler also adds the same Vercel protection header, alongside its independent JAS-SI bearer trigger secret.
+- The Render reconciler runs independently as a persistent worker and never exposes its GitHub App private key or database DSN to the public Vercel API.
 - The Vercel automation bypass credential is stored only as a Cloudflare Worker secret; it must never be placed in a URL, repository, log, webhook payload, or chat.
 
-The Worker requires the following Cloudflare secrets: `JAS_SI_GITHUB_WEBHOOK_SECRET`, `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET`, and `JAS_SI_VERCEL_PROTECTION_BYPASS_SECRET`. Its plain variables include the exact webhook-forward endpoint, reconciliation endpoint, and shared Preview hostname. The GitHub webhook URL must be the deployed Worker URL ending in `/github/webhook`.
+The webhook-only Worker requires the Cloudflare secrets `JAS_SI_GITHUB_WEBHOOK_SECRET` and `JAS_SI_VERCEL_PROTECTION_BYPASS_SECRET`. Its plain variables include only the exact webhook-forward endpoint and webhook hostname allowlist. No scheduler secret, reconciliation endpoint, or Cron Trigger is used. The GitHub webhook URL must be the deployed Worker URL ending in `/github/webhook`.
 
 This is a code/documentation correction only. No Vercel protection setting was changed, no bypass credential was generated or stored, no Worker was deployed, no GitHub webhook URL was changed, no Cron Trigger was enabled, and no Preview deployment or Production change was made. These actions remain separately approval-gated.
 
@@ -406,8 +402,21 @@ This is the latest consolidated status snapshot for the integration branch. It s
 - Both dedicated PostgreSQL login roles are enabled and constrained: `jas_si_github_webhook_login` and `jas_si_github_reconciler_login` are LOGIN=true, NOINHERIT, non-superuser, and have no CREATEDB, CREATEROLE, or BYPASSRLS. The reconciler capability `jas_si_github_reconciler` remains NOLOGIN. The webhook login's runtime membership is MEMBER-only (INHERIT=false, SET=false); the reconciler login's capability membership is SET-only (INHERIT=false, SET=true), with no ADMIN OPTION.
 - The two dedicated Staging DSNs are stored as Vercel encrypted Preview secrets, scoped only to branch `feat/github-oauth-state-pkce-contract-v1`: `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` and `JAS_SI_GITHUB_RECONCILER_DATABASE_URL`. The inventory was read with `decrypt=false`; values were not accessed. Both report no Vercel security issues.
 - That exact-branch Vercel inventory contains only those two GitHub integration keys. App ID/private key, OAuth client settings, callback URI, encryption keyring, webhook signing secret, and reconciler trigger secret are not present in that inventory. Do not infer that secrets stored in a Render Environment Group are available to Vercel.
-- Vercel reports zero deployments for this feature branch. Render has zero services; its review Blueprint is created with `autoSync=false` and an empty resource list. Cloudflare has no deployed Worker Script or enabled Cron Trigger for this integration. The Worker source code in this branch is not a deployed service.
+- No Vercel Preview deployment exists for the current feature-branch HEAD; an earlier Preview belongs to a previous commit. Render has zero services; its review Blueprint is created with `autoSync=false` and no resources applied. Cloudflare has no deployed Worker Script for this integration. The Worker source code in this branch is not a deployed service.
 - The current integration head at the time of this snapshot was `259f268ca3d6072b93f0d39bf990e80d28d31697`. The commit workflow inventory returned two PR-triggered workflows for that exact SHA: Agent Authorization Tests (run `44688420461`) and Clean Migration Chain Replay (run `44688420467`); both completed successfully. Do not extrapolate this two-run result into a broader all-workflows pass.
 - No live GitHub OAuth, signed webhook, pending-claim, authoritative repository reconciliation, or revocation lifecycle has been verified. No PR was merged and Production remains unchanged.
 
 The next safe milestone is a separately approved, Preview-only bootstrap plan. It must first establish the deployment hostname and base readiness without enabling GitHub lifecycle actions; only afterward can separately approved secrets and GitHub App callback/webhook settings be provisioned. Worker deployment/Cron activation and live test-Installation lifecycle each require their own explicit approval. This status note changes documentation only and does not authorize those operations.
+
+
+## Security architecture correction — 2026-11-20
+
+This correction supersedes earlier scheduler descriptions in this document and in the initial Cloudflare Worker notes:
+
+- **One reconciler only:** the persistent Render worker running `python -m jas_si_agent.github_installation_reconciler` is the sole GitHub Installation reconciler.
+- **Public API isolation:** `POST /internal/github/reconcile` has been removed. The public API Settings object no longer reads or stores the GitHub App private key, reconciler DSN, reconciler poll interval, or scheduler bearer secret.
+- **Credential isolation:** `GitHubReconcilerSettings.from_env()` is used only by the Render reconciler process. It loads `JAS_SI_GITHUB_APP_ID`, `JAS_SI_GITHUB_APP_PRIVATE_KEY_B64`, `JAS_SI_GITHUB_RECONCILER_DATABASE_URL`, and the optional poll interval.
+- **Cloudflare scope:** the Worker performs webhook signature verification and protected Preview forwarding only. Its Cron handler and reconciliation trigger secret/configuration have been removed. No Cloudflare Cron Trigger is required or should be configured.
+- **No activation performed:** no private key or new credential was created or provisioned; no Render service was applied; no Cloudflare Worker was deployed; no GitHub webhook was configured; no Vercel deployment or Production change was made.
+
+The security fix must pass the GitHub Agent Authorization workflow, Clean Migration Chain Replay on PostgreSQL 16 and 18, Python reconciler settings tests, and Cloudflare Node tests before the PR is considered integrated. The Render Blueprint preflight currently cannot plan resources because the workspace requires payment information; it remains unapplied with `autoSync=false`.
