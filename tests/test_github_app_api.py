@@ -15,6 +15,8 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from jas_si_agent.github_app_api import (
     GitHubAppAPIError,
     GitHubAppInstallationAPI,
+    _LOGIN_RE,
+    _REPOSITORY_RE,
 )
 from jas_si_agent.config import Settings
 
@@ -188,6 +190,19 @@ class GitHubAppInstallationAPITests(unittest.TestCase):
             return httpx.Response(404)
         with self.assertRaises(GitHubAppAPIError):
             self._app(handler).snapshot(installation_id=98765)
+
+    def test_github_login_and_repository_owner_reject_consecutive_hyphens(self):
+        for login in ("jas-test-org", "octocat", "a" * 39):
+            with self.subTest(login=login):
+                self.assertIsNotNone(_LOGIN_RE.fullmatch(login))
+        for login in ("jas--test", "-leading", "trailing-", "a" * 40, "octocát"):
+            with self.subTest(login=login):
+                self.assertIsNone(_LOGIN_RE.fullmatch(login))
+
+        self.assertIsNotNone(_REPOSITORY_RE.fullmatch("jas-test-org/project"))
+        for repository in ("jas--test/project", "jas-test-org/"):
+            with self.subTest(repository=repository):
+                self.assertIsNone(_REPOSITORY_RE.fullmatch(repository))
 
     def test_invalid_private_key_and_installation_id_rejected(self):
         with self.assertRaises(ValueError):
