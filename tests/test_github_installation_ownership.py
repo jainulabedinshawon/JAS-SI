@@ -143,5 +143,29 @@ class TestGitHubInstallationOwnership(unittest.TestCase):
                 user_access_token="user-token", installation_id=183349938
             )
 
+
+    def test_rejects_fractional_installation_identifier_in_api_response(self):
+        def handler(request):
+            if request.url.path == "/user":
+                return httpx.Response(200, json={"id": 42, "login": "octocat"})
+            return httpx.Response(200, json={
+                "total_count": 1,
+                "installations": [{
+                    "id": 183349938.9,
+                    "app_id": APP_ID,
+                    "account": {
+                        "id": 99, "login": "octo-org", "type": "Organization"
+                    },
+                }],
+            })
+
+        verifier = GitHubUserInstallationAccessVerifier(
+            expected_app_id=APP_ID, http_client=_client(handler)
+        )
+        with self.assertRaises(GitHubInstallationOwnershipError):
+            verifier.verify(
+                user_access_token="user-token", installation_id=183349938
+            )
+
 if __name__ == "__main__":
     unittest.main()
