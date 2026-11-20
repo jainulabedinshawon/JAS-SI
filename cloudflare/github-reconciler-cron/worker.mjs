@@ -1,6 +1,5 @@
 const MIN_SECRET_LENGTH = 32;
 const MAX_WEBHOOK_BODY_BYTES = 2_000_000;
-const RECONCILE_PATH = "/internal/github/reconcile";
 const WEBHOOK_PATH = "/webhooks/github";
 
 function isPreviewBranchHostname(hostname) {
@@ -211,62 +210,4 @@ export default {
     return forwardGitHubWebhook(request, env);
   },
 
-  async scheduled(controller, env) {
-    const triggerSecret = env?.JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET;
-    const protectionSecret = env?.JAS_SI_VERCEL_PROTECTION_BYPASS_SECRET;
-    if (!hasStrongSecret(triggerSecret)) {
-      throw new Error("GitHub reconciliation scheduler secret is not configured");
-    }
-    if (!hasStrongSecret(protectionSecret)) {
-      throw new Error("Vercel Preview protection bypass is not configured");
-    }
-    const endpoint = resolvePreviewEndpoint(
-      env?.JAS_SI_RECONCILER_ENDPOINT,
-      env?.JAS_SI_RECONCILER_ALLOWED_HOST,
-      RECONCILE_PATH,
-    );
-
-    let response;
-    try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          Authorization: `Bearer ${triggerSecret}`,
-          "x-vercel-protection-bypass": protectionSecret,
-          Accept: "application/json",
-        },
-        signal: AbortSignal.timeout(20_000),
-      });
-    } catch {
-      throw new Error("JAS-SI reconciliation endpoint could not be reached");
-    }
-
-    if (!response.ok) {
-      // Never log response bodies: server errors may contain operational detail.
-      console.error("JAS-SI reconciliation endpoint returned HTTP", response.status);
-      throw new Error("JAS-SI reconciliation request failed");
-    }
-
-    let result;
-    try {
-      result = await response.json();
-    } catch {
-      throw new Error("JAS-SI reconciliation endpoint returned invalid JSON");
-    }
-
-    const webhook = result?.webhook ?? {};
-    const pending = result?.pending_claims ?? {};
-    console.log(JSON.stringify({
-      event: "jas_si_github_reconciliation_completed",
-      scheduled_time: controller?.scheduledTime ?? null,
-      webhook_claimed: Number(webhook.claimed) || 0,
-      webhook_processed: Number(webhook.processed) || 0,
-      webhook_retry: Number(webhook.retry) || 0,
-      webhook_lease_lost: Number(webhook.lease_lost) || 0,
-      pending_claimed: Number(pending.claimed) || 0,
-      pending_reconciled: Number(pending.reconciled) || 0,
-      pending_retry: Number(pending.retry) || 0,
-    }));
-  },
 };
