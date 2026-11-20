@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+_EXECUTED_SQL = []
+
 from jas_si_agent.agent_task_worker_store import (
     AgentTaskLease,
     PostgresAgentTaskWorkerStore,
@@ -25,6 +27,7 @@ class FakeCursor:
         return False
 
     def execute(self, query, params):
+        _EXECUTED_SQL.append(query)
         self.executed = (query, params)
 
     def fetchone(self):
@@ -54,6 +57,7 @@ class AgentTaskWorkerStoreTests(unittest.TestCase):
         return PostgresAgentTaskWorkerStore("postgresql://worker", self.worker_id)
 
     def install_fake_psycopg(self, row, capture):
+        _EXECUTED_SQL.clear()
         def connect(dsn):
             self.assertEqual(dsn, "postgresql://worker")
             return FakeConnection(row, capture)
@@ -90,6 +94,7 @@ class AgentTaskWorkerStoreTests(unittest.TestCase):
             lease, AgentTaskLease(task_id, uuid.UUID("00000000-0000-0000-0000-000000000099"), "reasoning", {"prompt": "test"}, 1, 3, 7, expires)
         )
         self.assertEqual(capture[0][1], (self.worker_id, 45))
+        self.assertIn("SET ROLE jas_si_agent_worker", _EXECUTED_SQL)
         self.assertEqual(lease.tenant_id, uuid.UUID("00000000-0000-0000-0000-000000000099"))
         self.assertIn("tenant_id", capture[0][0])
         self.assertIn("jas_si_agent_task_claim", capture[0][0])

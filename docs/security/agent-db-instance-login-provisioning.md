@@ -26,7 +26,8 @@ CREATE ROLE jas_si_agent_worker_login_instance_01
   LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
   NOREPLICATION NOBYPASSRLS;
 GRANT jas_si_agent_worker
-  TO jas_si_agent_worker_login_instance_01;
+  TO jas_si_agent_worker_login_instance_01
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 ```
 
 Verifier example:
@@ -36,7 +37,8 @@ CREATE ROLE jas_si_agent_verifier_login_instance_01
   LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
   NOREPLICATION NOBYPASSRLS;
 GRANT jas_si_agent_verifier
-  TO jas_si_agent_verifier_login_instance_01;
+  TO jas_si_agent_verifier_login_instance_01
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 ```
 
 Do not grant both capability roles to one login. Do not grant `jas_si_agent_task_owner`, Reconciler, schema-owner, or table-owner roles. The LOGIN must use `SET ROLE` to its one NOLOGIN capability role as the runtime already does.
