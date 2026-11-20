@@ -18,11 +18,11 @@ account's current limits before enabling the schedule.
 
 - Endpoint is supplied through `JAS_SI_RECONCILER_ENDPOINT`; there is no
   Production default.
-- The endpoint must be HTTPS, use a JAS-SI Vercel Preview hostname matching
-  `jas-si-*.vercel.app`, and end exactly in
-  `/internal/github/reconcile`. The Production host
-  `jas-si.vercel.app`, non-JAS-SI hosts, query strings, and redirects are not
-  accepted by validation.
+- The exact Preview hostname must also be supplied through
+  `JAS_SI_RECONCILER_ALLOWED_HOST`. The Worker requires exact host equality,
+  HTTPS, a hostname matching `jas-si-*.vercel.app`, and the exact path
+  `/internal/github/reconcile`. Production, non-JAS-SI hosts, query strings,
+  and URL redirects are rejected before the bearer secret can be sent.
 - Method: `POST`
 - Authentication: `Authorization: Bearer <JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET>`
 - Request body: none
@@ -35,9 +35,10 @@ account's current limits before enabling the schedule.
 
 ## Staging setup — not yet deployed
 
-1. Identify the exact Vercel Preview URL for the JAS-SI Staging build and append
-   `/internal/github/reconcile`. Verify its hostname matches the allowlist
-   before setting the Worker variable.
+1. Identify the exact Vercel Preview URL for the JAS-SI Staging build. Set
+   `JAS_SI_RECONCILER_ENDPOINT` to the complete URL ending in
+   `/internal/github/reconcile` and `JAS_SI_RECONCILER_ALLOWED_HOST` to only
+   that URL's hostname. The two values must match exactly.
 2. Create a Worker named `jas-si-github-reconciler-staging` in the existing
    Cloudflare account and deploy `worker.mjs` as an ES module.
 3. Add the Worker secret `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET`.
