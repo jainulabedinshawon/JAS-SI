@@ -56,14 +56,29 @@ def _receive(conn, delivery_id, payload=None):
 )
 class GitHubWebhookInboxPostgresTests(unittest.TestCase):
     def setUp(self):
-        self.conn = psycopg.connect(os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"])
-        with self.conn.cursor() as cur:
-            cur.execute("SET SESSION AUTHORIZATION jas_si_agent_runtime_test")
-            cur.execute("SET ROLE jas_si_runtime")
+        self.admin_dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
+        self.webhook_password = "integration-only-webhook-login-password"
+        # The replay database is disposable. Temporarily enable the migration's
+        # NOLOGIN service role and test using that exact session_user identity.
+        with psycopg.connect(self.admin_dsn, autocommit=True) as admin:
+            with admin.cursor() as cur:
+                cur.execute(
+                    "ALTER ROLE jas_si_github_webhook_login LOGIN "
+                    "PASSWORD 'integration-only-webhook-login-password'"
+                )
+        self.webhook_dsn = psycopg.conninfo.make_conninfo(
+            self.admin_dsn,
+            user="jas_si_github_webhook_login",
+            password=self.webhook_password,
+        )
+        self.conn = psycopg.connect(self.webhook_dsn)
 
     def tearDown(self):
         self.conn.rollback()
         self.conn.close()
+        with psycopg.connect(self.admin_dsn, autocommit=True) as admin:
+            with admin.cursor() as cur:
+                cur.execute("ALTER ROLE jas_si_github_webhook_login NOLOGIN")
 
     def test_receive_is_durable_and_delivery_id_is_idempotent(self):
         delivery_id = "it-" + uuid.uuid4().hex
@@ -105,10 +120,10 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
                 (delivery_id, first_claim_token),
             )
             self.assertIs(cur.fetchone()[0], True)
+        self.conn.commit()
 
-            # Test owner moves retry eligibility forward without sleeping.
-            cur.execute("RESET ROLE")
-            cur.execute("RESET SESSION AUTHORIZATION")
+        # Test owner moves retry eligibility forward without sleeping.
+        with psycopg.connect(self.admin_dsn) as admin, admin.cursor() as cur:
             cur.execute(
                 """
                 UPDATE public.jas_si_github_webhook_inbox
@@ -117,9 +132,8 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
                 """,
                 (delivery_id,),
             )
-            cur.execute("SET SESSION AUTHORIZATION jas_si_agent_runtime_test")
-            cur.execute("SET ROLE jas_si_runtime")
 
+        with self.conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT delivery_id,attempt_count,claim_token
@@ -167,8 +181,9 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
             first_claim = cur.fetchone()
             self.assertEqual(first_claim[0], delivery_id)
             stale_token = first_claim[1]
-            cur.execute("RESET ROLE")
-            cur.execute("RESET SESSION AUTHORIZATION")
+        self.conn.commit()
+
+        with psycopg.connect(self.admin_dsn) as admin, admin.cursor() as cur:
             cur.execute(
                 """
                 UPDATE public.jas_si_github_webhook_inbox
@@ -177,8 +192,8 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
                 """,
                 (delivery_id,),
             )
-            cur.execute("SET SESSION AUTHORIZATION jas_si_agent_runtime_test")
-            cur.execute("SET ROLE jas_si_runtime")
+
+        with self.conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT delivery_id,attempt_count,claim_token
@@ -196,63 +211,46 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
             )
             self.assertIs(cur.fetchone()[0], False)
 
-
     def test_postgres_adapter_uses_dedicated_login_and_persists_delivery(self):
         delivery_id = "it-adapter-" + uuid.uuid4().hex
         payload = _payload()
         raw = json.dumps(payload, separators=(",", ":")).encode()
-        admin_dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
-        test_password = "integration-only-webhook-login-password"
-        # The replay database is disposable. Temporarily enable the migration's
-        # NOLOGIN role so the adapter is exercised as its real session_user.
-        with psycopg.connect(admin_dsn, autocommit=True) as admin:
-            with admin.cursor() as cur:
-                cur.execute(
-                    "ALTER ROLE jas_si_github_webhook_login LOGIN PASSWORD 'integration-only-webhook-login-password'"
-                )
-        webhook_dsn = psycopg.conninfo.make_conninfo(
-            admin_dsn,
-            user="jas_si_github_webhook_login",
-            password=test_password,
+        receipt = PostgresGitHubWebhookInbox(self.webhook_dsn).receive(
+            delivery_id=delivery_id,
+            event_name="installation",
+            action="created",
+            installation_id=payload["installation"]["id"],
+            raw_body_sha256=hashlib.sha256(raw).digest(),
+            payload=payload,
         )
-        try:
-            receipt = PostgresGitHubWebhookInbox(webhook_dsn).receive(
-                delivery_id=delivery_id,
-                event_name="installation",
-                action="created",
-                installation_id=payload["installation"]["id"],
-                raw_body_sha256=hashlib.sha256(raw).digest(),
-                payload=payload,
-            )
-            self.assertEqual(receipt.delivery_id, delivery_id)
-            self.assertEqual(receipt.status, "RECEIVED")
-            self.assertEqual(receipt.attempt_count, 0)
-            self.assertTrue(receipt.inserted)
+        self.assertEqual(receipt.delivery_id, delivery_id)
+        self.assertEqual(receipt.status, "RECEIVED")
+        self.assertEqual(receipt.attempt_count, 0)
+        self.assertTrue(receipt.inserted)
 
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT delivery_id,attempt_count,claim_token
-                      FROM public.jas_si_github_webhook_claim(5,30)
-                     WHERE delivery_id=%s
-                    """,
-                    (delivery_id,),
-                )
-                claimed = cur.fetchone()
-                self.assertEqual(claimed[:2], (delivery_id, 1))
-                cur.execute(
-                    "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
-                    (delivery_id, claimed[2]),
-                )
-                self.assertIs(cur.fetchone()[0], True)
-        finally:
-            with psycopg.connect(admin_dsn, autocommit=True) as admin:
-                with admin.cursor() as cur:
-                    cur.execute("ALTER ROLE jas_si_github_webhook_login NOLOGIN")
-
-    def test_runtime_cannot_read_inbox_table_directly(self):
         with self.conn.cursor() as cur:
-            with self.assertRaises(psycopg.Error) as error:
+            cur.execute(
+                """
+                SELECT delivery_id,attempt_count,claim_token
+                  FROM public.jas_si_github_webhook_claim(5,30)
+                 WHERE delivery_id=%s
+                """,
+                (delivery_id,),
+            )
+            claimed = cur.fetchone()
+            self.assertEqual(claimed[:2], (delivery_id, 1))
+            cur.execute(
+                "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
+                (delivery_id, claimed[2]),
+            )
+            self.assertIs(cur.fetchone()[0], True)
+
+    def test_webhook_login_cannot_set_runtime_or_read_inbox_table_directly(self):
+        with self.conn.cursor() as cur:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                cur.execute("SET ROLE jas_si_runtime")
+            self.conn.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege) as error:
                 cur.execute("SELECT delivery_id FROM public.jas_si_github_webhook_inbox")
             self.assertEqual(error.exception.sqlstate, "42501")
             self.conn.rollback()
