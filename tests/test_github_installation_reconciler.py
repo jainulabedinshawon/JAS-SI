@@ -117,6 +117,18 @@ class GitHubInstallationReconcilerTests(unittest.TestCase):
         self.assertEqual(result, {"claimed": 1, "reconciled": 0, "retry": 1})
         self.assertEqual(reconciler.failed, [])
 
+    def test_terminal_needs_review_claim_is_processed_without_reactivation(self):
+        github = FakeGitHub(snapshot=None)
+        reconciler = FakeReconciler(
+            github, state=("needs_review", "UNCHANGED", 0)
+        )
+        result = reconciler.process_batch()
+        self.assertEqual(result, {
+            "claimed": 1, "processed": 1, "retry": 0, "lease_lost": 0,
+        })
+        self.assertEqual(len(reconciler.processed), 1)
+        self.assertEqual(reconciler.failed, [])
+
     def test_expired_lease_is_not_reported_as_processed(self):
         github = FakeGitHub(snapshot=None)
         reconciler = FakeReconciler(
