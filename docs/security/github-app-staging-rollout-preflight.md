@@ -267,3 +267,16 @@ After credentials, GitHub App settings, webhook configuration, and the reconcile
 The Staging branch has previously been observed without the five GitHub integration tables and without the `jas_si_github_reconciler` role. Re-run the read-only inventory immediately before any rollout; this note is historical context, not a substitute for a live preflight.
 
 No Staging or Production migration, service login creation, secret configuration, GitHub App setup, webhook registration, Installation activation, or deployment is authorized by this document.
+
+
+## Supplemental Staging catalog evidence — 2026-11-20
+
+A second read-only catalog pass on Neon Staging branch `br-wandering-bonus-b32u1xg2` refined the membership interpretation above:
+
+- The duplicate-looking owner/capability membership edges have distinct grantors. `cloud_admin` grants `neondb_owner` ADMIN OPTION on several JAS-SI capability/owner roles with `INHERIT=false` and `SET=false`; separate grants made by `neondb_owner` permit it to SET ROLE into selected owner roles. Do not collapse these rows or infer that ADMIN OPTION itself grants role usage. The effective `pg_has_role(..., 'SET')` result can be true because of the separate SET-enabled edge.
+- The `jas_si_agent_worker_login` and `jas_si_agent_verifier_login` memberships in their respective capability roles are granted by `neondb_owner`, with `INHERIT=true`, `SET=true`, and no ADMIN OPTION. They inherit the intended worker/verifier capability privileges. `jas_si_customer_identity_login` is a member of `jas_si_customer_runtime` with `INHERIT=false`, `SET=true`, and no ADMIN OPTION; it must explicitly SET ROLE before using that capability.
+- The read-only table-grant inventory found direct table grants on existing agent tables for `jas_si_agent_task_owner`, and customer identity tables for `jas_si_customer_identity_owner`; it found no direct table grants to worker/verifier/customer-identity service login roles or their worker/verifier/customer-runtime capability roles. Existing runtime/provisioner grants are limited to the previously inventoried API-key, audit, tenant, and provisioning tables. Recheck effective privileges after GitHub migrations because those introduce new protected objects and routines.
+- The current public SECURITY DEFINER routine inventory showed fixed `search_path=pg_catalog` and explicit owner/capability EXECUTE ACLs for the inspected routines; no PUBLIC entry was visible in the listed ACLs. This inventory is not a substitute for the exact-signature PUBLIC/default-ACL and effective privilege checks in the post-migration procedure.
+- Existing Staging RLS is mixed: agent task/evidence tables have both RLS and FORCE RLS; API keys and tenants have RLS but not FORCE; other existing customer/session/usage/audit tables inspected have RLS disabled. Record table-by-table expectations and do not treat absence of RLS alone as a confirmed exploit without reviewing ownership, grants, and SECURITY DEFINER boundaries.
+
+This evidence refines catalog interpretation only. It does not authorize changing memberships, default privileges, RLS, or table grants. The Neon-managed `cloud_admin`/ `neondb_owner` delegation remains a provider-boundary review item; distinguish it from application-login membership and confirm intended provider semantics before proposing a change.
