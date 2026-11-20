@@ -176,14 +176,23 @@ BEGIN
        OR pg_catalog.has_function_privilege('jas_si_runtime',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
-       OR pg_catalog.has_table_privilege('jas_si_customer_runtime',
-           'public.jas_si_github_installation_claims','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_customer_runtime',
-           'public.jas_si_github_installation_claims','INSERT')
-       OR pg_catalog.has_table_privilege('jas_si_agent_worker',
-           'public.jas_si_github_installation_claims','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_agent_verifier',
-           'public.jas_si_github_installation_claims','SELECT') THEN
+       OR EXISTS (
+           SELECT 1
+             FROM (VALUES ('jas_si_customer_runtime'),('jas_si_agent_worker'),
+                          ('jas_si_agent_verifier')) AS role_name(name)
+             CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                                ('TRUNCATE'),('REFERENCES'),('TRIGGER')) AS privilege(name)
+            WHERE pg_catalog.has_table_privilege(
+                role_name.name,'public.jas_si_github_installation_claims',privilege.name)
+       )
+       OR EXISTS (
+           SELECT 1
+             FROM (VALUES ('jas_si_customer_runtime'),('jas_si_agent_worker'),
+                          ('jas_si_agent_verifier')) AS role_name(name)
+             CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('REFERENCES')) AS privilege(name)
+            WHERE pg_catalog.has_any_column_privilege(
+                role_name.name,'public.jas_si_github_installation_claims',privilege.name)
+       ) THEN
         RAISE EXCEPTION 'GitHub Installation claim persistence ACL boundary is invalid';
     END IF;
 END
