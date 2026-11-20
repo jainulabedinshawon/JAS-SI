@@ -170,8 +170,18 @@ Inspect routine ACLs by exact signature, including:
 - `jas_si_github_webhook_mark_processed(text,uuid)`
 - `jas_si_github_webhook_mark_failed(text,text,uuid,integer)`
 - `jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)`
+- `customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz)`
+- `customer_github_oauth_attempt_consume(bytea,bytea,bytea)`
+- `customer_github_installation_claim_record(bytea,uuid,bigint,bigint,text,bigint,text,text,bigint)`
 
-Expected: reconciler EXECUTE on the pending-claim, reconcile-apply, and inbox claim/finish routines; no reconciler EXECUTE on public webhook receive; no broad PUBLIC EXECUTE on privileged routines. Confirm owner, SECURITY DEFINER, and fixed `search_path=pg_catalog` for every privileged routine.
+Expected:
+- `jas_si_github_reconciler` receives EXECUTE on pending-claim, reconcile-apply, and inbox claim/finish routines; it must not receive EXECUTE on public webhook receive.
+- `jas_si_runtime` receives EXECUTE on webhook receive/claim/finish routines, but no direct inbox table access.
+- `jas_si_customer_runtime` receives EXECUTE on OAuth attempt create/consume and customer Installation claim-record routines, but no direct access to the OAuth-attempt or claim tables.
+- Worker and verifier capability roles must not receive direct access to protected GitHub tables or EXECUTE on customer-only claim-record and reconciler-only privileged routines.
+- Privileged routines must not have broad PUBLIC EXECUTE. Confirm each routine's owner, SECURITY DEFINER flag, and fixed `search_path=pg_catalog`.
+
+Use the exact signatures above when querying `pg_proc` or `has_function_privilege`; overloaded routine names must never be checked by name alone.
 
 ### 3. Verify real service logins
 
