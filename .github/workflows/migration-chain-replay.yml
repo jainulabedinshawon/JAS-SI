@@ -44,12 +44,16 @@ concurrency:
 
 jobs:
   clean-postgres-replay:
-    name: PostgreSQL 16 clean replay and idempotency
+    name: PostgreSQL ${{ matrix.postgres-version }} clean replay and idempotency
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [16, 18]
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.postgres-version }}
         env:
           POSTGRES_DB: jas_si_migration_replay
           POSTGRES_USER: jas_si
@@ -497,12 +501,12 @@ jobs:
                       customer_cur.execute("RESET SESSION AUTHORIZATION")
               print("Verified database-owned customer rate limiting and denied direct table INSERT")
           PY
-      - name: Verify GitHub webhook inbox state machine on PostgreSQL 16
+      - name: Verify GitHub webhook inbox state machine on PostgreSQL ${{ matrix.postgres-version }}
         run: |
           python tests/test_github_webhook_inbox_postgres_integration.py
-      - name: Verify GitHub OAuth attempt isolation and atomic consumption on PostgreSQL 16
+      - name: Verify GitHub OAuth attempt isolation and atomic consumption on PostgreSQL ${{ matrix.postgres-version }}
         run: |
           python tests/test_github_oauth_attempt_postgres_integration.py
-      - name: Verify authoritative GitHub Installation reconciliation on PostgreSQL 16
+      - name: Verify authoritative GitHub Installation reconciliation on PostgreSQL ${{ matrix.postgres-version }}
         run: |
           python tests/test_github_installation_reconciliation_postgres_integration.py
