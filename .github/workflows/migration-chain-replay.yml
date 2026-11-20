@@ -9,6 +9,7 @@ on:
       - fix/tenant-suspension-locking-after-onboarding-fix
       - feat/durable-agent-task-store-v1
       - feat/verifier-inconclusive-review-lifecycle-rebased
+      - feat/customer-human-review-decisions-rebased
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -60,6 +61,9 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import hashlib
+          import json
+          from datetime import datetime, timezone
           from pathlib import Path
           import sys
           import psycopg
@@ -110,6 +114,7 @@ jobs:
               "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
               "20261202_agent_task_human_review_decisions.sql",
               "20261203_agent_task_human_review_queue.sql",
+              "20261204_agent_task_evidence_recollection.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
@@ -468,6 +473,15 @@ jobs:
               more_result = cur.fetchone()
               if more_result is None or more_result[1] != "human_review_required" or more_result[2] is not True:
                   raise SystemExit(f"Request-more-evidence transition failed: {more_result!r}")
+              cur.execute(
+                  """SELECT decision_event_id,task_status,created,decided_at
+                       FROM public.jas_si_agent_task_human_review_decide(
+                         %s,%s,%s,%s,%s,%s)""",
+                  more_args,
+              )
+              more_replay = cur.fetchone()
+              if more_replay is None or more_replay[0] != more_result[0] or more_replay[2] is not False:
+                  raise SystemExit(f"Request-more-evidence idempotent replay failed: {more_replay!r}")
 
               cur.execute(
                   """SELECT task_id,task_status,verification_status,verification_reason_code
@@ -539,7 +553,10 @@ jobs:
               try:
                   cur.execute("TRUNCATE public.jas_si_agent_task_review_events")
               except psycopg.Error as exc:
-                  if exc.sqlstate != "55000":
+                  # The evidence-request FK also prevents truncating the
+                  # referenced append-only review log (0A000) before its
+                  # explicit immutability trigger can run (55000).
+                  if exc.sqlstate not in {"55000","0A000"}:
                       raise
                   cur.execute("ROLLBACK TO SAVEPOINT review_audit_truncate_guard")
               else:
@@ -556,5 +573,150 @@ jobs:
               immutable_audit = cur.fetchone()
               if immutable_audit != (2, True):
                   raise SystemExit(f"Human review audit was mutated: {immutable_audit!r}")
+
+              # A request-more-evidence decision must enqueue exactly one
+              # evidence-only request, without creating/requeueing Worker work.
+              cur.execute(
+                  """SELECT count(*),bool_and(task_id=%s),bool_and(tenant_id=%s),
+                            bool_and(review_event_id=%s)
+                       FROM public.jas_si_agent_evidence_requests
+                      WHERE task_id=%s""",
+                  (review_task_more_id,tenant_id,more_result[0],review_task_more_id),
+              )
+              evidence_queue = cur.fetchone()
+              if evidence_queue != (1,True,True,True):
+                  raise SystemExit(f"Evidence request was not atomically and uniquely enqueued: {evidence_queue!r}")
+
+              # The request is bound to the immutable persisted GitHub read scope.
+              commit_sha = "a" * 40
+              tree_sha = "b" * 40
+              blob_sha = "c" * 40
+              file_sha256 = "d" * 64
+              input_payload = {
+                  "repository":"owner/project",
+                  "commit_sha":commit_sha,
+                  "paths":["README.md"],
+              }
+              report_payload = {
+                  "task_type":"github.read_repository",
+                  "repository":"owner/project",
+                  "commit_sha":commit_sha,
+                  "evidence_integrity":{
+                      "status":"EVIDENCE_INTEGRITY_VERIFIED",
+                      "verification_scope":"github_commit_and_file_integrity",
+                      "repository":"owner/project",
+                      "commit_sha":commit_sha,
+                      "tree_sha":tree_sha,
+                      "files_verified":1,
+                      "read_only":True,
+                      "semantic_truth_verified":False,
+                      "files":[{
+                          "path":"README.md","integrity":"VERIFIED",
+                          "blob_sha":blob_sha,"sha256":file_sha256,"size_bytes":5,
+                      }],
+                  },
+              }
+              cur.execute(
+                  """UPDATE public.jas_si_agent_tasks
+                        SET input_payload=%s::jsonb,result_payload=%s::jsonb,
+                            reported_at=clock_timestamp()
+                      WHERE task_id=%s AND tenant_id=%s
+                        AND status='human_review_required'""",
+                  (json.dumps(input_payload),json.dumps(report_payload),
+                   review_task_more_id,tenant_id),
+              )
+
+              # Worker capability must not claim evidence-only requests.
+              cur.execute("SAVEPOINT worker_evidence_claim_denied")
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_test")
+              cur.execute("SET ROLE jas_si_agent_worker")
+              try:
+                  cur.execute("SELECT * FROM public.jas_si_agent_evidence_request_claim(1,30)")
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "42501":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT worker_evidence_claim_denied")
+              else:
+                  raise SystemExit("Worker role unexpectedly claimed evidence-only work")
+              cur.execute("RESET SESSION AUTHORIZATION")
+              cur.execute("RELEASE SAVEPOINT worker_evidence_claim_denied")
+
+              # Only the dedicated verifier capability can claim this request.
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_verifier_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute(
+                  "GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+              cur.execute("SET ROLE jas_si_agent_verifier")
+              cur.execute("SELECT request_id,task_id,tenant_id,task_type,claim_token FROM public.jas_si_agent_evidence_request_claim(1,30)")
+              claimed_evidence = cur.fetchone()
+              if claimed_evidence is None or claimed_evidence[0] is None or claimed_evidence[1] != review_task_more_id or claimed_evidence[2] != tenant_id or claimed_evidence[3] != "github.read_repository" or claimed_evidence[4] is None:
+                  raise SystemExit(f"Verifier failed to claim evidence-only request: {claimed_evidence!r}")
+              cur.execute("SAVEPOINT verifier_direct_evidence_table_denied")
+              try:
+                  cur.execute("SELECT * FROM public.jas_si_agent_evidence_requests")
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "42501":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT verifier_direct_evidence_table_denied")
+              else:
+                  raise SystemExit("Verifier capability retained direct evidence-request table access")
+              cur.execute("RELEASE SAVEPOINT verifier_direct_evidence_table_denied")
+
+              # Exercise the fenced success path with a digest over fresh,
+              # independently collected repository/commit/file evidence.
+              collected_at = datetime.now(timezone.utc)
+              evidence_digest = hashlib.sha256(
+                  "|".join([
+                      "owner/project",commit_sha,tree_sha,
+                      f"README.md:{blob_sha}:{file_sha256}",
+                  ]).encode("utf-8")
+              ).digest()
+              evidence_payload = {
+                  "task_id":str(review_task_more_id),
+                  "tenant_id":str(tenant_id),
+                  "collector_id":"replay-verifier",
+                  "verification_status":"VERIFIED_SUCCESS",
+                  "repository":"owner/project",
+                  "commit_sha":commit_sha,
+                  "tree_sha":tree_sha,
+                  "files":[{
+                      "path":"README.md","integrity":"VERIFIED",
+                      "blob_sha":blob_sha,"sha256":file_sha256,"size_bytes":5,
+                  }],
+                  "evidence_digest":evidence_digest.hex(),
+                  "collected_at":collected_at.isoformat(),
+                  "verification_reason":"INDEPENDENT_GITHUB_COMMIT_AND_FILE_INTEGRITY_VERIFIED",
+              }
+              cur.execute(
+                  """SELECT public.jas_si_agent_evidence_request_finalize_success(
+                       %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)""",
+                  (
+                      claimed_evidence[0],review_task_more_id,tenant_id,
+                      claimed_evidence[4],uuid4(),"replay-verifier",
+                      evidence_digest,json.dumps(evidence_payload),collected_at,
+                  ),
+              )
+              if cur.fetchone()[0] is not True:
+                  raise SystemExit("Fenced evidence-only success finalization failed")
+              cur.execute("RESET SESSION AUTHORIZATION")
+              cur.execute(
+                  """SELECT q.status,r.status,e.verification_status
+                       FROM public.jas_si_agent_tasks q
+                       JOIN public.jas_si_agent_evidence_requests r
+                         ON r.task_id=q.task_id AND r.tenant_id=q.tenant_id
+                       JOIN public.jas_si_agent_evidence_records e
+                         ON e.task_id=q.task_id AND e.tenant_id=q.tenant_id
+                      WHERE q.task_id=%s AND r.request_id=%s""",
+                  (review_task_more_id,claimed_evidence[0]),
+              )
+              finalized_state = cur.fetchone()
+              if finalized_state != ("succeeded","completed","VERIFIED_SUCCESS"):
+                  raise SystemExit(f"Evidence-only finalization state mismatch: {finalized_state!r}")
               print("Verified Human Review runtime boundary: tenant isolation, atomic disposition, idempotency and immutable audit")
+              print("Verified evidence-only lifecycle: atomic/idempotent enqueue, worker denial, verifier-only claim, no direct table access and fenced independent success finalization")
           PY
