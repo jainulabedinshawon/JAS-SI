@@ -74,11 +74,19 @@ BEGIN
              WHERE member_role.rolname=v_login
                AND granted_role.rolname=v_capability;
 
+            -- A pre-provisioned login may intentionally have no capability
+            -- membership yet. Keep it fail-closed; do not create grants here.
+            -- If the membership exists, it must be SET-only and non-admin.
             IF v_login_inherit IS DISTINCT FROM false
-               OR v_member IS DISTINCT FROM true
-               OR v_inherit_option IS DISTINCT FROM false
-               OR v_set_option IS DISTINCT FROM true
-               OR v_admin_option IS DISTINCT FROM false THEN
+               OR (
+                   v_member IS NOT NULL
+                   AND (
+                       v_member IS DISTINCT FROM true
+                       OR v_inherit_option IS DISTINCT FROM false
+                       OR v_set_option IS DISTINCT FROM true
+                       OR v_admin_option IS DISTINCT FROM false
+                   )
+               ) THEN
                 RAISE EXCEPTION 'Agent database login capability membership is not NOINHERIT/SET-only';
             END IF;
         END IF;

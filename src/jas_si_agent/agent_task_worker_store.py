@@ -63,7 +63,6 @@ class PostgresAgentTaskWorkerStore:
         except Exception:
             connection.close()
             raise
-        self._worker_id = worker_id
 
     @staticmethod
     def _validate_lease_seconds(value: int) -> None:
