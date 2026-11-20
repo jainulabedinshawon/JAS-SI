@@ -161,8 +161,15 @@ jobs:
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
+                      # Production's broad runtime identity is a LOGIN role;
+                      # mirror that contract in clean replay without using it
+                      # as an application service DSN.
+                      login_clause = (
+                          "LOGIN PASSWORD 'test-only-runtime-password'"
+                          if role == "jas_si_runtime" else "NOLOGIN"
+                      )
                       cur.execute(
-                          f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                          f'CREATE ROLE "{role}" {login_clause} NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
 
