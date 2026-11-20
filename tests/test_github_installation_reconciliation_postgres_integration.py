@@ -70,6 +70,28 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             claim = cur.fetchone()
         return tenant_id, installation_id, claim
 
+    def test_reconciliation_owner_can_see_and_lock_fixture_tenant(self):
+        tenant_id, installation_id, claim = self._fixture()
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tenant_id FROM public.jas_si_github_installation_claims WHERE claim_id=%s",
+                (claim[0],),
+            )
+            self.assertEqual(cur.fetchone()[0], tenant_id)
+        # SECURITY DEFINER executes with the function owner's privileges and
+        # RLS identity. Reproduce that exact tenant-table lookup independently.
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_agent_task_owner")
+            cur.execute(
+                """SELECT status FROM public.jas_si_tenants
+                    WHERE tenant_id=%s FOR SHARE""",
+                (tenant_id,),
+            )
+            row = cur.fetchone()
+            self.assertIsNotNone(row, "reconciliation owner cannot see tenant row")
+            self.assertEqual(row[0], "active")
+        self.assertGreater(installation_id, 0)
+
     def _reconcile(
         self, installation_id, *, app_id=4567, account_id=7654321,
         account_login="jas-org", account_type="Organization",
