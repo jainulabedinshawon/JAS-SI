@@ -21,6 +21,13 @@ def verify_agent_host_database_access(
         "jas_si_agent_worker": r"jas_si_agent_worker_login(?:_[a-z0-9_]{1,32})?",
         "jas_si_agent_verifier": r"jas_si_agent_verifier_login(?:_[a-z0-9_]{1,32})?",
     }
+    forbidden_roles = (
+        "jas_si_agent_task_owner",
+        "jas_si_github_reconciler",
+        "jas_si_runtime",
+        "jas_si_provisioner",
+        "neondb_owner",
+    )
     if not isinstance(dsn, str) or not dsn.strip():
         raise AgentHostPreflightError("Agent host database DSN is required")
     if (
@@ -72,34 +79,47 @@ def verify_agent_host_database_access(
     query = (
         "SELECT session_user, current_user, "
         "pg_catalog.pg_has_role(session_user, %s, 'MEMBER'), "
+        "EXISTS (SELECT 1 FROM pg_catalog.pg_roles login_role "
+        "WHERE login_role.rolname=session_user "
+        "AND (NOT login_role.rolcanlogin OR login_role.rolsuper "
+        "OR login_role.rolcreatedb OR login_role.rolcreaterole "
+        "OR login_role.rolreplication OR login_role.rolbypassrls "
+        "OR login_role.rolinherit)), "
+        "EXISTS (SELECT 1 FROM pg_catalog.pg_roles privileged_role "
+        "WHERE privileged_role.rolname = ANY(%s::text[]) "
+        "AND pg_catalog.pg_has_role(session_user, privileged_role.oid, 'MEMBER')), "
         + routine_checks + ", " + ", ".join(table_checks)
     )
     try:
         with psycopg.connect(dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("SET ROLE " + capability_role)
-                cursor.execute(query, (forbidden_role, *required_functions))
+                cursor.execute(query, (forbidden_role, list(forbidden_roles), *required_functions))
                 row = cursor.fetchone()
     except Exception:
         raise AgentHostPreflightError(
             "Agent host database connectivity or privilege preflight failed"
         ) from None
 
-    expected_length = 3 + len(required_functions) + len(table_checks)
+    expected_length = 5 + len(required_functions) + len(table_checks)
     if not row or len(row) != expected_length:
         raise AgentHostPreflightError("Agent host database preflight returned an invalid result")
     forbidden_role_membership = row[2]
-    routine_values = row[3 : 3 + len(required_functions)]
-    table_values = row[3 + len(required_functions) :]
+    unsafe_login_attributes = row[3]
+    privileged_role_membership = row[4]
+    routine_values = row[5 : 5 + len(required_functions)]
+    table_values = row[5 + len(required_functions) :]
     if (
         row[0] != expected_login
         or row[1] != capability_role
         or forbidden_role_membership is not False
+        or unsafe_login_attributes is not False
+        or privileged_role_membership is not False
         or any(value is not True for value in routine_values)
         or any(value is not False for value in table_values)
     ):
         raise AgentHostPreflightError(
-            "Agent host identity, routine privileges, or direct-table boundary is invalid"
+            "Agent host identity, role membership, routine privileges, or direct-table boundary is invalid"
         )
 
 
