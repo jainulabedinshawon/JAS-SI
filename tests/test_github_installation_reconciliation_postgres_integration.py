@@ -318,6 +318,37 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             ("needs_review", "UNCHANGED", 0),
         )
 
+    def test_dedicated_reconciler_login_sets_only_its_capability(self):
+        test_password = "integration-only-reconciler-login-password"
+        with psycopg.connect(DSN, autocommit=True) as admin, admin.cursor() as cur:
+            cur.execute(
+                "ALTER ROLE jas_si_github_reconciler_login LOGIN PASSWORD %s",
+                (test_password,),
+            )
+        login_dsn = psycopg.conninfo.make_conninfo(
+            DSN,
+            user="jas_si_github_reconciler_login",
+            password=test_password,
+        )
+        try:
+            with psycopg.connect(login_dsn) as conn, conn.cursor() as cur:
+                cur.execute("SELECT session_user")
+                self.assertEqual(cur.fetchone()[0], "jas_si_github_reconciler_login")
+                cur.execute("SET ROLE jas_si_github_reconciler")
+                cur.execute("SELECT current_user")
+                self.assertEqual(cur.fetchone()[0], "jas_si_github_reconciler")
+                cur.execute(
+                    "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(1)"
+                )
+                self.assertEqual(cur.fetchall(), [])
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    cur.execute(
+                        "SELECT installation_id FROM public.jas_si_github_installation_claims"
+                    )
+        finally:
+            with psycopg.connect(DSN, autocommit=True) as admin, admin.cursor() as cur:
+                cur.execute("ALTER ROLE jas_si_github_reconciler_login NOLOGIN")
+
     def test_reconciler_has_execute_only_access(self):
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
