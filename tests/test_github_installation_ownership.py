@@ -234,5 +234,14 @@ class TestGitHubInstallationOwnership(unittest.TestCase):
         with self.assertRaises(GitHubInstallationOwnershipError):
             verifier.verify(user_access_token="user-token", installation_id=1)
 
+
+    def test_rejects_non_ascii_github_login(self):
+        with self.assertRaises(ValueError):
+            GitHubUserInstallationAccessVerifier._validated_login("octocát")
+
+    def test_rejects_consecutive_hyphens_in_github_login(self):
+        with self.assertRaises(ValueError):
+            GitHubUserInstallationAccessVerifier._validated_login("octo--cat")
+
 if __name__ == "__main__":
     unittest.main()
