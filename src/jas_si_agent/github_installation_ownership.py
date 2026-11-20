@@ -125,7 +125,12 @@ class GitHubUserInstallationAccessVerifier:
                     raise GitHubInstallationOwnershipError(
                         "GitHub Installation response is invalid"
                     )
-                count = self._positive_id(data.get("total_count", 0)) if data.get("total_count", 0) else 0
+                raw_count = data.get("total_count")
+                if type(raw_count) is not int or raw_count < 0:
+                    raise GitHubInstallationOwnershipError(
+                        "GitHub Installation count is invalid"
+                    )
+                count = raw_count
                 if total_count is None:
                     total_count = count
                     if total_count > self._max_pages * _PAGE_SIZE:
@@ -137,6 +142,10 @@ class GitHubUserInstallationAccessVerifier:
                         "GitHub Installation list changed during verification"
                     )
                 items = data["installations"]
+                if len(items) > _PAGE_SIZE:
+                    raise GitHubInstallationOwnershipError(
+                        "GitHub Installation page exceeds the requested limit"
+                    )
                 for item in items:
                     if not isinstance(item, dict):
                         raise GitHubInstallationOwnershipError(
