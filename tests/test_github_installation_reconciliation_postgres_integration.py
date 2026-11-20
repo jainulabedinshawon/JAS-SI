@@ -83,12 +83,36 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("SET ROLE jas_si_agent_task_owner")
             cur.execute(
+                """SELECT current_user,session_user,c.relrowsecurity,c.relforcerowsecurity
+                     FROM pg_catalog.pg_class c
+                     JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname='public' AND c.relname='jas_si_tenants'"""
+            )
+            table_context = cur.fetchone()
+            cur.execute(
+                """SELECT policyname,permissive,roles,cmd,qual,with_check
+                     FROM pg_catalog.pg_policies
+                    WHERE schemaname='public' AND tablename='jas_si_tenants'
+                    ORDER BY policyname"""
+            )
+            policies = cur.fetchall()
+            cur.execute(
+                "SELECT status FROM public.jas_si_tenants WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+            visible_without_lock = cur.fetchone()
+            cur.execute(
                 """SELECT status FROM public.jas_si_tenants
                     WHERE tenant_id=%s FOR SHARE""",
                 (tenant_id,),
             )
             row = cur.fetchone()
-            self.assertIsNotNone(row, "reconciliation owner cannot see tenant row")
+            self.assertIsNotNone(
+                row,
+                "reconciliation owner cannot see tenant row; "
+                f"context={table_context!r}; policies={policies!r}; "
+                f"plain_select={visible_without_lock!r}",
+            )
             self.assertEqual(row[0], "active")
         self.assertGreater(installation_id, 0)
 
