@@ -275,7 +275,7 @@ BEGIN
     IF NOT FOUND THEN RETURN false; END IF;
 
     SELECT public.jas_si_agent_task_finalize_success(
-        p_evidence_id,p_task_id,p_tenant_id,p_claim_token,p_collector_id,
+        p_evidence_id,p_task_id,p_tenant_id,p_collector_id,
         p_evidence_digest,p_evidence_payload,p_collected_at
     ) INTO v_success;
 
