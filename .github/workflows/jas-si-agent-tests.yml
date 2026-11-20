@@ -16,6 +16,7 @@ on:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
       - "docs/security/**"
+      - "cloudflare/github-reconciler-cron/**"
       - ".github/workflows/jas-si-agent-tests.yml"
 
   pull_request:
@@ -78,3 +79,6 @@ jobs:
             -s tests \
             -p "test_*.py" \
             -v
+
+      - name: Test Cloudflare reconciliation scheduler
+        run: node --test cloudflare/github-reconciler-cron/worker.test.mjs
