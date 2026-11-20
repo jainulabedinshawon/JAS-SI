@@ -125,7 +125,9 @@ FROM pg_catalog.pg_default_acl AS d
 ORDER BY 1, 2, 3;
 ```
 
-Record the output before and after. Investigate any broad default DML grant to runtime or service identities. Do not change default privileges as part of this preflight.
+Record the output before and after. Investigate any default DML grant and any default SELECT grant to runtime or service identities; default SELECT is still a future-object privilege expansion even though it is not DML. In particular, inspect defaults for every owner that creates application tables (including `neondb_owner`) and distinguish provider-managed defaults from application-owned defaults. Review column-level grants separately with `information_schema.column_privileges`. Do not change default privileges as part of this preflight.
+
+A Staging audit on 2026-11-20 observed a `neondb_owner` default-privilege entry for future public tables granting `SELECT` to both `jas_si_runtime` and `jas_si_provisioner`. This is a confirmed catalog finding, not proof of a currently exploitable path or of a production issue. Before applying any schema migration, establish whether this default is intentional and required; if not, prepare a separately reviewed least-privilege correction and obtain explicit approval before changing it. Recheck after migrations because future objects inherit defaults from their creating owner.
 
 ## Post-migration ACL verification
 
