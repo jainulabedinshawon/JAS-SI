@@ -28,6 +28,10 @@ BEGIN
                AND membership.roleid=granted_role.oid
              WHERE member_role.rolname=v_login
         ) THEN
+            -- GRANT does not reliably rewrite existing membership options.
+            -- Revoke and recreate this single expected capability membership
+            -- inside the migration transaction to guarantee SET-only semantics.
+            EXECUTE pg_catalog.format('REVOKE %I FROM %I',v_capability,v_login);
             EXECUTE pg_catalog.format(
                 'GRANT %I TO %I WITH ADMIN FALSE, INHERIT FALSE, SET TRUE',
                 v_capability,v_login
