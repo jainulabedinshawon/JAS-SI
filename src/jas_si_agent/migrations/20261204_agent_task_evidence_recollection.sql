@@ -276,9 +276,9 @@ BEGIN
 
     EXECUTE
         'SELECT public.jas_si_agent_task_finalize_success(' ||
-        '$1::uuid,$2::uuid,$3::uuid,$4::text,$5::bytea,$6::jsonb,$7::timestamptz)'
+        '$1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::text,$6::bytea,$7::jsonb,$8::timestamptz)'
         INTO v_success
-        USING p_evidence_id,p_task_id,p_tenant_id,p_collector_id,
+        USING p_evidence_id,p_task_id,p_tenant_id,p_claim_token,p_collector_id,
               p_evidence_digest,p_evidence_payload,p_collected_at;
 
     IF v_success IS NOT TRUE THEN
