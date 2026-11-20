@@ -196,7 +196,7 @@ class PostgresGitHubInstallationReconciler:
                     else:
                         counts["lease_lost"] += 1
                     continue
-                if state[0] not in {"active", "suspended", "revoked"}:
+                if state[0] not in {"active", "suspended", "revoked", "needs_review"}:
                     raise RuntimeError("Unexpected Installation reconciliation state")
                 if self.mark_processed(
                     delivery_id=event.delivery_id, claim_token=event.claim_token
