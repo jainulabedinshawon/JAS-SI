@@ -24,6 +24,11 @@ BEGIN
 END
 $preflight$;
 
+-- The claims table is owned by the customer identity capability. Perform
+-- its schema and policy changes under that exact owner; do not transfer ownership
+-- merely to let the reconciler read/update the non-secret proof.
+SET LOCAL ROLE jas_si_customer_identity_owner;
+
 -- Reconciliation is the only authority that advances a pending ownership proof.
 ALTER TABLE public.jas_si_github_installation_claims
     DROP CONSTRAINT IF EXISTS jas_si_github_installation_claims_status_check;
@@ -41,19 +46,6 @@ ALTER TABLE public.jas_si_github_installation_claims
 ALTER TABLE public.jas_si_github_installation_claims
     ADD COLUMN IF NOT EXISTS reconcile_exhausted_at timestamptz;
 
-ALTER TABLE public.jas_si_github_app_installation_repositories
-    ADD COLUMN IF NOT EXISTS github_repository_id bigint
-        CHECK (github_repository_id IS NULL OR github_repository_id > 0);
-ALTER TABLE public.jas_si_github_app_installation_repositories
-    ADD COLUMN IF NOT EXISTS is_private boolean;
-
--- A repository ID is globally stable within one Installation snapshot. Do not
--- allow malformed/ambiguous snapshots to bind one GitHub ID to multiple names.
-CREATE UNIQUE INDEX IF NOT EXISTS jas_si_github_repository_id_per_installation_unique
-    ON public.jas_si_github_app_installation_repositories
-       (installation_id,github_repository_id)
-    WHERE github_repository_id IS NOT NULL;
-
 -- The reconciliation function is owned by the existing agent task owner. Give
 -- it narrowly scoped read/update authority over the non-secret ownership proof.
 GRANT SELECT ON public.jas_si_github_installation_claims TO jas_si_agent_task_owner;
@@ -70,6 +62,25 @@ DROP POLICY IF EXISTS jas_si_github_claims_reconciler_update
 CREATE POLICY jas_si_github_claims_reconciler_update
     ON public.jas_si_github_installation_claims
     FOR UPDATE TO jas_si_agent_task_owner USING (true) WITH CHECK (true);
+
+RESET ROLE;
+
+-- The Installation repository table is owned by the agent task capability.
+-- Apply its schema/index changes under that owner in a separate role scope.
+SET LOCAL ROLE jas_si_agent_task_owner;
+ALTER TABLE public.jas_si_github_app_installation_repositories
+    ADD COLUMN IF NOT EXISTS github_repository_id bigint
+        CHECK (github_repository_id IS NULL OR github_repository_id > 0);
+ALTER TABLE public.jas_si_github_app_installation_repositories
+    ADD COLUMN IF NOT EXISTS is_private boolean;
+
+-- A repository ID is globally stable within one Installation snapshot. Do not
+-- allow malformed/ambiguous snapshots to bind one GitHub ID to multiple names.
+CREATE UNIQUE INDEX IF NOT EXISTS jas_si_github_repository_id_per_installation_unique
+    ON public.jas_si_github_app_installation_repositories
+       (installation_id,github_repository_id)
+    WHERE github_repository_id IS NOT NULL;
+RESET ROLE;
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
