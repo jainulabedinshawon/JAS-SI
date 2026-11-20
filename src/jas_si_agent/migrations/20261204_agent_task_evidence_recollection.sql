@@ -1,8 +1,13 @@
 -- Evidence-only recollection requests created atomically from immutable review events.
 -- This queue never re-enters the Worker task queue and cannot replay task actions.
 
+-- The task table is owned by the migration role, while routines execute
+-- as jas_si_agent_task_owner; grant only the referenced key column.
+GRANT REFERENCES (task_id) ON TABLE public.jas_si_agent_tasks
+    TO jas_si_agent_task_owner;
+
 -- The review-audit owner controls REFERENCES/TRIGGER grants on its
--- append-only event table. The task owner already owns jas_si_agent_tasks.
+-- append-only event table.
 SET LOCAL ROLE jas_si_agent_review_audit_owner;
 GRANT REFERENCES (decision_event_id) ON TABLE public.jas_si_agent_task_review_events
     TO jas_si_agent_task_owner;
