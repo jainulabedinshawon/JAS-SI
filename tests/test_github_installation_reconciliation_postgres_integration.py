@@ -155,6 +155,78 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             )
             self.assertEqual(cur.fetchone()[0], 0)
 
+    def test_tenant_suspension_serializes_with_installation_activation(self):
+        tenant_id, installation_id, _ = self._fixture()
+
+        # Hold the reconciler transaction open after it has read the active
+        # tenant and activated the Installation. A concurrent suspension must
+        # wait for that transaction, rather than committing in the middle.
+        reconcile_conn = psycopg.connect(DSN)
+        try:
+            with reconcile_conn.cursor() as cur:
+                cur.execute(
+                    "SET SESSION AUTHORIZATION jas_si_github_reconciler_test"
+                )
+                cur.execute("SET ROLE jas_si_github_reconciler")
+                cur.execute(
+                    """SELECT claim_status,installation_status,repository_count
+                         FROM public.jas_si_github_installation_reconcile_apply(
+                           %s,4567,7654321,'jas-org','Organization',false,false,%s::jsonb
+                         )""",
+                    (installation_id, json.dumps([
+                        self._repo(1001, "jas-org/alpha")
+                    ])),
+                )
+                self.assertEqual(cur.fetchone(), ("active", "active", 1))
+
+            with psycopg.connect(DSN) as suspend_conn, suspend_conn.cursor() as cur:
+                cur.execute("SET LOCAL lock_timeout='100ms'")
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    cur.execute(
+                        "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                        (tenant_id,),
+                    )
+                suspend_conn.rollback()
+
+            reconcile_conn.commit()
+        finally:
+            reconcile_conn.close()
+
+        # Once activation commits, suspension proceeds. A subsequent snapshot
+        # must fail closed and must not reactivate the Installation.
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id=%s",
+                (tenant_id,),
+            )
+        with self.assertRaises(psycopg.errors.ObjectNotInPrerequisiteState):
+            self._reconcile(
+                installation_id,
+                repositories=[self._repo(1001, "jas-org/alpha")],
+            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM public.jas_si_github_app_installations WHERE installation_id=%s",
+                (installation_id,),
+            )
+            self.assertEqual(cur.fetchone()[0], "active")
+
+    def test_reconciler_can_lock_tenant_without_status_update_privilege(self):
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET SESSION AUTHORIZATION jas_si_github_reconciler_test")
+            cur.execute("SET ROLE jas_si_github_reconciler")
+            cur.execute(
+                """SELECT
+                     has_column_privilege(
+                       'jas_si_agent_task_owner','public.jas_si_tenants',
+                       'github_reconcile_lock_version','UPDATE'),
+                     has_column_privilege(
+                       'jas_si_agent_task_owner','public.jas_si_tenants','status','UPDATE'),
+                     has_column_privilege(
+                       'jas_si_agent_task_owner','public.jas_si_tenants','tenant_name','UPDATE')"""
+            )
+            self.assertEqual(cur.fetchone(), (True, False, False))
+
     def test_duplicate_repository_id_in_snapshot_is_rejected(self):
         _, installation_id, _ = self._fixture()
         with self.assertRaises(psycopg.errors.UniqueViolation):
