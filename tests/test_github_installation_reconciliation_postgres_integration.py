@@ -319,6 +319,7 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
         )
 
     def test_dedicated_reconciler_login_sets_only_its_capability(self):
+        _, installation_id, _ = self._fixture()
         test_password = "integration-only-reconciler-login-password"
         with psycopg.connect(DSN, autocommit=True) as admin, admin.cursor() as cur:
             cur.execute(
@@ -337,9 +338,10 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
                 cur.execute("SELECT current_user")
                 self.assertEqual(cur.fetchone()[0], "jas_si_github_reconciler")
                 cur.execute(
-                    "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(1)"
+                    "SELECT installation_id,attempt_count FROM public.jas_si_github_installation_claim_pending(50)"
                 )
-                self.assertEqual(cur.fetchall(), [])
+                claimed = cur.fetchall()
+                self.assertIn((installation_id, 1), claimed)
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     cur.execute(
                         "SELECT installation_id FROM public.jas_si_github_installation_claims"
