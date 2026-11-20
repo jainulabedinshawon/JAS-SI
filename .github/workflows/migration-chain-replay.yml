@@ -411,6 +411,36 @@ jobs:
               cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
               cur.execute("CREATE ROLE jas_si_agent_worker_other_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
               cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_other_test")
+              expired_task_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,attempt_count,max_attempts,
+                       lease_owner,lease_expires_at,lease_fence,lease_owner_principal
+                     ) VALUES (%s,%s,%s,%s,%s,'reasoning','running','{}'::jsonb,
+                               1,3,%s,clock_timestamp()-interval '1 second',7,
+                               'jas_si_agent_worker_test')""",
+                  (expired_task_id,tenant_id,key_id,f"expired-reclaim-{uuid4().hex}",
+                   bytes([23])*32,str(worker_id)),
+              )
+              # Expired work is released and reclaimed by the next login;
+              # the new lease must bind to that new authenticated principal.
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_other_test")
+              cur.execute("SET ROLE jas_si_agent_worker")
+              cur.execute(
+                  "SELECT task_id,lease_fence FROM public.jas_si_agent_task_claim(%s,60)",
+                  (uuid4(),),
+              )
+              reclaimed = cur.fetchone()
+              if reclaimed is None or reclaimed[0] != expired_task_id or reclaimed[1] != 8:
+                  raise SystemExit(f"Expired lease was not safely reclaimed: {reclaimed!r}")
+              cur.execute("RESET SESSION AUTHORIZATION")
+              cur.execute(
+                  "SELECT lease_owner_principal FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                  (expired_task_id,),
+              )
+              if cur.fetchone()[0] != "jas_si_agent_worker_other_test":
+                  raise SystemExit("Reclaimed lease was not rebound to the new authenticated LOGIN")
               # A different authenticated LOGIN with the same capability role
               # must not renew/report/fail another login's lease.
               cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_other_test")
