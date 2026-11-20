@@ -630,10 +630,10 @@ jobs:
                           """SELECT public.jas_si_agent_task_finalize_success(
                                %s,%s,%s,%s,%s,%s,
                                jsonb_build_object(
-                                 'collector_id',%s,
+                                 'collector_id',%s::text,
                                  'verification_status','VERIFIED_SUCCESS',
-                                 'task_id',%s,
-                                 'tenant_id',%s,
+                                 'task_id',%s::text,
+                                 'tenant_id',%s::text,
                                  'repository','jas-si-test/tenant-a',
                                  'commit_sha','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                                  'evidence_digest',pg_catalog.encode(%s,'hex')
