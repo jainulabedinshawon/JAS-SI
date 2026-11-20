@@ -19,7 +19,8 @@ stateless and is not a replacement for a persistent task worker.
   Production default.
 - The exact Preview hostname must also be supplied through
   `JAS_SI_RECONCILER_ALLOWED_HOST`. The Worker requires exact host equality,
-  HTTPS, a hostname matching `jas-si-*.vercel.app`, and the exact path
+  HTTPS, the Vercel branch-preview hostname form `jas-si-git-<branch>-<team>.vercel.app`
+  (with the `main` Production alias explicitly rejected), and the exact path
   `/internal/github/reconcile`. Production, non-JAS-SI hosts, query strings,
   and URL redirects are rejected before the bearer secret can be sent.
 - Method: `POST`
