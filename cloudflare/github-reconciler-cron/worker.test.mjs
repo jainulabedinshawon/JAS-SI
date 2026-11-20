@@ -29,10 +29,13 @@ test("scheduled trigger sends authenticated POST only to configured JAS-SI Previ
     {
       JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
       JAS_SI_RECONCILER_ENDPOINT: endpoint,
+    JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-git-staging-example.vercel.app",
+      JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-git-staging-example.vercel.app",
     },
   );
   assert.equal(captured.url, endpoint);
   assert.equal(captured.options.method, "POST");
+  assert.equal(captured.options.redirect, "error");
   assert.equal(captured.options.headers.Authorization, "Bearer " + secret);
   assert.equal(captured.options.headers.Accept, "application/json");
 });
@@ -48,12 +51,36 @@ test("missing or short scheduler secret fails closed before network access", asy
   assert.equal(called, false);
 });
 
-test("missing endpoint fails closed before network access", async () => {
+test("missing endpoint or exact allowed host fails closed before network access", async () => {
   let called = false;
   globalThis.fetch = async () => { called = true; return new Response("{}"); };
   await assert.rejects(
-    worker.scheduled({}, { JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret }),
+    worker.scheduled({}, {
+      JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
+      JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-git-staging-example.vercel.app",
+    }),
     /endpoint is not configured/,
+  );
+  await assert.rejects(
+    worker.scheduled({}, {
+      JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
+      JAS_SI_RECONCILER_ENDPOINT: endpoint,
+    }),
+    /Exact JAS-SI Staging endpoint host is not configured/,
+  );
+  assert.equal(called, false);
+});
+
+test("endpoint host must exactly match the configured staging host", async () => {
+  let called = false;
+  globalThis.fetch = async () => { called = true; return new Response("{}"); };
+  await assert.rejects(
+    worker.scheduled({}, {
+      JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
+      JAS_SI_RECONCILER_ENDPOINT: endpoint,
+      JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-another-preview.vercel.app",
+    }),
+    /Only an HTTPS JAS-SI Vercel Preview endpoint is allowed/,
   );
   assert.equal(called, false);
 });
@@ -71,6 +98,7 @@ test("production and non-JAS-SI hosts are rejected before sending the secret", a
     await assert.rejects(worker.scheduled({}, {
       JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
       JAS_SI_RECONCILER_ENDPOINT: rejected,
+      JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-git-staging-example.vercel.app",
     }));
   }
   assert.equal(called, false);
