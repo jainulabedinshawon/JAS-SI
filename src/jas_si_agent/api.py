@@ -2122,10 +2122,14 @@ def trigger_github_installation_reconciliation(request: Request) -> JSONResponse
 
     try:
         reconciler = build_reconciler(settings)
-        # Keep each serverless invocation deliberately bounded. Database
-        # claim routines make overlapping scheduler invocations safe.
-        webhook_counts = reconciler.process_batch(limit=2)
-        pending_counts = reconciler.process_pending_claims(limit=2)
+        # A Vercel invocation handles at most one authoritative GitHub
+        # snapshot. Prefer queued webhook deliveries; poll pending claims when
+        # the webhook queue is empty. Database leases make overlapping calls safe.
+        webhook_counts = reconciler.process_batch(limit=1)
+        if webhook_counts["claimed"]:
+            pending_counts = {"claimed": 0, "reconciled": 0, "retry": 0}
+        else:
+            pending_counts = reconciler.process_pending_claims(limit=1)
     except Exception:
         raise HTTPException(
             status_code=503,
