@@ -141,6 +141,7 @@ Expected: exactly one role; LOGIN=false and every elevated flag false. The migra
 ```sql
 WITH identities(role_name) AS (
   VALUES ('jas_si_runtime'),
+         ('jas_si_customer_runtime'),
          ('jas_si_agent_worker'),
          ('jas_si_agent_verifier'),
          ('jas_si_github_reconciler')
@@ -156,12 +157,17 @@ SELECT i.role_name, t.table_name,
        has_table_privilege(i.role_name, 'public.' || t.table_name, 'SELECT') AS can_select,
        has_table_privilege(i.role_name, 'public.' || t.table_name, 'INSERT') AS can_insert,
        has_table_privilege(i.role_name, 'public.' || t.table_name, 'UPDATE') AS can_update,
-       has_table_privilege(i.role_name, 'public.' || t.table_name, 'DELETE') AS can_delete
+       has_table_privilege(i.role_name, 'public.' || t.table_name, 'DELETE') AS can_delete,
+       has_table_privilege(i.role_name, 'public.' || t.table_name, 'TRUNCATE') AS can_truncate,
+       has_table_privilege(i.role_name, 'public.' || t.table_name, 'REFERENCES') AS can_reference,
+       has_table_privilege(i.role_name, 'public.' || t.table_name, 'TRIGGER') AS can_trigger
 FROM identities AS i CROSS JOIN tables AS t
 ORDER BY 1, 2;
 ```
 
-Expected: the reconciler and agent worker/verifier have no direct privileges on the protected GitHub tables. The webhook/runtime role also must not receive direct inbox table access. Review the exact grants for customer identity and API roles against the migration ACLs; do not infer them from this abbreviated matrix.
+This checks effective privileges inherited through role membership as well as direct grants. It is not a substitute for checking column-level privileges: inspect `information_schema.column_privileges` for these identities and relations too.
+
+Expected: reconciler, worker, and verifier have no direct/effective table privileges on the protected GitHub tables; the webhook/runtime role has no direct/effective inbox table privileges; customer runtime has no direct/effective OAuth-attempt or Installation-claim table privileges. Review every non-zero result against the reviewed migration ACLs. The migration's embedded assertion checks selected reconciler/worker/verifier table privileges and selected routine grants; this expanded matrix is an additional rollout gate, not a claim that the migration itself asserts every privilege shown.
 
 Inspect routine ACLs by exact signature, including:
 - `jas_si_github_installation_claim_pending(integer)`
@@ -182,6 +188,33 @@ Expected:
 - Privileged routines must not have broad PUBLIC EXECUTE. Confirm each routine's owner, SECURITY DEFINER flag, and fixed `search_path=pg_catalog`.
 
 Use the exact signatures above when querying `pg_proc` or `has_function_privilege`; overloaded routine names must never be checked by name alone.
+
+Run this routine ownership/ACL inventory for the same signatures (populate the VALUES list with each exact `regprocedure` signature listed above):
+
+```sql
+WITH routines(signature) AS (
+  VALUES
+    ('public.jas_si_github_installation_claim_pending(integer)'::regprocedure),
+    ('public.jas_si_github_installation_reconcile_apply(bigint,bigint,bigint,text,text,boolean,boolean,jsonb)'::regprocedure),
+    ('public.jas_si_github_webhook_claim(integer,integer)'::regprocedure),
+    ('public.jas_si_github_webhook_mark_processed(text,uuid)'::regprocedure),
+    ('public.jas_si_github_webhook_mark_failed(text,text,uuid,integer)'::regprocedure),
+    ('public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)'::regprocedure),
+    ('public.customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz)'::regprocedure),
+    ('public.customer_github_oauth_attempt_consume(bytea,bytea,bytea)'::regprocedure),
+    ('public.customer_github_installation_claim_record(bytea,uuid,bigint,bigint,text,bigint,text,text,bigint)'::regprocedure)
+)
+SELECT p.oid::regprocedure AS signature,
+       pg_catalog.pg_get_userbyid(p.proowner) AS owner,
+       p.prosecdef AS security_definer,
+       p.proconfig,
+       pg_catalog.pg_get_function_result(p.oid) AS result_type,
+       p.proacl
+FROM routines r JOIN pg_catalog.pg_proc p ON p.oid=r.signature
+ORDER BY 1;
+```
+
+For each routine, evaluate `has_function_privilege(role_name, signature, 'EXECUTE')` for all five service/capability roles and `PUBLIC`. PUBLIC must be checked from `aclexplode(COALESCE(proacl, acldefault('f', proowner)))`, because a NULL `proacl` means default function privileges, not "no grants".
 
 ### 3. Verify real service logins
 
