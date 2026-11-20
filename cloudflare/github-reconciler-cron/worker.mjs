@@ -138,7 +138,7 @@ async function forwardGitHubWebhook(request, env) {
   try {
     endpoint = resolvePreviewEndpoint(
       env?.JAS_SI_GITHUB_WEBHOOK_FORWARD_ENDPOINT,
-      env?.JAS_SI_RECONCILER_ALLOWED_HOST,
+      env?.JAS_SI_GITHUB_WEBHOOK_ALLOWED_HOST,
       WEBHOOK_PATH,
     );
   } catch {
