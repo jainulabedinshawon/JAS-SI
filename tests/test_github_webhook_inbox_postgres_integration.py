@@ -197,41 +197,59 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
             self.assertIs(cur.fetchone()[0], False)
 
 
-    def test_postgres_adapter_assumes_runtime_role_and_persists_delivery(self):
+    def test_postgres_adapter_uses_dedicated_login_and_persists_delivery(self):
         delivery_id = "it-adapter-" + uuid.uuid4().hex
         payload = _payload()
         raw = json.dumps(payload, separators=(",", ":")).encode()
-        receipt = PostgresGitHubWebhookInbox(
-            os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
-        ).receive(
-            delivery_id=delivery_id,
-            event_name="installation",
-            action="created",
-            installation_id=payload["installation"]["id"],
-            raw_body_sha256=hashlib.sha256(raw).digest(),
-            payload=payload,
+        admin_dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
+        test_password = "integration-only-webhook-login-password"
+        # The replay database is disposable. Temporarily enable the migration's
+        # NOLOGIN role so the adapter is exercised as its real session_user.
+        with psycopg.connect(admin_dsn, autocommit=True) as admin:
+            with admin.cursor() as cur:
+                cur.execute(
+                    "ALTER ROLE jas_si_github_webhook_login LOGIN PASSWORD %s",
+                    (test_password,),
+                )
+        webhook_dsn = psycopg.conninfo.make_conninfo(
+            admin_dsn,
+            user="jas_si_github_webhook_login",
+            password=test_password,
         )
-        self.assertEqual(receipt.delivery_id, delivery_id)
-        self.assertEqual(receipt.status, "RECEIVED")
-        self.assertEqual(receipt.attempt_count, 0)
-        self.assertTrue(receipt.inserted)
+        try:
+            receipt = PostgresGitHubWebhookInbox(webhook_dsn).receive(
+                delivery_id=delivery_id,
+                event_name="installation",
+                action="created",
+                installation_id=payload["installation"]["id"],
+                raw_body_sha256=hashlib.sha256(raw).digest(),
+                payload=payload,
+            )
+            self.assertEqual(receipt.delivery_id, delivery_id)
+            self.assertEqual(receipt.status, "RECEIVED")
+            self.assertEqual(receipt.attempt_count, 0)
+            self.assertTrue(receipt.inserted)
 
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT delivery_id,attempt_count,claim_token
-                  FROM public.jas_si_github_webhook_claim(5,30)
-                 WHERE delivery_id=%s
-                """,
-                (delivery_id,),
-            )
-            claimed = cur.fetchone()
-            self.assertEqual(claimed[:2], (delivery_id, 1))
-            cur.execute(
-                "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
-                (delivery_id, claimed[2]),
-            )
-            self.assertIs(cur.fetchone()[0], True)
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT delivery_id,attempt_count,claim_token
+                      FROM public.jas_si_github_webhook_claim(5,30)
+                     WHERE delivery_id=%s
+                    """,
+                    (delivery_id,),
+                )
+                claimed = cur.fetchone()
+                self.assertEqual(claimed[:2], (delivery_id, 1))
+                cur.execute(
+                    "SELECT public.jas_si_github_webhook_mark_processed(%s,%s)",
+                    (delivery_id, claimed[2]),
+                )
+                self.assertIs(cur.fetchone()[0], True)
+        finally:
+            with psycopg.connect(admin_dsn, autocommit=True) as admin:
+                with admin.cursor() as cur:
+                    cur.execute("ALTER ROLE jas_si_github_webhook_login NOLOGIN")
 
     def test_runtime_cannot_read_inbox_table_directly(self):
         with self.conn.cursor() as cur:
