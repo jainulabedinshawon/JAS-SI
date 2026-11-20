@@ -55,9 +55,13 @@ class FakeTaskStore:
         now = datetime(2026, 11, 15, tzinfo=timezone.utc)
         self.task = AgentTask(
             task_id=__import__("uuid").UUID("00000000-0000-0000-0000-000000000080"),
-            task_type="research",
+            task_type="github.read_repository",
             status="queued",
-            input_payload={"question": "test"},
+            input_payload={
+                "repository": "example/project",
+                "commit_sha": "a" * 40,
+                "paths": ["README.md"],
+            },
             result_payload=None,
             error_code=None,
             attempt_count=0,
@@ -242,7 +246,14 @@ class TestAgentTaskAPI(TestCase):
         response = self.client.post(
             "/v1/agent/tasks",
             headers={"Idempotency-Key": "customer-task-001"},
-            json={"task_type": "research", "input_payload": {"question": "test"}},
+            json={
+                "task_type": "github.read_repository",
+                "input_payload": {
+                    "repository": "example/project",
+                    "commit_sha": "a" * 40,
+                    "paths": ["README.md"],
+                },
+            },
         )
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["task"]["status"], "queued")
@@ -253,6 +264,18 @@ class TestAgentTaskAPI(TestCase):
         self.assertEqual(self.meter.records[0]["idempotency_key"], "customer-task-001")
         self.assertEqual(self.store.created[0]["idempotency_key"], "customer-task-001")
         self.assertEqual(self.events.events[-1]["event_type"], "agent_task_submitted")
+
+    def test_unsupported_task_type_is_rejected_before_persistence(self):
+        response = self.client.post(
+            "/v1/agent/tasks",
+            json={"task_type": "research", "input_payload": {"question": "test"}},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "Unsupported agent task type")
+        self.assertEqual(self.store.created, [])
+        self.assertFalse(
+            any(event.get("event_type") == "agent_task_submitted" for event in self.events.events)
+        )
 
     def test_task_submission_is_rejected_when_worker_host_is_not_ready(self):
         api.app.state.agent_task_submission_enabled = False
