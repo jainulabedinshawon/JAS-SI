@@ -208,8 +208,7 @@ class GitHubWebhookInboxPostgresTests(unittest.TestCase):
         with psycopg.connect(admin_dsn, autocommit=True) as admin:
             with admin.cursor() as cur:
                 cur.execute(
-                    "ALTER ROLE jas_si_github_webhook_login LOGIN PASSWORD %s",
-                    (test_password,),
+                    "ALTER ROLE jas_si_github_webhook_login LOGIN PASSWORD 'integration-only-webhook-login-password'"
                 )
         webhook_dsn = psycopg.conninfo.make_conninfo(
             admin_dsn,
