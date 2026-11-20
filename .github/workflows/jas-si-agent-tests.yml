@@ -83,5 +83,5 @@ jobs:
             -p "test_*.py" \
             -v
 
-      - name: Test Cloudflare reconciliation scheduler
+      - name: Test Cloudflare webhook ingress proxy
         run: node --test cloudflare/github-reconciler-cron/worker.test.mjs
