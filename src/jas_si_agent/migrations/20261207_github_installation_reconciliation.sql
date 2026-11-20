@@ -178,9 +178,13 @@ BEGIN
         RETURN;
     END IF;
 
+    -- Serialize activation against concurrent tenant suspension. A row
+    -- share lock makes a status-changing UPDATE wait until this transaction
+    -- commits; if suspension committed first, this read observes it.
     SELECT (t.status='active') INTO v_tenant_active
       FROM public.jas_si_tenants t
-     WHERE t.tenant_id=v_claim.tenant_id;
+     WHERE t.tenant_id=v_claim.tenant_id
+     FOR SHARE OF t;
     IF NOT FOUND OR v_tenant_active IS DISTINCT FROM true THEN
         RAISE EXCEPTION 'Installation claim tenant is not active'
             USING ERRCODE='55000';
