@@ -241,13 +241,23 @@ BEGIN
             RAISE EXCEPTION 'GitHub webhook inbox routine security boundary invalid: %',v_name;
         END IF;
     END LOOP;
-    IF pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_github_webhook_inbox','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_github_webhook_inbox','INSERT')
-       OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_github_webhook_inbox','UPDATE')
-       OR pg_catalog.has_table_privilege('jas_si_runtime','public.jas_si_github_webhook_inbox','DELETE')
-       OR pg_catalog.has_table_privilege('jas_si_agent_worker','public.jas_si_github_webhook_inbox','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_github_webhook_inbox','SELECT') THEN
-        RAISE EXCEPTION 'Application or agent host role has direct webhook inbox table access';
+    IF EXISTS (
+        SELECT 1
+          FROM (VALUES ('jas_si_runtime'),('jas_si_agent_worker'),
+                       ('jas_si_agent_verifier')) AS role_name(name)
+          CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                             ('TRUNCATE'),('REFERENCES'),('TRIGGER')) AS privilege(name)
+         WHERE pg_catalog.has_table_privilege(
+             role_name.name,'public.jas_si_github_webhook_inbox',privilege.name)
+    ) OR EXISTS (
+        SELECT 1
+          FROM (VALUES ('jas_si_runtime'),('jas_si_agent_worker'),
+                       ('jas_si_agent_verifier')) AS role_name(name)
+          CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('REFERENCES')) AS privilege(name)
+         WHERE pg_catalog.has_any_column_privilege(
+             role_name.name,'public.jas_si_github_webhook_inbox',privilege.name)
+    ) THEN
+        RAISE EXCEPTION 'Application or agent host role has direct webhook inbox table/column access';
     END IF;
 END
 $assert$;
