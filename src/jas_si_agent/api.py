@@ -1223,6 +1223,12 @@ def customer_create_session(
     return _customer_account_response(session.account)
 
 
+def _require_github_oauth_preview() -> None:
+    """Keep customer GitHub OAuth disabled outside the Staging Preview."""
+    if settings.environment != "preview":
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 def _get_github_oauth_components(request: Request):
     """Build OAuth components only from complete server-side configuration."""
     if not all((
@@ -1274,6 +1280,7 @@ def customer_github_oauth_start(
     payload: GitHubOAuthStartRequest, request: Request, response: Response
 ) -> dict:
     """Begin OAuth only from an authenticated, CSRF-protected customer session."""
+    _require_github_oauth_preview()
     account = _require_customer_session(request)
     _require_customer_csrf(request)
     session_token = request.cookies.get("jassi_customer_session") or ""
@@ -1303,6 +1310,7 @@ def customer_github_oauth_start(
 @app.get("/v1/github/oauth/callback", response_class=HTMLResponse, include_in_schema=False)
 def github_oauth_callback_page(request: Request) -> HTMLResponse:
     """Same-origin handoff: Lax state cookie on GET, Strict session on POST."""
+    _require_github_oauth_preview()
     from urllib.parse import parse_qs
     query = parse_qs(request.url.query, keep_blank_values=True)
     states, codes = query.get("state", []), query.get("code", [])
@@ -1359,6 +1367,7 @@ def github_oauth_callback_complete(
     payload: GitHubOAuthCallbackRequest, request: Request, response: Response
 ) -> dict:
     """Complete callback same-origin so Strict customer session/CSRF cookies return."""
+    _require_github_oauth_preview()
     _require_customer_csrf(request)
     account = _require_customer_session(request)
     state_cookie = request.cookies.get("jassi_github_oauth_state")
