@@ -6,6 +6,7 @@ on:
       - feat/durable-agent-task-store-v1
       - feat/verifier-inconclusive-review-lifecycle-rebased
       - feat/verifier-inconclusive-review-lifecycle
+      - feat/customer-human-review-decisions-rebased
     paths:
       - "src/jas_si_agent/agent_task_*.py"
       - "src/jas_si_agent/api.py"
@@ -48,6 +49,7 @@ jobs:
           python -m pytest -q \
             tests/test_agent_task_api.py \
             tests/test_agent_task_verifier.py \
+            tests/test_agent_task_evidence_recollection.py \
             tests/test_agent_task_verifier_store.py \
             tests/test_agent_task_verifier_supervisor.py \
             tests/test_agent_task_worker.py \
