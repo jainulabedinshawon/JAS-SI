@@ -17,7 +17,6 @@ on:
       - fix/tenant-suspension-locking-after-onboarding-fix
       - feat/durable-agent-task-store-v1
       - feat/github-app-token-issuer-v1
-      - feat/github-installation-onboarding-security-v1
       - feat/github-webhook-durable-inbox-v1
     paths:
       - "src/jas_si_agent/migrations/**"
