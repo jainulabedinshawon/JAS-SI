@@ -408,6 +408,26 @@ jobs:
 
               cur.execute("CREATE ROLE jas_si_agent_worker_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
               cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
+              cur.execute("CREATE ROLE jas_si_agent_worker_other_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
+              cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_other_test")
+              # A different authenticated LOGIN with the same capability role
+              # must not renew/report/fail another login's lease.
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_other_test")
+              cur.execute("SET ROLE jas_si_agent_worker")
+              cur.execute("SAVEPOINT foreign_worker_lease_guard")
+              try:
+                  cur.execute(
+                      "SELECT public.jas_si_agent_task_fail(%s,%s,1,'FOREIGN_WORKER',0)",
+                      (worker_id,next(iter(task_ids.values()))),
+                  )
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "42501":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT foreign_worker_lease_guard")
+              else:
+                  raise SystemExit("A different worker LOGIN changed another principal's task lease")
+              cur.execute("RELEASE SAVEPOINT foreign_worker_lease_guard")
+              cur.execute("RESET SESSION AUTHORIZATION")
               cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_test")
               # The capability role is deliberately NOINHERIT; the worker
               # process must explicitly SET ROLE to its narrowly granted API.
