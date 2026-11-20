@@ -30,13 +30,14 @@ class GitHubAppRuntimeWiringTests(unittest.TestCase):
             "JAS_SI_AGENT_WORKER_ID": str(uuid4()),
             "JAS_SI_AGENT_WORKER_POLL_SECONDS": "1",
             "JAS_SI_AGENT_HEALTH_PORT": "8001",
-            "GITHUB_APP_ID": "5818164",
-            "GITHUB_APP_PRIVATE_KEY_PATH": "/run/secrets/github-app.pem",
+            "JAS_SI_GITHUB_APP_ID": "5818164",
+            "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": "cGVtLXRlc3Q=",
         }
         health = FakeHealthServer()
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(worker_host, "verify_agent_host_database_access") as preflight,
+            patch.object(worker_host, "decode_github_app_private_key_b64", return_value=b"pem-test") as decode_key,
             patch.object(
                 worker_host,
                 "build_github_app_tenant_credential_provider",
@@ -55,8 +56,9 @@ class GitHubAppRuntimeWiringTests(unittest.TestCase):
         provider_factory.assert_called_once_with(
             database_dsn=env["JAS_SI_AGENT_WORKER_DSN"],
             app_id=5818164,
-            private_key_path=env["GITHUB_APP_PRIVATE_KEY_PATH"],
+            private_key_pem=b"pem-test",
         )
+        decode_key.assert_called_once_with("cGVtLXRlc3Q=")
         self.assertIs(worker_factory.call_args.kwargs["credential_provider"], provider)
         self.assertEqual(worker_factory.call_args.kwargs["worker_dsn"], env["JAS_SI_AGENT_WORKER_DSN"])
         run_loop.assert_called_once()
@@ -72,13 +74,14 @@ class GitHubAppRuntimeWiringTests(unittest.TestCase):
             "JAS_SI_AGENT_VERIFIER_BATCH_SIZE": "7",
             "JAS_SI_AGENT_VERIFIER_COLLECTOR_ID": "staging-verifier-test",
             "JAS_SI_AGENT_HEALTH_PORT": "8002",
-            "GITHUB_APP_ID": "5818164",
-            "GITHUB_APP_PRIVATE_KEY_PATH": "/run/secrets/github-app.pem",
+            "JAS_SI_GITHUB_APP_ID": "5818164",
+            "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": "cGVtLXRlc3Q=",
         }
         health = FakeHealthServer()
         with (
             patch.dict(os.environ, env, clear=True),
             patch.object(verifier_host, "verify_agent_host_database_access") as preflight,
+            patch.object(verifier_host, "decode_github_app_private_key_b64", return_value=b"pem-test") as decode_key,
             patch.object(
                 verifier_host,
                 "build_github_app_tenant_credential_provider",
@@ -99,8 +102,9 @@ class GitHubAppRuntimeWiringTests(unittest.TestCase):
         provider_factory.assert_called_once_with(
             database_dsn=env["JAS_SI_AGENT_VERIFIER_DSN"],
             app_id=5818164,
-            private_key_path=env["GITHUB_APP_PRIVATE_KEY_PATH"],
+            private_key_pem=b"pem-test",
         )
+        decode_key.assert_called_once_with("cGVtLXRlc3Q=")
         self.assertIs(
             verifier_factory.call_args.kwargs["credential_provider"], provider
         )

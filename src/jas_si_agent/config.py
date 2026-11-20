@@ -5,7 +5,11 @@ Python 3.10 compatible. Secrets must be supplied through the environment.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
+import re
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -13,6 +17,23 @@ from typing import Optional
 _MIN_HMAC_SECRET_BYTES = 32
 _MIN_API_KEY_PEPPER_BYTES = 32
 _MIN_CUSTOMER_TOKEN_PEPPER_BYTES = 32
+_GITHUB_OAUTH_KEY_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+def _read_github_app_private_key() -> Optional[bytes]:
+    """Read a base64-encoded PEM private key for the isolated reconciler host."""
+    raw = os.getenv("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64")
+    if not raw:
+        return None
+    if len(raw) > 24000:
+        raise ValueError("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64 is too large")
+    try:
+        value = base64.b64decode(raw, validate=True)
+    except Exception:
+        raise ValueError("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64 must be valid base64") from None
+    if not value.startswith(b"-----BEGIN ") or b"PRIVATE KEY-----" not in value[:80]:
+        raise ValueError("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64 must encode a PEM private key")
+    return value
+
+
 _MIN_API_RATE_LIMIT_PEPPER_BYTES = 32
 
 
@@ -112,6 +133,68 @@ def _read_optional_provider_id() -> Optional[str]:
     return value
 
 
+def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict[str, bytes]], Optional[str], Optional[int]]:
+    oauth_names = (
+        "JAS_SI_GITHUB_OAUTH_CLIENT_ID",
+        "JAS_SI_GITHUB_OAUTH_CLIENT_SECRET",
+        "JAS_SI_GITHUB_OAUTH_REDIRECT_URI",
+        "JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING",
+        "JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION",
+    )
+    values = {name: os.getenv(name) for name in oauth_names}
+    raw_app_id = os.getenv("JAS_SI_GITHUB_APP_ID")
+    app_id = None
+    if raw_app_id:
+        try:
+            app_id = int(raw_app_id)
+        except ValueError:
+            raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer") from None
+        if app_id <= 0:
+            raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer")
+
+    if not any(value for value in values.values()):
+        return None, None, None, None, None, app_id
+    if not all(values.values()) or app_id is None:
+        raise ValueError("GitHub OAuth configuration and App ID must be supplied as a complete set")
+
+    client_id = values[oauth_names[0]]
+    client_secret = values[oauth_names[1]]
+    redirect_uri = values[oauth_names[2]]
+    active_version = values[oauth_names[4]]
+    if not client_id or not re.fullmatch(r"^(?:Iv1\.)?[A-Za-z0-9_-]{8,128}$", client_id):
+        raise ValueError("JAS_SI_GITHUB_OAUTH_CLIENT_ID is invalid")
+    if not client_secret or not 20 <= len(client_secret) <= 512:
+        raise ValueError("JAS_SI_GITHUB_OAUTH_CLIENT_SECRET is invalid")
+    parsed = urlsplit(redirect_uri or "")
+    if (
+        parsed.scheme != "https" or not parsed.hostname
+        or parsed.username is not None or parsed.password is not None
+        or parsed.fragment or parsed.query
+        or parsed.path != "/v1/github/oauth/callback"
+        or parsed.port not in (None, 443)
+    ):
+        raise ValueError("JAS_SI_GITHUB_OAUTH_REDIRECT_URI must be the fixed HTTPS JAS-SI callback path")
+    if not active_version or not _GITHUB_OAUTH_KEY_VERSION_RE.fullmatch(active_version):
+        raise ValueError("JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION is invalid")
+    try:
+        encoded_ring = json.loads(values[oauth_names[3]] or "")
+        if not isinstance(encoded_ring, dict) or not encoded_ring:
+            raise ValueError
+        keyring = {
+            version: base64.b64decode(encoded, validate=True)
+            for version, encoded in encoded_ring.items()
+            if isinstance(version, str) and _GITHUB_OAUTH_KEY_VERSION_RE.fullmatch(version)
+            and isinstance(encoded, str)
+        }
+        if len(keyring) != len(encoded_ring) or any(len(key) != 32 for key in keyring.values()):
+            raise ValueError
+        if active_version not in keyring:
+            raise ValueError
+    except Exception:
+        raise ValueError("JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING must be a valid base64 JSON keyring") from None
+    return client_id, client_secret, redirect_uri, keyring, active_version, app_id
+
+
 @dataclass(frozen=True)
 class Settings:
     service_name: str = "JAS-SI API"
@@ -147,6 +230,16 @@ class Settings:
     customer_public_base_url: str = "https://jas-si.vercel.app"
     github_webhook_secret: Optional[bytes] = field(default=None, repr=False)
     github_webhook_database_url: Optional[str] = field(default=None, repr=False)
+    github_oauth_client_id: Optional[str] = None
+    github_oauth_client_secret: Optional[str] = field(default=None, repr=False)
+    github_oauth_redirect_uri: Optional[str] = None
+    github_oauth_encryption_keyring: Optional[dict[str, bytes]] = field(default=None, repr=False)
+    github_oauth_active_key_version: Optional[str] = None
+    github_app_id: Optional[int] = None
+    github_app_private_key_pem: Optional[bytes] = field(default=None, repr=False)
+    github_reconciler_database_url: Optional[str] = field(default=None, repr=False)
+    github_reconciler_trigger_secret: Optional[bytes] = field(default=None, repr=False)
+    github_reconciler_poll_seconds: int = 15
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -175,10 +268,27 @@ class Settings:
         api_rate_limit_pepper = _read_optional_api_rate_limit_pepper()
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
+        github_oauth = _read_github_oauth_config()
+        github_app_private_key_pem = _read_github_app_private_key()
+        github_reconciler_poll_seconds = _read_positive_int("JAS_SI_GITHUB_RECONCILER_POLL_SECONDS", 15)
+        if github_reconciler_poll_seconds > 300:
+            raise ValueError("JAS_SI_GITHUB_RECONCILER_POLL_SECONDS must be at most 300")
         raw_webhook_secret = os.getenv("JAS_SI_GITHUB_WEBHOOK_SECRET")
         github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
         if github_webhook_secret is not None and len(github_webhook_secret) < 32:
             raise ValueError("JAS_SI_GITHUB_WEBHOOK_SECRET must contain at least 32 UTF-8 bytes")
+        raw_reconciler_trigger_secret = os.getenv("JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET")
+        github_reconciler_trigger_secret = (
+            raw_reconciler_trigger_secret.encode("utf-8")
+            if raw_reconciler_trigger_secret else None
+        )
+        if (
+            github_reconciler_trigger_secret is not None
+            and len(github_reconciler_trigger_secret) < 32
+        ):
+            raise ValueError(
+                "JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET must contain at least 32 UTF-8 bytes"
+            )
 
         if (hmac_secret is None) != (provider_id is None):
             raise ValueError(
@@ -233,4 +343,14 @@ class Settings:
             ).strip(),
             github_webhook_secret=github_webhook_secret,
             github_webhook_database_url=(os.getenv("JAS_SI_GITHUB_WEBHOOK_DATABASE_URL") or None),
+            github_oauth_client_id=github_oauth[0],
+            github_oauth_client_secret=github_oauth[1],
+            github_oauth_redirect_uri=github_oauth[2],
+            github_oauth_encryption_keyring=github_oauth[3],
+            github_oauth_active_key_version=github_oauth[4],
+            github_app_id=github_oauth[5],
+            github_app_private_key_pem=github_app_private_key_pem,
+            github_reconciler_database_url=(os.getenv("JAS_SI_GITHUB_RECONCILER_DATABASE_URL") or None),
+            github_reconciler_trigger_secret=github_reconciler_trigger_secret,
+            github_reconciler_poll_seconds=github_reconciler_poll_seconds,
         )
