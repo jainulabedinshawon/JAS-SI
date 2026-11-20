@@ -2024,6 +2024,11 @@ async def receive_github_webhook(request: Request) -> JSONResponse:
     No tenant or repository binding is derived from this request. The inbox is
     only a signal for a later GitHub API reconciliation process.
     """
+    # GitHub webhook ingress is Staging Preview-only. Never enable this
+    # externally reachable intake route on a Production deployment.
+    if settings.environment != "preview":
+        raise HTTPException(status_code=404, detail="Not found")
+
     secret = settings.github_webhook_secret
     if not isinstance(secret, bytes) or len(secret) < 32:
         raise HTTPException(
