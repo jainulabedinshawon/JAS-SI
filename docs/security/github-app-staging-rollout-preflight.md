@@ -322,17 +322,19 @@ A second read-only catalog pass on Neon Staging branch `br-wandering-bonus-b32u1
 This evidence refines catalog interpretation only. It does not authorize changing memberships, default privileges, RLS, or table grants. The Neon-managed `cloud_admin`/ `neondb_owner` delegation remains a provider-boundary review item; distinguish it from application-login membership and confirm intended provider semantics before proposing a change.
 
 
-## Supplemental Staging evidence — 2026-11-20, after approved migration rollout
+## Supplemental Staging evidence — 2026-11-20, read-only catalog recheck
 
-The eight migrations listed above were applied in canonical order to Neon project `odd-violet-93299575`, Staging branch `br-wandering-bonus-b32u1xg2`, under the user's explicit Staging-only approvals. Production was not changed.
+The user explicitly authorized six Staging-only migrations on Neon project `odd-violet-93299575`, branch `br-wandering-bonus-b32u1xg2`: 20261201, 20261202, 20261203, 20261204, 20261206, and 20261207. The earlier rollout record confirms those six were applied. Production was not changed.
 
-A live read-only catalog check after application confirmed:
+A later read-only catalog check on the same branch found the following current state:
 
 - `jas_si_runtime` is LOGIN.
-- `jas_si_github_webhook_login` is NOLOGIN, NOINHERIT, and a MEMBER of `jas_si_runtime` with INHERIT=false and SET=false. The migration grants this login direct EXECUTE only on the four webhook inbox routines; it is not permitted to use the broad runtime role.
-- `jas_si_github_reconciler` is NOLOGIN.
-- `jas_si_github_reconciler_login` is NOLOGIN, NOINHERIT, and a MEMBER of `jas_si_github_reconciler` with INHERIT=false and SET=true. The reconciler adapter verifies `session_user` and explicitly SET ROLE before using its capability.
-- Both dedicated login roles remain NOLOGIN; no passwords or service DSNs have been created.
-- No GitHub App OAuth, webhook, or live Installation lifecycle has been exercised. The five GitHub integration tables were empty at the last read-only row-count check.
+- `jas_si_github_webhook_login` exists as NOLOGIN/NOINHERIT and is a MEMBER of `jas_si_runtime` with INHERIT=false and SET=false. It has direct EXECUTE on the four webhook inbox routines; `jas_si_runtime` itself has no EXECUTE on those four routines.
+- `jas_si_github_reconciler` exists as NOLOGIN.
+- `jas_si_github_reconciler_login` exists as NOLOGIN/NOINHERIT and is a MEMBER of `jas_si_github_reconciler` with INHERIT=false and SET=true. The reconciler adapter checks `session_user` and explicitly SET ROLE before using its capability.
+- Neither dedicated login can authenticate yet; no passwords or dedicated service DSNs have been provisioned.
+- The five GitHub integration tables exist. Their last observed row counts were zero; no live GitHub App OAuth, webhook, or Installation lifecycle has been exercised.
 
-This evidence establishes role/catalog setup only. It does not prove successful password authentication, host connectivity, OAuth, webhook delivery, or live reconciliation. Those require separate Staging credential configuration and independent lifecycle verification. Production remains outside this approval.
+Important provenance qualification: the current catalog contains the two login roles and their expected membership/grant boundaries, which correspond to migrations 20261208 and 20261209 in this branch. However, the six-migration authorization record does not establish that those two later migration files were separately approved or applied, and role presence alone is not proof of which migration created them. No migration-history table was identified in the read-only inventory used for this check. Do not describe all eight migrations as applied until their execution provenance is independently established. Do not reapply either migration merely to reconcile documentation.
+
+This evidence establishes catalog identity and ACL state only. It does not prove successful password authentication, host connectivity, OAuth, webhook delivery, or live reconciliation. Those require separately approved Staging credential configuration and independent lifecycle verification. Production remains untouched.
