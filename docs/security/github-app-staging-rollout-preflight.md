@@ -32,6 +32,34 @@ Migrations 20261208 and 20261209 intentionally create **NOLOGIN** identities. Th
 - The current Neon Staging branch reports PostgreSQL 18.7. CI must replay the full chain on PostgreSQL 16 and 18 before Staging approval; a PostgreSQL 16-only pass is not sufficient evidence for this target.
 - Keep GitHub App installation activation disabled until the live OAuth → pending claim → authoritative reconciliation lifecycle has passed.
 
+## Staging runtime configuration manifest
+
+Configure these names only in the Vercel **Preview** environment for the exact JAS-SI Staging deployment. Do not put values in Git, this runbook, PR comments, CI output, or chat. The current project Preview inventory has not yet shown these GitHub integration keys, and the target feature branch currently has no Vercel Preview deployment; therefore this manifest is a required preflight, not evidence of a live configuration.
+
+| Variable | Type | Requirement / validation |
+|---|---|---|
+| `JAS_SI_GITHUB_APP_ID` | Non-secret | Positive integer GitHub App ID |
+| `JAS_SI_GITHUB_APP_PRIVATE_KEY_B64` | Secret | Base64-encoded PEM private key; use the existing locally generated App key |
+| `JAS_SI_GITHUB_OAUTH_CLIENT_ID` | Non-secret | GitHub App OAuth Client ID |
+| `JAS_SI_GITHUB_OAUTH_CLIENT_SECRET` | Secret | OAuth client secret |
+| `JAS_SI_GITHUB_OAUTH_REDIRECT_URI` | Non-secret URL | Exact HTTPS Preview origin plus `/v1/github/oauth/callback`; no query or fragment |
+| `JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING` | Secret | JSON object mapping version labels to Base64-encoded 32-byte keys |
+| `JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION` | Non-secret | Must match a key version in the keyring |
+| `JAS_SI_GITHUB_WEBHOOK_SECRET` | Secret | GitHub App webhook secret, at least 32 UTF-8 bytes |
+| `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` | Secret | Dedicated DSN authenticating as `jas_si_github_webhook_login`; never `jas_si_runtime` |
+| `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` | Secret | Dedicated DSN authenticating as `jas_si_github_reconciler_login`; adapter explicitly SET ROLE to `jas_si_github_reconciler` |
+| `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET` | Secret | Random bearer secret, at least 32 bytes; must match the Cloudflare Worker secret |
+| `JAS_SI_GITHUB_RECONCILER_POLL_SECONDS` | Non-secret, optional | Defaults to 15; allowed range 1–300 |
+
+The Vercel Preview hostname must be the actual deployment hostname used for the OAuth callback. Do not guess a deployment URL or use the Production hostname. The OAuth callback must be registered in the GitHub App configuration to match the configured redirect URI exactly.
+
+The Cloudflare Worker separately requires:
+- Secret `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET`, identical to the Vercel value.
+- Variable `JAS_SI_RECONCILER_ENDPOINT`, set to the exact Preview URL ending in `/internal/github/reconcile`.
+- Variable `JAS_SI_RECONCILER_ALLOWED_HOST`, set to only that Preview URL's hostname.
+
+Before enabling the Cron Trigger, verify the deployed Preview reports the expected commit and that all required environment keys exist by name (never decrypt or print values). Run the dedicated database identity smoke tests and the negative authorization checks. Then perform a controlled GitHub App test installation and verify OAuth, webhook receipt, pending claim, authoritative repository snapshot, revocation, and audit evidence. Keep real customer repositories out of initial tests; use a disposable test tenant and test repository. A configured environment is not a verified lifecycle.
+
 ## Read-only pre-migration inventory
 
 Run using the approved Staging read-only administrative connection. These statements inspect catalog state only.
