@@ -29,7 +29,7 @@ ALTER TABLE public.jas_si_github_installation_claims
     DROP CONSTRAINT IF EXISTS jas_si_github_installation_claims_status_check;
 ALTER TABLE public.jas_si_github_installation_claims
     ADD CONSTRAINT jas_si_github_installation_claims_status_check
-    CHECK (status IN ('pending_reconciliation','active','suspended','revoked'));
+    CHECK (status IN ('pending_reconciliation','active','suspended','revoked','needs_review'));
 ALTER TABLE public.jas_si_github_installation_claims
     ADD COLUMN IF NOT EXISTS reconciled_at timestamptz;
 ALTER TABLE public.jas_si_github_installation_claims
@@ -38,6 +38,8 @@ ALTER TABLE public.jas_si_github_installation_claims
 ALTER TABLE public.jas_si_github_installation_claims
     ADD COLUMN IF NOT EXISTS reconcile_next_attempt_at timestamptz NOT NULL
         DEFAULT pg_catalog.clock_timestamp();
+ALTER TABLE public.jas_si_github_installation_claims
+    ADD COLUMN IF NOT EXISTS reconcile_exhausted_at timestamptz;
 
 ALTER TABLE public.jas_si_github_app_installation_repositories
     ADD COLUMN IF NOT EXISTS github_repository_id bigint
@@ -55,7 +57,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS jas_si_github_repository_id_per_installation_u
 -- The reconciliation function is owned by the existing agent task owner. Give
 -- it narrowly scoped read/update authority over the non-secret ownership proof.
 GRANT SELECT ON public.jas_si_github_installation_claims TO jas_si_agent_task_owner;
-GRANT UPDATE (status,reconciled_at,reconcile_attempt_count,reconcile_next_attempt_at)
+GRANT UPDATE (status,reconciled_at,reconcile_attempt_count,reconcile_next_attempt_at,reconcile_exhausted_at)
     ON public.jas_si_github_installation_claims
     TO jas_si_agent_task_owner;
 DROP POLICY IF EXISTS jas_si_github_claims_reconciler_select
@@ -118,6 +120,12 @@ BEGIN
      FOR UPDATE;
     IF NOT FOUND THEN
         RETURN QUERY SELECT 'NO_CLAIM'::text,'UNCHANGED'::text,0;
+        RETURN;
+    END IF;
+
+    -- A retry-exhausted claim is terminal until an operator explicitly requeues it.
+    IF v_claim.status='needs_review' THEN
+        RETURN QUERY SELECT 'needs_review'::text,'UNCHANGED'::text,0;
         RETURN;
     END IF;
 
@@ -241,6 +249,14 @@ BEGIN
     IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 50 THEN
         RAISE EXCEPTION 'Invalid pending Installation claim limit' USING ERRCODE='22023';
     END IF;
+    -- Exhausted claims become an explicit operator-review state instead of
+    -- remaining indistinguishably pending forever after their final retry.
+    UPDATE public.jas_si_github_installation_claims c
+       SET status='needs_review',reconcile_exhausted_at=pg_catalog.clock_timestamp()
+     WHERE c.status='pending_reconciliation'
+       AND c.reconcile_attempt_count>=10
+       AND c.reconcile_next_attempt_at<=pg_catalog.clock_timestamp();
+
     RETURN QUERY
     WITH candidates AS (
         SELECT c.claim_id
