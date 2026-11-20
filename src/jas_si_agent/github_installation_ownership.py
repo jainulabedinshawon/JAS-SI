@@ -219,10 +219,16 @@ class GitHubUserInstallationAccessVerifier:
 
     @staticmethod
     def _validated_login(value: Any) -> str:
-        if not isinstance(value, str) or not 1 <= len(value) <= 39:
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= 39
+            or not value.isascii()
+        ):
             raise ValueError("invalid GitHub login")
         if not value[0].isalnum() or not value[-1].isalnum():
             raise ValueError("invalid GitHub login")
-        if any(not (char.isalnum() or char == "-") for char in value):
+        if "--" in value or any(
+            not (char.isalnum() or char == "-") for char in value
+        ):
             raise ValueError("invalid GitHub login")
         return value
