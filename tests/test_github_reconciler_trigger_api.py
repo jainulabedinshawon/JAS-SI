@@ -35,7 +35,10 @@ class GitHubReconcilerTriggerApiTests(unittest.TestCase):
     def setUp(self):
         self.old_settings = api.settings
         self.secret = b"scheduler-trigger-secret-material-32-bytes"
-        api.settings = SimpleNamespace(github_reconciler_trigger_secret=self.secret)
+        api.settings = SimpleNamespace(
+            environment="preview",
+            github_reconciler_trigger_secret=self.secret,
+        )
         self.client = TestClient(api.app, base_url="https://jas-si.example.test")
         self.reconciler = _FakeReconciler()
         self.factory = patch.object(api, "build_reconciler", return_value=self.reconciler)
@@ -78,6 +81,18 @@ class GitHubReconcilerTriggerApiTests(unittest.TestCase):
         self.assertEqual(self.reconciler.webhook_calls, [1])
         self.assertEqual(self.reconciler.pending_calls, [1])
         self.assertEqual(response.json()["pending_claims"]["reconciled"], 1)
+
+    def test_rejects_production_environment_even_with_valid_scheduler_secret(self):
+        api.settings = SimpleNamespace(
+            environment="production",
+            github_reconciler_trigger_secret=self.secret,
+        )
+        response = self.client.post(
+            "/internal/github/reconcile",
+            headers={"Authorization": "Bearer " + self.secret.decode()},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.mock_factory.assert_not_called()
 
     def test_fails_closed_when_scheduler_secret_is_not_configured(self):
         api.settings = SimpleNamespace(github_reconciler_trigger_secret=None)
