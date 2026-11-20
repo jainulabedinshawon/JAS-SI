@@ -10,9 +10,12 @@ The current implementation is in the stacked GitHub integration PR chain. The fi
 
 1. `20261201_github_installation_binding.sql` — tenant-owned Installation and repository binding tables; requires the existing tenant and agent capability roles.
 2. `20261202_github_webhook_inbox.sql` — durable, tenant-neutral inbox; requires `jas_si_agent_task_owner` and `jas_si_runtime`.
-3. `20261204_github_oauth_attempt_store.sql` — single-use OAuth state/PKCE attempt store; requires `jas_si_customer_identity_owner` and `jas_si_customer_runtime`.
-4. `20261206_github_installation_claims.sql` — customer-session-bound pending Installation claims; requires the customer identity roles and customer session/account/tenant tables.
-5. `20261207_github_installation_reconciliation.sql` — authoritative snapshot reconciliation; requires the preceding GitHub tables and both owner roles.
+3. `20261203_api_key_provisioner_rls_policies.sql` — required API-key provisioner RLS policy boundary in the complete branch migration chain; this is a prerequisite security migration, not a GitHub integration table migration.
+4. `20261204_github_oauth_attempt_store.sql` — single-use OAuth state/PKCE attempt store; requires `jas_si_customer_identity_owner` and `jas_si_customer_runtime`.
+5. `20261206_github_installation_claims.sql` — customer-session-bound pending Installation claims; requires the customer identity roles and customer session/account/tenant tables.
+6. `20261207_github_installation_reconciliation.sql` — authoritative snapshot reconciliation; requires the preceding GitHub tables and both owner roles.
+
+The migration-chain CI replays the full branch chain, including the 20261203 prerequisite, rather than only the five GitHub-specific migrations. Keep this exact order when validating the branch; do not omit the RLS prerequisite.
 
 The final migration creates the capability role `jas_si_github_reconciler` as `NOLOGIN`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, `NOBYPASSRLS`, and `NOINHERIT` when absent. It does **not** create a service login or configure a database URL. A separately provisioned login must be granted membership in this capability through the approved secret/role-provisioning process. The same principle applies to customer-identity and webhook service logins.
 
@@ -24,6 +27,7 @@ The final migration creates the capability role `jas_si_github_reconciler` as `N
 - Confirm the target database and branch identity before every operation. Stop if the connection target is ambiguous.
 - Capture a recoverable Neon branch snapshot/restore point under the operator's approved procedure before any write.
 - Apply migrations in the listed order using the repository's migration runner. Do not manually skip, reorder, or partially replay files.
+- The current Neon Staging branch reports PostgreSQL 18.7. CI must replay the full chain on PostgreSQL 16 and 18 before Staging approval; a PostgreSQL 16-only pass is not sufficient evidence for this target.
 - Keep GitHub App installation activation disabled until the live OAuth → pending claim → authoritative reconciliation lifecycle has passed.
 
 ## Read-only pre-migration inventory
