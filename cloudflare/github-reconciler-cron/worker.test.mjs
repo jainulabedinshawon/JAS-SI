@@ -97,6 +97,20 @@ test("production and non-JAS-SI hosts are rejected before sending the secret", a
   assert.equal(called, false);
 });
 
+test("Vercel Production branch alias is rejected even when explicitly allowlisted", async () => {
+  let called = false;
+  globalThis.fetch = async () => { called = true; return new Response("{}"); };
+  const productionAlias = "jas-si-git-main-jainulabedinshawon.vercel.app";
+  await assert.rejects(
+    worker.scheduled({}, env({
+      JAS_SI_RECONCILER_ENDPOINT: `https://${productionAlias}/internal/github/reconcile`,
+      JAS_SI_RECONCILER_ALLOWED_HOST: productionAlias,
+    })),
+    /Exact JAS-SI Vercel Preview hostname is invalid/,
+  );
+  assert.equal(called, false);
+});
+
 test("non-success API response fails without logging response body", async () => {
   let logged = "";
   globalThis.fetch = async () => new Response("private server diagnostics", { status: 503 });
