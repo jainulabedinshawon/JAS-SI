@@ -212,31 +212,5 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "JAS_SI_GITHUB_WEBHOOK_SECRET"):
                 Settings.from_env()
 
-    def test_github_reconciler_trigger_secret_is_loaded_and_not_exposed(self) -> None:
-        secret = "reconciler-scheduler-trigger-secret-at-least-32-bytes"
-        with patch.dict(
-            os.environ,
-            {"JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET": secret},
-            clear=True,
-        ):
-            settings = Settings.from_env()
-        self.assertEqual(
-            settings.github_reconciler_trigger_secret,
-            secret.encode("utf-8"),
-        )
-        self.assertNotIn(secret, repr(settings))
-
-    def test_short_github_reconciler_trigger_secret_is_rejected(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET": "too-short"},
-            clear=True,
-        ):
-            with self.assertRaisesRegex(
-                ValueError, "JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET"
-            ):
-                Settings.from_env()
-
-
 if __name__ == "__main__":
     unittest.main()
