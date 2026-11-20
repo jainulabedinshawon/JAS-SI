@@ -109,6 +109,7 @@ class GitHubUserInstallationAccessVerifier:
             found: dict[str, Any] | None = None
             total_count: int | None = None
             observed = 0
+            observed_ids: set[int] = set()
             for page in range(1, self._max_pages + 1):
                 response = client.get(
                     f"{_GITHUB_API}/user/installations",
@@ -148,6 +149,11 @@ class GitHubUserInstallationAccessVerifier:
                         raise GitHubInstallationOwnershipError(
                             "GitHub Installation entry is invalid"
                         ) from None
+                    if item_id in observed_ids:
+                        raise GitHubInstallationOwnershipError(
+                            "GitHub returned a duplicate Installation identity"
+                        )
+                    observed_ids.add(item_id)
                     if item_id == candidate_id:
                         if found is not None:
                             raise GitHubInstallationOwnershipError(
