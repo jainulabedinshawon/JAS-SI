@@ -416,10 +416,11 @@ jobs:
                   """INSERT INTO public.jas_si_agent_tasks(
                        task_id,tenant_id,api_key_id,idempotency_key,request_hash,
                        task_type,status,input_payload,attempt_count,max_attempts,
-                       lease_owner,lease_expires_at,lease_fence,lease_owner_principal
+                       lease_owner,lease_expires_at,lease_fence,lease_owner_principal,
+                       next_attempt_at
                      ) VALUES (%s,%s,%s,%s,%s,'reasoning','running','{}'::jsonb,
                                1,3,%s,clock_timestamp()-interval '1 second',7,
-                               'jas_si_agent_worker_test')""",
+                               'jas_si_agent_worker_test',clock_timestamp()-interval '1 day')""",
                   (expired_task_id,tenant_id,key_id,f"expired-reclaim-{uuid4().hex}",
                    bytes([23])*32,str(worker_id)),
               )
