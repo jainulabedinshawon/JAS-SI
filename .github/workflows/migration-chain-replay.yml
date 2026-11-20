@@ -482,7 +482,70 @@ jobs:
                   "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
               )
               cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test")
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_verifier_other_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_other_test")
+              verifier_task_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,result_payload,attempt_count,max_attempts,
+                       reported_at
+                     ) VALUES (%s,%s,%s,%s,%s,'github.read_repository','awaiting_verification',
+                               '{"repository":"jas-si-test/tenant-a","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}'::jsonb,
+                               '{"claimed_success":true}'::jsonb,1,3,clock_timestamp())""",
+                  (verifier_task_id,tenant_id,key_id,f"verifier-principal-{verifier_task_id.hex}",
+                   bytes([19])*32),
+              )
               conn.commit()
+
+              # The verifier claim is owned by its authenticated LOGIN. A
+              # second LOGIN with the same capability role cannot release it.
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute(
+                          "SELECT task_id,tenant_id,verifier_claim_token "
+                          "FROM public.jas_si_agent_task_verification_claim(1,120)"
+                      )
+                      verifier_claim = verifier_cur.fetchone()
+                      if verifier_claim is None or verifier_claim[0] != verifier_task_id:
+                          raise SystemExit(f"Verifier principal fixture was not claimed: {verifier_claim!r}")
+                      verifier_task, verifier_tenant, verifier_token = verifier_claim
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_other_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute("SAVEPOINT foreign_verifier_claim_guard")
+                      try:
+                          verifier_cur.execute(
+                              "SELECT public.jas_si_agent_task_verification_record_inconclusive(%s,%s,%s,'FOREIGN_VERIFIER')",
+                              (verifier_task,verifier_tenant,verifier_token),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          verifier_cur.execute("ROLLBACK TO SAVEPOINT foreign_verifier_claim_guard")
+                      else:
+                          raise SystemExit("A different verifier LOGIN changed another principal's claim")
+                      verifier_cur.execute("RELEASE SAVEPOINT foreign_verifier_claim_guard")
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute(
+                          "SELECT public.jas_si_agent_task_verification_record_inconclusive(%s,%s,%s,'EXPECTED_INCONCLUSIVE')",
+                          (verifier_task,verifier_tenant,verifier_token),
+                      )
+                      if verifier_cur.fetchone()[0] != "awaiting_verification":
+                          raise SystemExit("Owning verifier LOGIN could not record its inconclusive outcome")
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              print("Verified Worker lease and Verifier claim ownership against authenticated PostgreSQL LOGIN")
 
               for login_role, capability_role in (
                   ("jas_si_agent_worker_test","jas_si_agent_worker"),
