@@ -427,6 +427,16 @@ BEGIN
             'public.jas_si_github_installation_claim_pending(integer)','EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_runtime',
             'public.jas_si_github_installation_claim_pending(integer)','EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_worker',
+            'public.jas_si_github_installation_claim_pending(integer)','EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_verifier',
+            'public.jas_si_github_installation_claim_pending(integer)','EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_runtime',
+            'public.jas_si_github_installation_reconcile_apply(bigint,bigint,bigint,text,text,boolean,boolean,jsonb)','EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_worker',
+            'public.jas_si_github_installation_reconcile_apply(bigint,bigint,bigint,text,text,boolean,boolean,jsonb)','EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_verifier',
+            'public.jas_si_github_installation_reconcile_apply(bigint,bigint,bigint,text,text,boolean,boolean,jsonb)','EXECUTE')
        OR EXISTS (
             SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
                 (SELECT p.proacl FROM pg_catalog.pg_proc p
