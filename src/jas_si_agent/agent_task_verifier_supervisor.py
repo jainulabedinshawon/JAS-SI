@@ -94,7 +94,7 @@ def main() -> None:
     evidence_recollector = build_github_evidence_recollector(
         verifier_dsn=dsn,
         credential_provider=credential_provider,
-        collector_id=f"{collector_id}-recollection",
+        collector_id=collector_id,
         batch_size=batch_size,
     )
     stop_event = threading.Event()
