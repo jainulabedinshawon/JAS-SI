@@ -179,9 +179,12 @@ jobs:
                           "LOGIN PASSWORD 'test-only-runtime-password'"
                           if role == "jas_si_runtime" else "NOLOGIN"
                       )
+                      createrole_clause = (
+                          "CREATEROLE" if role == "neondb_owner" else "NOCREATEROLE"
+                      )
                       cur.execute(
                           f'CREATE ROLE "{role}" {login_clause} NOSUPERUSER NOCREATEDB '
-                          "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                          f'{createrole_clause} NOREPLICATION NOBYPASSRLS NOINHERIT'
                       )
 
               # Seed the known-bad future-object grants so the ACL boundary
@@ -286,6 +289,34 @@ jobs:
                       tail = migration_sql[start:].strip()
                       if tail:
                           statements.append(tail)
+                      # Reproduce the live Neon grantor boundary for the
+                      # final login hardening migration. Seed the same inherited
+                      # memberships granted by neondb_owner, then execute the
+                      # migration as that grantor (not as the replay superuser).
+                      if name == "20261214_agent_login_set_role_boundary.sql":
+                          cur.execute(
+                              "GRANT jas_si_agent_worker TO neondb_owner "
+                              "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
+                          )
+                          cur.execute(
+                              "GRANT jas_si_agent_verifier TO neondb_owner "
+                              "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
+                          )
+                          cur.execute("ALTER ROLE jas_si_agent_worker_login INHERIT")
+                          cur.execute("ALTER ROLE jas_si_agent_verifier_login INHERIT")
+                          cur.execute("SET ROLE neondb_owner")
+                          for login_role, capability_role in (
+                              ("jas_si_agent_worker_login", "jas_si_agent_worker"),
+                              ("jas_si_agent_verifier_login", "jas_si_agent_verifier"),
+                          ):
+                              cur.execute(
+                                  f"REVOKE {capability_role} FROM {login_role}"
+                              )
+                              cur.execute(
+                                  f"GRANT {capability_role} TO {login_role} "
+                                  "WITH ADMIN FALSE, INHERIT TRUE, SET TRUE"
+                              )
+
                       for statement_number, statement in enumerate(statements, start=1):
                           cur.execute("""
                               SELECT session_user,current_user,
@@ -305,6 +336,8 @@ jobs:
                               print("Failing SQL statement:\n" + statement[:4000])
                               conn.rollback()
                               raise
+                      if name == "20261214_agent_login_set_role_boundary.sql":
+                          cur.execute("RESET ROLE")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
               cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_github_reconciler_test'")
