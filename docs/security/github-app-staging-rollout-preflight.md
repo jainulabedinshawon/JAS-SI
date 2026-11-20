@@ -355,3 +355,29 @@ Read-only checks against Neon project `odd-violet-93299575`, Staging branch `br-
 - No Preview deployment exists for this branch. No Cloudflare Worker or Cron Trigger is deployed/enabled. No PR merge or Production change was made.
 
 The original migration approvals and eight Staging migration applications are historical; do not rerun them. Any further credential creation, secret provisioning, deployment, Cloudflare activation, or Production change remains separately approval-gated. This correction is an evidence/documentation update only.
+
+
+## Post-provisioning Staging ACL and Preview sequencing audit — 2026-11-20
+
+A further read-only Neon catalog audit on Staging branch `br-wandering-bonus-b32u1xg2` verified the live least-privilege boundaries:
+
+- Effective table privileges (SELECT/INSERT/UPDATE/DELETE) are all false for `jas_si_runtime`, `jas_si_customer_runtime`, `jas_si_agent_worker`, `jas_si_agent_verifier`, `jas_si_github_reconciler`, `jas_si_github_webhook_login`, and `jas_si_github_reconciler_login` across all five protected GitHub tables (Installations, Installation repositories, webhook inbox, OAuth attempts, Installation claims).
+- The webhook login has only the expected webhook routine EXECUTE grants: receive, claim, mark-processed, and mark-failed. It cannot execute pending-claim or reconciliation-apply routines. The broad runtime role has no EXECUTE on any of the six inspected GitHub routines.
+- The reconciler capability has EXECUTE on pending-claim, reconciliation-apply, and webhook claim/finish routines, but not webhook receive. The reconciler login itself has no direct routine EXECUTE; its membership is SET-only, so the adapter must explicitly `SET ROLE jas_si_github_reconciler`.
+- Neither the webhook login nor the reconciler login has direct/effective table privileges on the protected tables. Neither has PUBLIC EXECUTE on the six inspected routines.
+- Membership catalog confirms webhook login → runtime is MEMBER-only with `INHERIT=false`, `SET=false`, `ADMIN=false`; reconciler login → reconciler capability is `INHERIT=false`, `SET=true`, `ADMIN=false`.
+- All six inspected privileged routines are owned by `jas_si_agent_task_owner`, are SECURITY DEFINER, and pin `search_path=pg_catalog`.
+
+This is a focused live ACL check, not a full independent security audit. It does not replace exact live connection smoke tests or the broader routine/column ACL inventory before activation.
+
+### Safe Preview bootstrap ordering (code contract)
+
+The current configuration parser permits the complete GitHub OAuth configuration group to be entirely absent. In that state the application can still initialize its general Preview API if the existing base API/audit/rate-limit readiness gates pass; customer GitHub OAuth endpoints fail closed with HTTP 503 until the complete OAuth configuration (Client ID, Client Secret, exact callback URI, encryption keyring, active key version, and App ID) is supplied. Similarly, webhook intake returns 503 until its signing secret and dedicated inbox DSN are usable, and the reconciliation trigger returns 503 until its bearer secret is configured.
+
+This supports a safer two-stage rollout sequence:
+1. First, separately approve and create the Staging Preview deployment with OAuth/webhook/reconciler activation still disabled. Do not invent a callback URL before the actual Preview hostname exists.
+2. Verify the deployed commit, actual Preview hostname, API readiness, audit integrity, base rate-limit readiness, and exact-branch environment variable names without decrypting values.
+3. Only then, under separate explicit credential/configuration approval, provision the complete OAuth keyring/client settings, webhook signing secret, and reconciler trigger secret. Register the exact OAuth callback URL in the GitHub App settings and set the webhook delivery URL only after the endpoint is deployed and ready.
+4. Deploy/activate the Cloudflare Worker and Cron Trigger only after the Preview endpoint and matching trigger secret are verified; perform a disposable tenant/test repository lifecycle and independently inspect database/audit evidence.
+
+No deployment, GitHub App setting change, webhook activation, secret creation, or Cloudflare activation is authorized by this documentation update.
