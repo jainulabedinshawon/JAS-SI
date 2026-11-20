@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import unittest
-from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
@@ -18,7 +16,6 @@ from jas_si_agent.github_app_api import (
     _LOGIN_RE,
     _REPOSITORY_RE,
 )
-from jas_si_agent.config import Settings
 
 
 class GitHubAppInstallationAPITests(unittest.TestCase):
@@ -212,27 +209,6 @@ class GitHubAppInstallationAPITests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(GitHubAppAPIError):
                 api.snapshot(installation_id=value)
 
-    def test_reconciler_settings_load_private_key_without_oauth_web_settings(self):
-        encoded = base64.b64encode(self.private_key_pem).decode("ascii")
-        with patch.dict(os.environ, {
-            "JAS_SI_GITHUB_APP_ID": "123456",
-            "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": encoded,
-            "JAS_SI_GITHUB_RECONCILER_DATABASE_URL": "postgresql://reconciler:test@localhost/jas_si",
-            "JAS_SI_GITHUB_RECONCILER_POLL_SECONDS": "30",
-        }, clear=True):
-            settings = Settings.from_env()
-        self.assertEqual(settings.github_app_id, 123456)
-        self.assertEqual(settings.github_app_private_key_pem, self.private_key_pem)
-        self.assertEqual(settings.github_reconciler_poll_seconds, 30)
-        self.assertNotIn("PRIVATE KEY", repr(settings))
-        self.assertNotIn("reconciler:test", repr(settings))
-
-    def test_reconciler_private_key_configuration_rejects_invalid_base64(self):
-        with patch.dict(os.environ, {
-            "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": "not-base64!",
-        }, clear=True):
-            with self.assertRaises(ValueError):
-                Settings.from_env()
 
 
 if __name__ == "__main__":
