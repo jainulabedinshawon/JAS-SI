@@ -1,11 +1,16 @@
 -- Evidence-only recollection requests created atomically from immutable review events.
 -- This queue never re-enters the Worker task queue and cannot replay task actions.
 
-GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
+-- The review-audit owner controls REFERENCES/TRIGGER grants on its
+-- append-only event table. The task owner already owns jas_si_agent_tasks.
+SET LOCAL ROLE jas_si_agent_review_audit_owner;
 GRANT REFERENCES (decision_event_id) ON TABLE public.jas_si_agent_task_review_events
     TO jas_si_agent_task_owner;
 GRANT TRIGGER ON TABLE public.jas_si_agent_task_review_events
     TO jas_si_agent_task_owner;
+RESET ROLE;
+
+GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
 CREATE TABLE IF NOT EXISTS public.jas_si_agent_evidence_requests (
