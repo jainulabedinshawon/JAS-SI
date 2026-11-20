@@ -81,6 +81,42 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
             ("jas_si_agent_worker", *VERIFIER_FUNCTIONS),
         )
 
+    def test_accepts_validated_per_instance_worker_login(self):
+        self.cursor.fetchone.return_value = self.valid_row(
+            "jas_si_agent_worker_login_instance_02", "jas_si_agent_worker", 5
+        )
+        verify_agent_host_database_access(
+            "postgresql://not-logged",
+            capability_role="jas_si_agent_worker",
+            expected_login="jas_si_agent_worker_login_instance_02",
+            required_functions=WORKER_FUNCTIONS,
+        )
+
+    def test_accepts_validated_per_instance_verifier_login(self):
+        self.cursor.fetchone.return_value = self.valid_row(
+            "jas_si_agent_verifier_login_instance_02", "jas_si_agent_verifier", 3
+        )
+        verify_agent_host_database_access(
+            "postgresql://not-logged",
+            capability_role="jas_si_agent_verifier",
+            expected_login="jas_si_agent_verifier_login_instance_02",
+            required_functions=VERIFIER_FUNCTIONS,
+        )
+
+    def test_rejects_unbounded_or_wrong_prefix_instance_login(self):
+        for role, login, functions in (
+            ("jas_si_agent_worker", "jas_si_agent_verifier_login_instance_02", WORKER_FUNCTIONS),
+            ("jas_si_agent_worker", "jas_si_agent_worker_login_" + "x" * 33, WORKER_FUNCTIONS),
+            ("jas_si_agent_verifier", "jas_si_agent_verifier_login_BAD", VERIFIER_FUNCTIONS),
+        ):
+            with self.subTest(login=login), self.assertRaises(AgentHostPreflightError):
+                verify_agent_host_database_access(
+                    "postgresql://not-logged",
+                    capability_role=role,
+                    expected_login=login,
+                    required_functions=functions,
+                )
+
     def test_rejects_membership_in_opposite_capability_role(self):
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
