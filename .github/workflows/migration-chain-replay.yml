@@ -30,6 +30,7 @@ on:
       - feat/github-installation-user-ownership-proof-v1
       - feat/github-oauth-state-pkce-contract-v1
       - feat/agent-task-db-principal-binding-v1
+      - feat/github-capability-workload-identity-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
