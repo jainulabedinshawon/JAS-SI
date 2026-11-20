@@ -150,6 +150,7 @@ jobs:
               "20261211_github_reconcile_tenant_row_lock.sql",
               "20261212_github_reconcile_tenant_row_lock_rls.sql",
               "20261213_agent_task_db_principal_binding.sql",
+              "20261214_agent_login_set_role_boundary.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
