@@ -92,7 +92,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         )
         self.old_settings = api.settings
         self.settings = SimpleNamespace(
-            environment="preview",
+            environment="test",
             database_url=None,
             api_rate_limit_pepper=None,
             rate_limit_requests=60,
