@@ -6,6 +6,7 @@ ALTER TABLE public.jas_si_agent_tasks
     ADD COLUMN IF NOT EXISTS verifier_claim_owner name;
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
+GRANT TRIGGER ON TABLE public.jas_si_agent_tasks TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
 CREATE OR REPLACE FUNCTION public.jas_si_agent_task_bind_db_principal()
@@ -78,15 +79,25 @@ BEGIN
 END;
 $function$;
 
-DROP TRIGGER IF EXISTS jas_si_agent_task_db_principal_guard
-    ON public.jas_si_agent_tasks;
-CREATE TRIGGER jas_si_agent_task_db_principal_guard
-BEFORE UPDATE ON public.jas_si_agent_tasks
-FOR EACH ROW
-EXECUTE FUNCTION public.jas_si_agent_task_bind_db_principal();
+DO $trigger$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_trigger
+         WHERE tgrelid='public.jas_si_agent_tasks'::regclass
+           AND tgname='jas_si_agent_task_db_principal_guard'
+           AND NOT tgisinternal
+    ) THEN
+        EXECUTE 'CREATE TRIGGER jas_si_agent_task_db_principal_guard
+                 BEFORE UPDATE ON public.jas_si_agent_tasks
+                 FOR EACH ROW
+                 EXECUTE FUNCTION public.jas_si_agent_task_bind_db_principal()';
+    END IF;
+END
+$trigger$;
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
+REVOKE TRIGGER ON TABLE public.jas_si_agent_tasks FROM jas_si_agent_task_owner;
 REVOKE ALL ON FUNCTION public.jas_si_agent_task_bind_db_principal() FROM PUBLIC;
 
 DO $block$
