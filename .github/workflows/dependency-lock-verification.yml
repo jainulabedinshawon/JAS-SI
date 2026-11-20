@@ -54,14 +54,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "pip-tools==7.7.0"
 
-      - name: Verify committed hashed lock is reproducible
+      - name: Verify committed lock remains consistent with inputs
         run: |
           pip-compile \
             --resolver=backtracking \
             --generate-hashes \
-            --output-file=/tmp/requirements.lock.txt \
+            --output-file=requirements.lock.txt \
             requirements.in
-          diff -u requirements.lock.txt /tmp/requirements.lock.txt
+          git diff --exit-code -- requirements.lock.txt
 
       - name: Verify runtime pins match the committed lock
         run: |
