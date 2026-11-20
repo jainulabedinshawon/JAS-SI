@@ -18,6 +18,7 @@ from jas_si_agent.agent_task_host_preflight import (
 )
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
 from jas_si_agent.github_app_tokens import (
+    GitHubAppTokenError,
     build_github_app_tenant_credential_provider,
     decode_github_app_private_key_b64,
 )
@@ -132,7 +133,7 @@ def main() -> None:
                 app_id=app_id,
                 **key_kwargs,
             )
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, GitHubAppTokenError):
             raise SystemExit("GitHub App runtime configuration is invalid") from None
     else:
         credential_provider = _PublicRepositoryOnlyProvider()
