@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.jas_si_agent_evidence_requests (
     claim_token uuid,
     claimed_at timestamptz,
     lease_expires_at timestamptz,
-    next_attempt_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+    next_attempt_at timestamptz DEFAULT pg_catalog.clock_timestamp(),
     last_reason_code varchar(64),
     requested_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
     completed_at timestamptz,
@@ -132,7 +132,7 @@ BEGIN
 
     RETURN QUERY
     WITH candidates AS (
-        SELECT r.request_id
+        SELECT r.request_id,r.task_id,r.tenant_id
           FROM public.jas_si_agent_evidence_requests r
           JOIN public.jas_si_agent_tasks q
             ON q.task_id=r.task_id AND q.tenant_id=r.tenant_id
@@ -158,10 +158,8 @@ BEGIN
            lease_expires_at=v_now+pg_catalog.make_interval(secs=>p_lease_seconds),
            attempt_count=r.attempt_count+1
       FROM candidates c
-      JOIN public.jas_si_agent_tasks q ON q.task_id=(
-          SELECT x.task_id FROM public.jas_si_agent_evidence_requests x
-           WHERE x.request_id=c.request_id
-      )
+      JOIN public.jas_si_agent_tasks q
+        ON q.task_id=c.task_id AND q.tenant_id=c.tenant_id
      WHERE r.request_id=c.request_id
     RETURNING r.request_id,r.task_id,r.tenant_id,q.task_type::text,
               q.input_payload,q.result_payload,r.claim_token;
