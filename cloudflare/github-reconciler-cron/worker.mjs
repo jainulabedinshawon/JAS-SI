@@ -1,6 +1,13 @@
 const MIN_SECRET_LENGTH = 32;
 const EXPECTED_PATH = "/internal/github/reconcile";
 
+function isPreviewBranchHostname(hostname) {
+  // Vercel's production branch alias is jas-si-git-main-<team>.vercel.app.
+  // Never accept it, even if an operator accidentally configures it as the
+  // exact allowed host. Unique production deployment URLs do not match either.
+  return /^jas-si-git-(?!main(?:-|\\.))[a-z0-9-]+\\.vercel\\.app$/i.test(hostname);
+}
+
 function resolveStagingEndpoint(raw, allowedHostRaw) {
   if (typeof raw !== "string" || raw.length > 512) {
     throw new Error("JAS-SI Staging reconciliation endpoint is not configured");
@@ -9,10 +16,7 @@ function resolveStagingEndpoint(raw, allowedHostRaw) {
     throw new Error("Exact JAS-SI Staging endpoint host is not configured");
   }
   const allowedHost = allowedHostRaw.toLowerCase();
-  if (
-    !/^jas-si-[a-z0-9-]+\.vercel\.app$/.test(allowedHost)
-    || allowedHost === "jas-si.vercel.app"
-  ) {
+  if (!isPreviewBranchHostname(allowedHost)) {
     throw new Error("Exact JAS-SI Vercel Preview hostname is invalid");
   }
   let endpoint;
@@ -21,13 +25,10 @@ function resolveStagingEndpoint(raw, allowedHostRaw) {
   } catch {
     throw new Error("JAS-SI Staging reconciliation endpoint is invalid");
   }
-  const allowedPreviewHost =
-    /^jas-si-[a-z0-9-]+\.vercel\.app$/i.test(endpoint.hostname);
   if (
     endpoint.protocol !== "https:"
-    || !allowedPreviewHost
+    || !isPreviewBranchHostname(endpoint.hostname)
     || endpoint.hostname.toLowerCase() !== allowedHost
-    || endpoint.hostname === "jas-si.vercel.app"
     || endpoint.pathname !== EXPECTED_PATH
     || endpoint.search
     || endpoint.hash
