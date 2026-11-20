@@ -151,12 +151,22 @@ REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 DO $assert$
 DECLARE v_name text;
 BEGIN
-    IF pg_catalog.has_table_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','INSERT')
-       OR pg_catalog.has_table_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','UPDATE')
-       OR pg_catalog.has_any_column_privilege('jas_si_customer_runtime','public.jas_si_github_oauth_attempts','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_agent_worker','public.jas_si_github_oauth_attempts','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_github_oauth_attempts','SELECT')
+    IF EXISTS (
+        SELECT 1
+          FROM (VALUES ('jas_si_customer_runtime'),('jas_si_agent_worker'),
+                       ('jas_si_agent_verifier')) AS role_name(name)
+          CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                             ('TRUNCATE'),('REFERENCES'),('TRIGGER')) AS privilege(name)
+         WHERE pg_catalog.has_table_privilege(
+             role_name.name,'public.jas_si_github_oauth_attempts',privilege.name)
+    ) OR EXISTS (
+        SELECT 1
+          FROM (VALUES ('jas_si_customer_runtime'),('jas_si_agent_worker'),
+                       ('jas_si_agent_verifier')) AS role_name(name)
+          CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('REFERENCES')) AS privilege(name)
+         WHERE pg_catalog.has_any_column_privilege(
+             role_name.name,'public.jas_si_github_oauth_attempts',privilege.name)
+    )
        OR NOT pg_catalog.has_function_privilege('jas_si_customer_runtime',
            'public.customer_github_oauth_attempt_create(bytea,uuid,bigint,bytea,bytea,text,bytea,timestamptz)','EXECUTE')
        OR NOT pg_catalog.has_function_privilege('jas_si_customer_runtime',
