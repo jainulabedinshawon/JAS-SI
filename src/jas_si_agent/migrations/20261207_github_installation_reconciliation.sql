@@ -178,9 +178,14 @@ BEGIN
         RETURN;
     END IF;
 
+    -- The SECURITY DEFINER owner has UPDATE only on an inert lock-version
+    -- column. PostgreSQL requires a column UPDATE grant for FOR SHARE; the
+    -- dedicated grant lets activation serialize with tenant suspension while
+    -- status and tenant business fields remain non-writable to this owner.
     SELECT (t.status='active') INTO v_tenant_active
       FROM public.jas_si_tenants t
-     WHERE t.tenant_id=v_claim.tenant_id;
+     WHERE t.tenant_id=v_claim.tenant_id
+     FOR SHARE OF t;
     IF NOT FOUND OR v_tenant_active IS DISTINCT FROM true THEN
         RAISE EXCEPTION 'Installation claim tenant is not active'
             USING ERRCODE='55000';
