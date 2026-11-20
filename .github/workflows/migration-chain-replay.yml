@@ -302,6 +302,17 @@ jobs:
                               "GRANT jas_si_agent_verifier TO neondb_owner "
                               "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
                           )
+                          # Neon Staging's neondb_owner also holds ADMIN on each
+                          # pre-provisioned LOGIN role, which is required for
+                          # ALTER ROLE ... NOINHERIT while executing as that role.
+                          cur.execute(
+                              "GRANT jas_si_agent_worker_login TO neondb_owner "
+                              "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                          )
+                          cur.execute(
+                              "GRANT jas_si_agent_verifier_login TO neondb_owner "
+                              "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                          )
                           cur.execute("ALTER ROLE jas_si_agent_worker_login INHERIT")
                           cur.execute("ALTER ROLE jas_si_agent_verifier_login INHERIT")
                           cur.execute("SET ROLE neondb_owner")
