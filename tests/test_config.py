@@ -192,6 +192,16 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "fixed HTTPS JAS-SI callback path"):
                 Settings.from_env()
 
+    def test_public_api_settings_ignore_reconciler_private_key(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": "not-base64"},
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertFalse(hasattr(settings, "github_app_private_key_pem"))
+        self.assertFalse(hasattr(settings, "github_reconciler_database_url"))
+
     def test_github_webhook_secret_is_loaded_and_not_exposed(self) -> None:
         secret = "github-webhook-secret-with-at-least-32-bytes"
         with patch.dict(
