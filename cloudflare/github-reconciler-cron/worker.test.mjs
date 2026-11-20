@@ -24,7 +24,6 @@ test("scheduled trigger sends authenticated POST only to configured JAS-SI Previ
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
   console.log = () => {};
-
   await worker.scheduled(
     { scheduledTime: 123456 },
     {
@@ -32,7 +31,6 @@ test("scheduled trigger sends authenticated POST only to configured JAS-SI Previ
       JAS_SI_RECONCILER_ENDPOINT: endpoint,
     },
   );
-
   assert.equal(captured.url, endpoint);
   assert.equal(captured.options.method, "POST");
   assert.equal(captured.options.headers.Authorization, "Bearer " + secret);
@@ -70,12 +68,10 @@ test("production and non-JAS-SI hosts are rejected before sending the secret", a
     "https://jas-si-git-staging-example.vercel.app/other",
     "https://jas-si-git-staging-example.vercel.app/internal/github/reconcile?x=1",
   ]) {
-    await assert.rejects(
-      worker.scheduled({}, {
-        JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
-        JAS_SI_RECONCILER_ENDPOINT: rejected,
-      }),
-    );
+    await assert.rejects(worker.scheduled({}, {
+      JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
+      JAS_SI_RECONCILER_ENDPOINT: rejected,
+    }));
   }
   assert.equal(called, false);
 });
@@ -84,24 +80,18 @@ test("non-success API response fails without logging response body", async () =>
   let logged = "";
   globalThis.fetch = async () => new Response("private server diagnostics", { status: 503 });
   console.error = (...args) => { logged += args.join(" "); };
-  await assert.rejects(
-    worker.scheduled({}, {
-      JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
-      JAS_SI_RECONCILER_ENDPOINT: endpoint,
-    }),
-    /reconciliation request failed/,
-  );
+  await assert.rejects(worker.scheduled({}, {
+    JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
+    JAS_SI_RECONCILER_ENDPOINT: endpoint,
+  }), /reconciliation request failed/);
   assert.match(logged, /503/);
   assert.doesNotMatch(logged, /private server diagnostics/);
 });
 
 test("invalid JSON response is rejected", async () => {
   globalThis.fetch = async () => new Response("not-json", { status: 200 });
-  await assert.rejects(
-    worker.scheduled({}, {
-      JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
-      JAS_SI_RECONCILER_ENDPOINT: endpoint,
-    }),
-    /invalid JSON/,
-  );
+  await assert.rejects(worker.scheduled({}, {
+    JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET: secret,
+    JAS_SI_RECONCILER_ENDPOINT: endpoint,
+  }), /invalid JSON/);
 });
