@@ -54,6 +54,46 @@ class VerifierSupervisorTests(unittest.TestCase):
         self.assertEqual(verifier.calls, 1)
         self.assertEqual(stop.calls, 1)
 
+    def test_evidence_recollection_runs_when_verifier_fails(self):
+        verifier = FakeVerifier([RuntimeError("secret verifier DSN")])
+        recollection = type(
+            "Recollection", (),
+            {"scanned": 1, "finalized": 0, "inconclusive": 1, "lost_claim": 0},
+        )()
+        class FakeRecollector:
+            def __init__(self):
+                self.calls = 0
+            def run_once(self):
+                self.calls += 1
+                return recollection
+
+        recollector = FakeRecollector()
+        stop = StopAfterWait()
+        run_verifier_loop(
+            verifier, stop_event=stop, poll_interval_seconds=0.5,
+            evidence_recollector=recollector,
+        )
+        self.assertEqual(verifier.calls, 1)
+        self.assertEqual(recollector.calls, 1)
+        self.assertEqual(stop.calls, 1)
+
+    def test_verifier_runs_when_evidence_recollection_fails(self):
+        outcome = type(
+            "Batch", (), {"scanned": 1, "finalized": 1, "inconclusive": 0, "lost_finalization_race": 0},
+        )()
+        verifier = FakeVerifier([outcome])
+        class FailingRecollector:
+            def run_once(self):
+                raise RuntimeError("secret recollector DSN")
+
+        stop = StopAfterWait()
+        run_verifier_loop(
+            verifier, stop_event=stop, poll_interval_seconds=0.5,
+            evidence_recollector=FailingRecollector(),
+        )
+        self.assertEqual(verifier.calls, 1)
+        self.assertEqual(stop.calls, 1)
+
     def test_retries_after_error_without_leaking_exception(self):
         outcome = type(
             "Batch", (),
