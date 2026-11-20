@@ -145,6 +145,7 @@ jobs:
               "20261209_github_reconciler_login_boundary.sql",
               "20261210_github_login_hyphen_boundary.sql",
               "20261211_github_reconcile_tenant_row_lock.sql",
+              "20261212_github_reconcile_tenant_row_lock_rls.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
