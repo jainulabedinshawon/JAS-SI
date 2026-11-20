@@ -375,8 +375,9 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
 
 
     def test_database_rejects_consecutive_hyphens_in_verified_github_logins(self):
-        tenant_id, installation_id, claim = self._fixture()
+        _, installation_id, claim = self._fixture()
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_customer_identity_owner")
             with self.assertRaises(psycopg.errors.CheckViolation):
                 cur.execute(
                     "UPDATE public.jas_si_github_installation_claims SET github_user_login='jas--user' WHERE claim_id=%s",
@@ -387,11 +388,14 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
             repositories=[self._repo(1001, "jas-org/alpha")],
         )
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_agent_task_owner")
             with self.assertRaises(psycopg.errors.CheckViolation):
                 cur.execute(
                     "UPDATE public.jas_si_github_app_installations SET account_login='jas--org' WHERE installation_id=%s",
                     (installation_id,),
                 )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_agent_task_owner")
             with self.assertRaises(psycopg.errors.CheckViolation):
                 cur.execute(
                     "UPDATE public.jas_si_github_app_installation_repositories SET repository_full_name='jas--org/alpha' WHERE installation_id=%s",
