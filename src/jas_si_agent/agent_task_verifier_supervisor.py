@@ -47,16 +47,22 @@ def run_verifier_loop(
                 outcome.scanned, outcome.finalized, outcome.inconclusive,
                 outcome.lost_finalization_race,
             )
-            if evidence_recollector is not None:
+        except Exception:
+            # Keep verifier and recollection failure domains independent.
+            # Driver/provider exception text can contain DSNs or credentials.
+            _LOG.error("verifier iteration failed; retrying after poll interval")
+
+        if evidence_recollector is not None:
+            try:
                 recollection = evidence_recollector.run_once()
                 _LOG.info(
                     "evidence recollection scanned=%s finalized=%s inconclusive=%s lost_claim=%s",
                     recollection.scanned, recollection.finalized,
                     recollection.inconclusive, recollection.lost_claim,
                 )
-        except Exception:
-            # Driver/provider exception text can contain DSNs or credentials.
-            _LOG.error("verifier iteration failed; retrying after poll interval")
+            except Exception:
+                # Never let one polling path starve the other.
+                _LOG.error("evidence recollection iteration failed; retrying after poll interval")
         if stop_event.wait(float(poll_interval_seconds)):
             break
 
