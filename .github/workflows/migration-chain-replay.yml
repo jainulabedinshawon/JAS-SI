@@ -610,6 +610,50 @@ jobs:
                           raise SystemExit("Owning verifier LOGIN could not record its inconclusive outcome")
                       verifier_cur.execute("RESET SESSION AUTHORIZATION")
 
+              # Legacy active verifier claims created before this migration
+              # have no principal. They must fail closed until expiry.
+              legacy_verifier_task_id = uuid4()
+              legacy_verifier_token = uuid4()
+              with psycopg.connect(dsn) as host_conn:
+                  with host_conn.cursor() as host_cur:
+                      host_cur.execute(
+                          """INSERT INTO public.jas_si_agent_tasks(
+                               task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                               task_type,status,input_payload,result_payload,attempt_count,max_attempts,
+                               reported_at,verifier_claim_token,verifier_claimed_at,
+                               verifier_lease_expires_at,verifier_attempt_count,
+                               verifier_next_attempt_at
+                             ) VALUES (%s,%s,%s,%s,%s,'github.read_repository','awaiting_verification',
+                                       '{"repository":"jas-si-test/tenant-a","commit_sha":"cccccccccccccccccccccccccccccccccccccccc","paths":["README.md"]}'::jsonb,
+                                       '{"claimed_success":true}'::jsonb,1,3,
+                                       clock_timestamp()-interval '1 day',%s,
+                                       clock_timestamp()-interval '1 minute',
+                                       clock_timestamp()+interval '2 minutes',1,
+                                       clock_timestamp()-interval '1 day')""",
+                          (legacy_verifier_task_id,tenant_id,key_id,
+                           f"legacy-verifier-{legacy_verifier_task_id.hex}",
+                           bytes([37])*32,legacy_verifier_token),
+                      )
+                      host_conn.commit()
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute("SAVEPOINT legacy_verifier_claim_guard")
+                      try:
+                          verifier_cur.execute(
+                              "SELECT public.jas_si_agent_task_verification_record_inconclusive(%s,%s,%s,'LEGACY_CLAIM')",
+                              (legacy_verifier_task_id,tenant_id,legacy_verifier_token),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          verifier_cur.execute("ROLLBACK TO SAVEPOINT legacy_verifier_claim_guard")
+                      else:
+                          raise SystemExit("An unbound legacy Verifier claim was accepted before expiry")
+                      verifier_cur.execute("RELEASE SAVEPOINT legacy_verifier_claim_guard")
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+
               # An expired verifier claim may be reclaimed by a different
               # authenticated LOGIN; the replacement claim must bind to it.
               expired_verifier_task_id = uuid4()
