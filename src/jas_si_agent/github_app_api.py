@@ -24,9 +24,9 @@ _API_VERSION = "2022-11-28"
 _PAGE_SIZE = 100
 _MAX_PAGES = 100
 _TOKEN_RE = re.compile(r"^ghs_[A-Za-z0-9_]{20,512}$")
-_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
+_LOGIN_RE = re.compile(r"^(?![A-Za-z0-9-]*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 _REPOSITORY_RE = re.compile(
-    r"^([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)/([A-Za-z0-9_.-]{1,100})$"
+    r"^((?![A-Za-z0-9-]*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)/([A-Za-z0-9_.-]{1,100})$"
 )
 
 
