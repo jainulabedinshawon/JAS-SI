@@ -1,9 +1,19 @@
 const MIN_SECRET_LENGTH = 32;
 const EXPECTED_PATH = "/internal/github/reconcile";
 
-function resolveStagingEndpoint(raw) {
+function resolveStagingEndpoint(raw, allowedHostRaw) {
   if (typeof raw !== "string" || raw.length > 512) {
     throw new Error("JAS-SI Staging reconciliation endpoint is not configured");
+  }
+  if (typeof allowedHostRaw !== "string" || allowedHostRaw.length > 253) {
+    throw new Error("Exact JAS-SI Staging endpoint host is not configured");
+  }
+  const allowedHost = allowedHostRaw.toLowerCase();
+  if (
+    !/^jas-si-[a-z0-9-]+\.vercel\.app$/.test(allowedHost)
+    || allowedHost === "jas-si.vercel.app"
+  ) {
+    throw new Error("Exact JAS-SI Vercel Preview hostname is invalid");
   }
   let endpoint;
   try {
@@ -16,6 +26,7 @@ function resolveStagingEndpoint(raw) {
   if (
     endpoint.protocol !== "https:"
     || !allowedPreviewHost
+    || endpoint.hostname.toLowerCase() !== allowedHost
     || endpoint.hostname === "jas-si.vercel.app"
     || endpoint.pathname !== EXPECTED_PATH
     || endpoint.search
@@ -35,12 +46,16 @@ export default {
     if (typeof secret !== "string" || secret.length < MIN_SECRET_LENGTH) {
       throw new Error("GitHub reconciliation scheduler secret is not configured");
     }
-    const endpoint = resolveStagingEndpoint(env?.JAS_SI_RECONCILER_ENDPOINT);
+    const endpoint = resolveStagingEndpoint(
+      env?.JAS_SI_RECONCILER_ENDPOINT,
+      env?.JAS_SI_RECONCILER_ALLOWED_HOST,
+    );
 
     let response;
     try {
       response = await fetch(endpoint, {
         method: "POST",
+        redirect: "error",
         headers: {
           Authorization: `Bearer ${secret}`,
           Accept: "application/json",
