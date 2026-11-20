@@ -66,7 +66,8 @@ CREATE POLICY jas_si_github_claims_reconciler_update
 RESET ROLE;
 
 -- The Installation repository table is owned by the agent task capability.
--- Apply its schema/index changes under that owner in a separate role scope.
+-- CREATE INDEX also requires schema CREATE; grant it only for this DDL scope.
+GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 ALTER TABLE public.jas_si_github_app_installation_repositories
     ADD COLUMN IF NOT EXISTS github_repository_id bigint
@@ -81,6 +82,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS jas_si_github_repository_id_per_installation_u
        (installation_id,github_repository_id)
     WHERE github_repository_id IS NOT NULL;
 RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
