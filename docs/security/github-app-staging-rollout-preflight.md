@@ -34,7 +34,7 @@ Migrations 20261208 and 20261209 intentionally create **NOLOGIN** identities and
 
 ## Staging runtime configuration manifest
 
-Configure these names only in the Vercel **Preview** environment for the exact JAS-SI Staging deployment. Do not put values in Git, this runbook, PR comments, CI output, or chat. The exact-branch Vercel Preview inventory currently contains only the two dedicated database DSNs listed below; the other GitHub App/OAuth/webhook/reconciler settings remain absent from that branch inventory. The target feature branch has no Preview deployment, so this manifest remains a bootstrap checklist, not evidence of a live runtime configuration.
+Configure these names only in the Vercel **Preview** environment for the exact JAS-SI Staging deployment. Do not put values in Git, this runbook, PR comments, CI output, or chat. The latest exact-branch Vercel Preview inventory contains only `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL`; the reconciler DSN is not present in Vercel and belongs only in the isolated Render reconciler environment. Other GitHub App/OAuth/webhook settings remain absent from that Vercel branch inventory. The Render reconciler private key and dedicated DSN must never be copied into Vercel. The target feature branch has no Preview deployment, so this manifest remains a bootstrap checklist, not evidence of a live runtime configuration.
 
 | Variable | Type | Requirement / validation |
 |---|---|---|
@@ -96,7 +96,7 @@ WHERE rolname IN (
 ORDER BY rolname;
 ```
 
-Expected before migration: existing prerequisites must be present. The reconciler capability may be absent before migration 20261207, and the two dedicated GitHub login identities may be absent before migrations 20261208 and 20261209. Do not pre-create these roles with ad hoc attributes; let the reviewed migrations create them. After the migrations, both dedicated login identities are expected to remain NOLOGIN until separately approved credential provisioning.
+Expected before migration: existing prerequisites must be present. The reconciler capability may be absent before migration 20261207, and the two dedicated GitHub login identities may be absent before migrations 20261208 and 20261209. Do not pre-create these roles with ad hoc attributes; let the reviewed migrations create them. The migrations initially create both dedicated login identities as NOLOGIN. After the separately approved Staging credential provisioning, the live Staging catalog confirmed both login identities are LOGIN=true and NOINHERIT; the reconciler capability role itself remains NOLOGIN.
 
 ### 3. Inspect membership edges
 
@@ -344,8 +344,8 @@ Read-only checks against Neon project `odd-violet-93299575`, Staging branch `br-
 - `jas_si_github_webhook_login` is now LOGIN=true, NOINHERIT, non-superuser, and has no CREATEDB, CREATEROLE, or BYPASSRLS.
 - `jas_si_github_reconciler_login` is now LOGIN=true, NOINHERIT, non-superuser, and has no CREATEDB, CREATEROLE, or BYPASSRLS.
 - `jas_si_github_reconciler` remains NOLOGIN/NOINHERIT and has no elevated flags.
-- The two dedicated Staging DSNs were created under the user's specific approval and stored as encrypted Vercel Preview variables. This credential provisioning is separate from, and does not alter, the original migration definitions.
-- Historical Vercel environment inventory was checked with `decrypt=false`. `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` and `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` were both scoped to Preview branch `feat/github-oauth-state-pkce-contract-v1`; values were not read. The reconciler DSN is no longer consumed by API code and must be removed from Vercel after explicit credential-cleanup approval, before any new Preview deployment or activation.
+- The dedicated Staging webhook DSN was created under the user's specific approval and is stored as an encrypted Vercel Preview variable. The reconciler DSN is a separate Render-only credential; it must not be configured in Vercel.
+- The latest Vercel environment inventory was checked with `decrypt=false`: only `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` is present for Preview branch `feat/github-oauth-state-pkce-contract-v1`. No secret values were read. The previously present reconciler DSN was removed from Vercel; do not recreate it there.
 - The exact branch inventory does not yet establish that the remaining GitHub App/OAuth, webhook-secret, and reconciler-trigger-secret configuration is complete. Do not infer that a value is present merely because it exists in the Render Environment Group or in an unscoped Preview environment.
 - No Preview deployment exists for this branch. No Cloudflare Worker or Cron Trigger is deployed/enabled. No PR merge or Production change was made.
 
@@ -399,9 +399,9 @@ This is the latest consolidated status snapshot for the integration branch. It s
 
 - The eight Staging migrations in the canonical list above were applied to Neon project `odd-violet-93299575`, Staging branch `br-wandering-bonus-b32u1xg2`, under the separately recorded Staging-only approvals. Do not rerun them to reconcile documentation. Production was not migrated.
 - Both dedicated PostgreSQL login roles are enabled and constrained: `jas_si_github_webhook_login` and `jas_si_github_reconciler_login` are LOGIN=true, NOINHERIT, non-superuser, and have no CREATEDB, CREATEROLE, or BYPASSRLS. The reconciler capability `jas_si_github_reconciler` remains NOLOGIN. The webhook login's runtime membership is MEMBER-only (INHERIT=false, SET=false); the reconciler login's capability membership is SET-only (INHERIT=false, SET=true), with no ADMIN OPTION.
-- The dedicated webhook Staging DSN remains a Vercel encrypted Preview secret. A historical `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` also exists in the branch-scoped Preview environment inventory; its value was not read. It is now Render-only by design and requires separately approved removal from Vercel before a new Preview deployment or activation.
-- That exact-branch Vercel inventory contains only those two GitHub integration keys. App ID/private key, OAuth client settings, callback URI, encryption keyring, webhook signing secret, and reconciler trigger secret are not present in that inventory. Do not infer that secrets stored in a Render Environment Group are available to Vercel.
-- No Vercel Preview deployment exists for the current feature-branch HEAD; an earlier Preview belongs to a previous commit. Render has zero services; its review Blueprint is created with `autoSync=false` and no resources applied. Cloudflare has no deployed Worker Script for this integration. The Worker source code in this branch is not a deployed service.
+- The dedicated webhook Staging DSN is the only GitHub integration variable currently present in the exact-branch Vercel Preview inventory. The reconciler DSN is Render-only and is absent from Vercel; the GitHub App private key is also Render-only.
+- App ID, OAuth client settings, callback URI, encryption keyring, and webhook signing secret are not present in the exact-branch Vercel inventory. Do not infer that secrets stored in a Render Environment Group are available to Vercel.
+- Vercel has a READY Preview deployment for commit `588916b943c0fcb10da6f61eca8ed831630ab45a`; READY confirms build/deployment status only, not the live GitHub lifecycle. Render currently has zero services; its review Blueprint remains unapplied with `autoSync=false`. Cloudflare has no deployed Worker Script for this integration. The Worker source code in this branch is not a deployed service.
 - The current integration head at the time of this snapshot was `259f268ca3d6072b93f0d39bf990e80d28d31697`. The commit workflow inventory returned two PR-triggered workflows for that exact SHA: Agent Authorization Tests (run `44688420461`) and Clean Migration Chain Replay (run `44688420467`); both completed successfully. Do not extrapolate this two-run result into a broader all-workflows pass.
 - No live GitHub OAuth, signed webhook, pending-claim, authoritative repository reconciliation, or revocation lifecycle has been verified. No PR was merged and Production remains unchanged.
 
@@ -419,3 +419,16 @@ This correction supersedes earlier scheduler descriptions in this document and i
 - **No activation performed:** no private key or new credential was created or provisioned; no Render service was applied; no Cloudflare Worker was deployed; no GitHub webhook was configured; no Vercel deployment or Production change was made.
 
 The security fix must pass the GitHub Agent Authorization workflow, Clean Migration Chain Replay on PostgreSQL 16 and 18, Python reconciler settings tests, and Cloudflare Node tests before the PR is considered integrated. The Render Blueprint preflight currently cannot plan resources because the workspace requires payment information; it remains unapplied with `autoSync=false`.
+
+
+## Live environment boundary correction — 2026-11-20 (latest provider inventory)
+
+This note supersedes any earlier statements in this runbook about the current Vercel Preview DSN inventory or a Vercel-hosted reconciler:
+
+- Vercel Preview branch `feat/github-oauth-state-pkce-contract-v1` currently contains only the encrypted `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL`. The inventory was read with `decrypt=false`; no secret values were accessed.
+- `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` is absent from Vercel and must be configured only for the isolated Render reconciler. `JAS_SI_GITHUB_APP_PRIVATE_KEY_B64` is also Render-only. Do not re-add either to Vercel.
+- `render.yaml` defines the persistent Render reconciler command `python -m jas_si_agent.github_installation_reconciler`; Render currently has no deployed services. The Cloudflare Worker is an optional webhook-only proxy, with no Cron Trigger or reconciliation responsibility.
+- Neon Staging and Production branches are both Ready; no migration or database write was performed during this audit. Both branches currently report `protected=false`; branch protection must be addressed in a separately reviewed security task before any production rollout.
+- The Vercel Preview deployment for the current HEAD being READY is not evidence that OAuth, webhook delivery, or reconciliation is live. End-to-end lifecycle evidence remains outstanding.
+
+This is a documentation correction based on read-only provider metadata. It does not create credentials, change database state, deploy/activate infrastructure, or merge a PR.
