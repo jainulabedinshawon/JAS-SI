@@ -72,7 +72,7 @@ BEGIN
 
     FOREACH v_function IN ARRAY ARRAY[
         'jas_si_github_installation_claim_pending(integer)',
-        'jas_si_github_installation_reconcile_apply(bigint,uuid,text,text,jsonb)',
+        'jas_si_github_installation_reconcile_apply(bigint,bigint,bigint,text,text,boolean,boolean,jsonb)',
         'jas_si_github_webhook_claim(integer,integer)',
         'jas_si_github_webhook_mark_processed(text,uuid)',
         'jas_si_github_webhook_mark_failed(text,text,uuid,integer)'
