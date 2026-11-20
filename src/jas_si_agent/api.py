@@ -1224,8 +1224,8 @@ def customer_create_session(
 
 
 def _require_github_oauth_preview() -> None:
-    """Keep customer GitHub OAuth disabled outside the Staging Preview."""
-    if settings.environment != "preview":
+    """Keep customer GitHub OAuth disabled outside Preview and isolated tests."""
+    if settings.environment not in {"preview", "test"}:
         raise HTTPException(status_code=404, detail="Not found")
 
 
