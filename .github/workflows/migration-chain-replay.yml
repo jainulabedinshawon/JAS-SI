@@ -207,6 +207,25 @@ jobs:
               )
 
               for replay in (1, 2):
+                  if replay == 2:
+                      # First replay ran the verifier-capability migration as
+                      # jas_si, while Neon applies it as neondb_owner. Replace
+                      # that fixture-only grantor row with the managed
+                      # cloud_admin -> neondb_owner chain before idempotency.
+                      cur.execute(
+                          "REVOKE jas_si_agent_verifier FROM neondb_owner "
+                          "GRANTED BY jas_si"
+                      )
+                      cur.execute(
+                          "GRANT jas_si_agent_verifier TO cloud_admin "
+                          "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                      )
+                      cur.execute("SET ROLE cloud_admin")
+                      cur.execute(
+                          "GRANT jas_si_agent_verifier TO neondb_owner "
+                          "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                      )
+                      cur.execute("RESET ROLE")
                   for name in migrations:
                       path = migration_dir / name
                       if not path.is_file():
@@ -346,6 +365,13 @@ jobs:
                               )
 
                       for statement_number, statement in enumerate(statements, start=1):
+                          replay_verifier_grant_as_owner = (
+                              replay == 2
+                              and name == "20261127_agent_task_evidence_finalization.sql"
+                              and statement_number == 1
+                          )
+                          if replay_verifier_grant_as_owner:
+                              cur.execute("SET ROLE neondb_owner")
                           cur.execute("""
                               SELECT session_user,current_user,
                                      pg_catalog.has_schema_privilege(current_user,'public','USAGE'),
@@ -361,9 +387,12 @@ jobs:
                                   f"session_user={session_user}; current_user={current_user}; "
                                   f"public_usage={has_usage}; public_create={has_create}"
                               )
-                              print("Failing SQL statement:\n" + statement[:4000])
+                              print("Failing SQL statement:\\n" + statement[:4000])
                               conn.rollback()
                               raise
+                          finally:
+                              if replay_verifier_grant_as_owner:
+                                  cur.execute("RESET ROLE")
                       if name == "20261214_agent_login_set_role_boundary.sql":
                           cur.execute("RESET ROLE")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
