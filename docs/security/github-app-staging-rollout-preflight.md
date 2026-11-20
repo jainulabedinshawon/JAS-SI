@@ -381,3 +381,18 @@ This supports a safer two-stage rollout sequence:
 4. Deploy/activate the Cloudflare Worker and Cron Trigger only after the Preview endpoint and matching trigger secret are verified; perform a disposable tenant/test repository lifecycle and independently inspect database/audit evidence.
 
 No deployment, GitHub App setting change, webhook activation, secret creation, or Cloudflare activation is authorized by this documentation update.
+
+## Vercel Deployment Protection integration correction — 2026-11-20
+
+A live Vercel project metadata read showed Vercel Authentication / SSO Deployment Protection enabled for non-custom deployment URLs. The protected Preview branch URL therefore cannot be treated as an unauthenticated public webhook destination. Do not disable project Deployment Protection.
+
+The Staging Cloudflare Worker now provides a dedicated webhook proxy at `/github/webhook`:
+- GitHub sends its signed delivery to the Worker URL, not directly to the protected Vercel Preview.
+- The Worker verifies the exact raw-body HMAC-SHA256 signature, bounds the body to 2 MB, validates delivery/event headers, and forwards the unchanged raw body to the exact Preview `/webhooks/github` endpoint.
+- The Worker adds Vercel's `x-vercel-protection-bypass` header server-to-server. The Vercel API independently verifies the same GitHub signature again and persists through the dedicated webhook login.
+- The reconciler scheduler also adds the same Vercel protection header, alongside its independent JAS-SI bearer trigger secret.
+- The Vercel automation bypass credential is stored only as a Cloudflare Worker secret; it must never be placed in a URL, repository, log, webhook payload, or chat.
+
+The Worker requires the following Cloudflare secrets: `JAS_SI_GITHUB_WEBHOOK_SECRET`, `JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET`, and `JAS_SI_VERCEL_PROTECTION_BYPASS_SECRET`. Its plain variables include the exact webhook-forward endpoint, reconciliation endpoint, and shared Preview hostname. The GitHub webhook URL must be the deployed Worker URL ending in `/github/webhook`.
+
+This is a code/documentation correction only. No Vercel protection setting was changed, no bypass credential was generated or stored, no Worker was deployed, no GitHub webhook URL was changed, no Cron Trigger was enabled, and no Preview deployment or Production change was made. These actions remain separately approval-gated.
