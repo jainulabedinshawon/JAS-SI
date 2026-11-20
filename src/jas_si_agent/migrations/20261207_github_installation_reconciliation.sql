@@ -390,12 +390,25 @@ BEGIN
        OR pg_catalog.has_function_privilege('jas_si_runtime',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
-       OR pg_catalog.has_table_privilege('jas_si_github_reconciler',
-            'public.jas_si_github_installation_claims','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_github_reconciler',
-            'public.jas_si_github_app_installations','SELECT')
-       OR pg_catalog.has_table_privilege('jas_si_github_reconciler',
-            'public.jas_si_github_webhook_inbox','SELECT')
+       OR EXISTS (
+            SELECT 1
+              FROM (VALUES
+                ('public.jas_si_github_installation_claims'),
+                ('public.jas_si_github_app_installations'),
+                ('public.jas_si_github_app_installation_repositories'),
+                ('public.jas_si_github_webhook_inbox')
+              ) AS protected_table(table_name)
+              CROSS JOIN (VALUES
+                ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),
+                ('TRUNCATE'),('REFERENCES'),('TRIGGER')
+              ) AS privilege(privilege_name)
+             WHERE pg_catalog.has_table_privilege(
+                 'jas_si_github_reconciler',protected_table.table_name,
+                 privilege.privilege_name)
+                OR pg_catalog.has_any_column_privilege(
+                 'jas_si_github_reconciler',protected_table.table_name,
+                 privilege.privilege_name)
+       )
        OR pg_catalog.has_function_privilege('jas_si_github_reconciler',
             'public.jas_si_github_webhook_receive(text,text,text,bigint,bytea,jsonb)','EXECUTE')
        OR NOT pg_catalog.has_function_privilege('jas_si_github_reconciler',
