@@ -138,6 +138,8 @@ jobs:
               "20261204_github_oauth_attempt_store.sql",
               "20261206_github_installation_claims.sql",
               "20261207_github_installation_reconciliation.sql",
+              "20261208_github_webhook_login_boundary.sql",
+              "20261209_github_reconciler_login_boundary.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
