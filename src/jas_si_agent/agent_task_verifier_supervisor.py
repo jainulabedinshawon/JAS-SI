@@ -12,6 +12,7 @@ import signal
 import threading
 
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
+from jas_si_agent.agent_task_evidence_recollection import build_github_evidence_recollector
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
 
@@ -28,6 +29,7 @@ def run_verifier_loop(
     *,
     stop_event: threading.Event,
     poll_interval_seconds: float = 2.0,
+    evidence_recollector=None,
 ) -> None:
     """Run bounded verification batches with throttling and cooperative shutdown."""
     if (
@@ -42,11 +44,16 @@ def run_verifier_loop(
             outcome = verifier.run_once()
             _LOG.info(
                 "verifier iteration scanned=%s finalized=%s inconclusive=%s lost_race=%s",
-                outcome.scanned,
-                outcome.finalized,
-                outcome.inconclusive,
+                outcome.scanned, outcome.finalized, outcome.inconclusive,
                 outcome.lost_finalization_race,
             )
+            if evidence_recollector is not None:
+                recollection = evidence_recollector.run_once()
+                _LOG.info(
+                    "evidence recollection scanned=%s finalized=%s inconclusive=%s lost_claim=%s",
+                    recollection.scanned, recollection.finalized,
+                    recollection.inconclusive, recollection.lost_claim,
+                )
         except Exception:
             # Driver/provider exception text can contain DSNs or credentials.
             _LOG.error("verifier iteration failed; retrying after poll interval")
@@ -77,10 +84,17 @@ def main() -> None:
     if not 1 <= batch_size <= 20:
         raise SystemExit("JAS_SI_AGENT_VERIFIER_BATCH_SIZE must be between 1 and 20")
 
+    credential_provider = _PublicRepositoryOnlyProvider()
     verifier = build_github_repository_verifier(
         verifier_dsn=dsn,
-        credential_provider=_PublicRepositoryOnlyProvider(),
+        credential_provider=credential_provider,
         collector_id=collector_id,
+        batch_size=batch_size,
+    )
+    evidence_recollector = build_github_evidence_recollector(
+        verifier_dsn=dsn,
+        credential_provider=credential_provider,
+        collector_id=f"{collector_id}-recollection",
         batch_size=batch_size,
     )
     stop_event = threading.Event()
@@ -95,6 +109,7 @@ def main() -> None:
         verifier,
         stop_event=stop_event,
         poll_interval_seconds=poll_interval,
+        evidence_recollector=evidence_recollector,
     )
     _LOG.info("JAS-SI independent verifier stopped")
 
