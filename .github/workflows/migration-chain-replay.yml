@@ -168,7 +168,7 @@ jobs:
               for role in (
                   "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
                   "neondb_owner", "jas_si_agent_worker_login",
-                  "jas_si_agent_verifier_login",
+                  "jas_si_agent_verifier_login", "cloud_admin",
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
@@ -294,14 +294,6 @@ jobs:
                       # memberships granted by neondb_owner, then execute the
                       # migration as that grantor (not as the replay superuser).
                       if name == "20261214_agent_login_set_role_boundary.sql":
-                          cur.execute(
-                              "GRANT jas_si_agent_worker TO neondb_owner "
-                              "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
-                          )
-                          cur.execute(
-                              "GRANT jas_si_agent_verifier TO neondb_owner "
-                              "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
-                          )
                           # Neon Staging's neondb_owner also holds ADMIN on each
                           # pre-provisioned LOGIN role, which is required for
                           # ALTER ROLE ... NOINHERIT while executing as that role.
@@ -349,6 +341,31 @@ jobs:
                               raise
                       if name == "20261214_agent_login_set_role_boundary.sql":
                           cur.execute("RESET ROLE")
+                  if replay == 1:
+                      # Neon Staging has a managed cloud_admin grantor on the
+                      # two capability roles. Recreate that provenance after
+                      # the first pass creates the roles, so the second pass
+                      # exercises the same role-membership safety checks.
+                      for capability_role in (
+                          "jas_si_agent_task_owner",
+                          "jas_si_agent_worker",
+                          "jas_si_agent_verifier",
+                      ):
+                          cur.execute(
+                              f"GRANT {capability_role} TO cloud_admin "
+                              "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                          )
+                      cur.execute("SET ROLE cloud_admin")
+                      for capability_role in (
+                          "jas_si_agent_task_owner",
+                          "jas_si_agent_worker",
+                          "jas_si_agent_verifier",
+                      ):
+                          cur.execute(
+                              f"GRANT {capability_role} TO neondb_owner "
+                              "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                          )
+                      cur.execute("RESET ROLE")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
               cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_github_reconciler_test'")
