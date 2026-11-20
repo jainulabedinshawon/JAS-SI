@@ -197,5 +197,42 @@ class TestGitHubInstallationOwnership(unittest.TestCase):
                 user_access_token="user-token", installation_id=183349938
             )
 
+
+    def test_rejects_installation_page_larger_than_requested_limit(self):
+        def handler(request):
+            if request.url.path == "/user":
+                return httpx.Response(200, json={"id": 42, "login": "octocat"})
+            return httpx.Response(200, json={
+                "total_count": 101,
+                "installations": [{
+                    "id": i + 1,
+                    "app_id": APP_ID,
+                    "account": {
+                        "id": i + 1000, "login": f"org-{i}", "type": "Organization"
+                    },
+                } for i in range(101)],
+            })
+
+        verifier = GitHubUserInstallationAccessVerifier(
+            expected_app_id=APP_ID, http_client=_client(handler)
+        )
+        with self.assertRaises(GitHubInstallationOwnershipError):
+            verifier.verify(user_access_token="user-token", installation_id=1)
+
+    def test_rejects_non_integer_total_count(self):
+        def handler(request):
+            if request.url.path == "/user":
+                return httpx.Response(200, json={"id": 42, "login": "octocat"})
+            return httpx.Response(200, json={
+                "total_count": True,
+                "installations": [],
+            })
+
+        verifier = GitHubUserInstallationAccessVerifier(
+            expected_app_id=APP_ID, http_client=_client(handler)
+        )
+        with self.assertRaises(GitHubInstallationOwnershipError):
+            verifier.verify(user_access_token="user-token", installation_id=1)
+
 if __name__ == "__main__":
     unittest.main()
