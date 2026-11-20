@@ -477,15 +477,18 @@ _GITHUB_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _GITHUB_REPOSITORY_READ_FIELDS = {"repository", "commit_sha", "paths"}
 
 
-def _validate_agent_task_input(payload: AgentTaskCreateRequest) -> None:
-    """Validate the versioned, bounded input contract for GitHub read tasks.
+_SUPPORTED_AGENT_TASK_TYPES = frozenset({_GITHUB_REPOSITORY_READ_TASK})
 
-    Other host-defined task types retain their existing contract. A GitHub
-    repository read task is restricted to immutable commit evidence and a
-    small, traversal-safe list of file paths.
+
+def _validate_agent_task_input(payload: AgentTaskCreateRequest) -> None:
+    """Accept only task types registered by the deployed worker runtime.
+
+    The current worker supports read-only GitHub repository evidence. Reject
+    unknown task types before persistence so queued tasks cannot be guaranteed
+    to fail later with UNSUPPORTED_TASK_TYPE.
     """
-    if payload.task_type != _GITHUB_REPOSITORY_READ_TASK:
-        return
+    if payload.task_type not in _SUPPORTED_AGENT_TASK_TYPES:
+        raise HTTPException(status_code=422, detail="Unsupported agent task type")
 
     data = payload.input_payload
     if set(data) != _GITHUB_REPOSITORY_READ_FIELDS:
