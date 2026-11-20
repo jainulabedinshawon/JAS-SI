@@ -32,6 +32,10 @@ BEGIN
              (member_role.rolname='neondb_owner'
               AND grantor_role.rolname='cloud_admin'
               AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+             OR
+             (member_role.rolname='jas_si_agent_verifier_login'
+              AND grantor_role.rolname='neondb_owner'
+              AND NOT m.admin_option AND m.inherit_option AND m.set_option)
          ))
     ) THEN
         RAISE EXCEPTION 'Unsafe JAS-SI verifier capability role';
