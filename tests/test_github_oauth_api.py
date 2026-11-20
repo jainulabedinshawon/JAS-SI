@@ -244,18 +244,20 @@ class GitHubOAuthApiTests(unittest.TestCase):
 
     def test_all_oauth_routes_are_preview_only(self):
         self.settings.environment = "production"
+        trusted_edge_headers = {"x-vercel-forwarded-for": "203.0.113.10"}
         start = self.client.post(
             "/v1/customer/github/oauth/start",
-            headers={"X-JAS-SI-CSRF": "C" * 43},
+            headers={**trusted_edge_headers, "X-JAS-SI-CSRF": "C" * 43},
             json={"installation_id": 98765},
         )
         callback = self.client.get(
             "/v1/github/oauth/callback?state=" + "A" * 43
-            + "&code=github-authorization-code"
+            + "&code=github-authorization-code",
+            headers=trusted_edge_headers,
         )
         complete = self.client.post(
             "/v1/github/oauth/callback/complete",
-            headers={"X-JAS-SI-CSRF": "C" * 43},
+            headers={**trusted_edge_headers, "X-JAS-SI-CSRF": "C" * 43},
             json={"state": "A" * 43, "code": "github-authorization-code"},
         )
         self.assertEqual(start.status_code, 404)
