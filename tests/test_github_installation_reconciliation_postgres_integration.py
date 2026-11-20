@@ -28,16 +28,17 @@ class GitHubInstallationReconciliationPostgresTests(unittest.TestCase):
         session_token = uuid.uuid4().bytes + uuid.uuid4().bytes
         session_digest = hashlib.sha256(session_token).digest()
         installation_id = 983450000 + (uuid.uuid4().int % 1000000)
+        # Tenant lifecycle state is provisioned by the migration-test
+        # administrator, not by the customer identity capability. The latter
+        # must not receive UPDATE authority over tenant status.
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
-            cur.execute("SET ROLE jas_si_customer_identity_owner")
             cur.execute(
-                "INSERT INTO public.jas_si_tenants(tenant_id,tenant_name) VALUES (%s,%s)",
+                """INSERT INTO public.jas_si_tenants(tenant_id,tenant_name,status)
+                   VALUES (%s,%s,'active')""",
                 (tenant_id, "reconcile-" + tenant_id.hex),
             )
-            cur.execute(
-                "UPDATE public.jas_si_tenants SET status='active' WHERE tenant_id=%s",
-                (tenant_id,),
-            )
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SET ROLE jas_si_customer_identity_owner")
             cur.execute(
                 """INSERT INTO public.jas_si_customer_accounts(
                      account_id,tenant_id,email,email_normalized,organization_name
