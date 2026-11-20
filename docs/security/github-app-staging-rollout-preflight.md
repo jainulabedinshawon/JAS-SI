@@ -338,3 +338,20 @@ A later read-only catalog check on the same branch found the following current s
 Important provenance qualification: the current catalog contains the two login roles and their expected membership/grant boundaries, which correspond to migrations 20261208 and 20261209 in this branch. However, the six-migration authorization record does not establish that those two later migration files were separately approved or applied, and role presence alone is not proof of which migration created them. No migration-history table was identified in the read-only inventory used for this check. Do not describe all eight migrations as applied until their execution provenance is independently established. Do not reapply either migration merely to reconcile documentation.
 
 This evidence establishes catalog identity and ACL state only. It does not prove successful password authentication, host connectivity, OAuth, webhook delivery, or live reconciliation. Those require separately approved Staging credential configuration and independent lifecycle verification. Production remains untouched.
+
+
+## Live Staging status correction — 2026-11-20
+
+This dated status note supersedes earlier statements in this runbook about the live Staging role and Vercel Preview inventory. The migration descriptions above remain historical descriptions of the roles as initially created by migrations; they are not the current live role state.
+
+Read-only checks against Neon project `odd-violet-93299575`, Staging branch `br-wandering-bonus-b32u1xg2`, confirmed:
+
+- `jas_si_github_webhook_login` is now LOGIN=true, NOINHERIT, non-superuser, and has no CREATEDB, CREATEROLE, or BYPASSRLS.
+- `jas_si_github_reconciler_login` is now LOGIN=true, NOINHERIT, non-superuser, and has no CREATEDB, CREATEROLE, or BYPASSRLS.
+- `jas_si_github_reconciler` remains NOLOGIN/NOINHERIT and has no elevated flags.
+- The two dedicated Staging DSNs were created under the user's specific approval and stored as encrypted Vercel Preview variables. This credential provisioning is separate from, and does not alter, the original migration definitions.
+- Vercel environment inventory was checked with `decrypt=false`. Both `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` and `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` exist and are scoped to Preview branch `feat/github-oauth-state-pkce-contract-v1`. Their values were not read.
+- The exact branch inventory does not yet establish that the remaining GitHub App/OAuth, webhook-secret, and reconciler-trigger-secret configuration is complete. Do not infer that a value is present merely because it exists in the Render Environment Group or in an unscoped Preview environment.
+- No Preview deployment exists for this branch. No Cloudflare Worker or Cron Trigger is deployed/enabled. No PR merge or Production change was made.
+
+The original migration approvals and eight Staging migration applications are historical; do not rerun them. Any further credential creation, secret provisioning, deployment, Cloudflare activation, or Production change remains separately approval-gated. This correction is an evidence/documentation update only.
