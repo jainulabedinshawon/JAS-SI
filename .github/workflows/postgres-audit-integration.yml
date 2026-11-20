@@ -25,6 +25,7 @@ on:
     branches:
       - main
       - feat/customer-identity-onboarding-v1
+      - feat/github-webhook-http-ingress-v1
       - fix/tenant-suspension-locking-after-onboarding-fix
     paths:
       - "src/jas_si_agent/postgres_security_event_store.py"

@@ -7,19 +7,21 @@ on:
       - feat/tenant-github-installation-binding-v1
       - feat/github-webhook-durable-inbox-v1
       - feat/github-webhook-http-ingress-v1
+      - feat/github-installation-user-ownership-proof-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
+      - "tests/test_github_webhook_inbox_postgres_integration.py"
   pull_request:
     branches:
-      - feat/github-installation-onboarding-security-v1
+      - feat/github-webhook-http-ingress-v1
       - main
       - feat/customer-identity-onboarding-v1
       - fix/tenant-suspension-locking-after-onboarding-fix
       - feat/durable-agent-task-store-v1
       - feat/github-app-token-issuer-v1
+      - feat/github-installation-onboarding-security-v1
       - feat/github-webhook-durable-inbox-v1
-      - feat/github-webhook-http-ingress-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -120,6 +122,7 @@ jobs:
               "20261130_customer_tenant_active_guard_reassert.sql",
               "20261201_github_installation_binding.sql",
               "20261202_github_webhook_inbox.sql",
+              "20261203_api_key_provisioner_rls_policies.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations

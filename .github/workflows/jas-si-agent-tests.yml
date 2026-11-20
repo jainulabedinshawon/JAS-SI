@@ -7,9 +7,10 @@ on:
       - feat/jas-si-agent-mvp-safety-core
       - feat/customer-identity-onboarding-v1
       - feat/jas-si-agent-authorization-tests
-      - feat/github-webhook-durable-inbox-v1
-      - fix/shared-api-rate-limiter-v1
       - feat/github-webhook-http-ingress-v1
+      - feat/github-webhook-durable-inbox-v1
+      - feat/github-installation-user-ownership-proof-v1
+      - fix/shared-api-rate-limiter-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
@@ -18,14 +19,15 @@ on:
 
   pull_request:
     branches:
-      - feat/tenant-github-installation-binding-v1
       - main
       - feat/jas-si-agent-mvp-safety-core
       - feat/customer-identity-onboarding-v1
-      - feat/github-webhook-durable-inbox-v1
-      - fix/shared-api-rate-limiter-v1
-      - feat/github-installation-onboarding-security-v1
       - feat/github-webhook-http-ingress-v1
+      - feat/github-webhook-durable-inbox-v1
+      - feat/github-installation-user-ownership-proof-v1
+      - fix/shared-api-rate-limiter-v1
+      - feat/tenant-github-installation-binding-v1
+      - feat/github-installation-onboarding-security-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
