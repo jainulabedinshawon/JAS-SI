@@ -88,7 +88,7 @@ async function verifyWebhookSignature(secret, rawBody, signatureHeader) {
 async function readBoundedBody(request) {
   const declaredLength = request.headers.get("content-length");
   if (declaredLength !== null) {
-    if (!/^\\d+$/.test(declaredLength)) return { error: 400 };
+    if (!/^\d+$/.test(declaredLength)) return { error: 400 };
     if (Number(declaredLength) > MAX_WEBHOOK_BODY_BYTES) return { error: 413 };
   }
   if (!request.body) return { body: new Uint8Array() };
