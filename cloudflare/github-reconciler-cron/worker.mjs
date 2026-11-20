@@ -7,7 +7,7 @@ function isPreviewBranchHostname(hostname) {
   // Vercel's production branch alias is jas-si-git-main-<team>.vercel.app.
   // Never accept it, even if an operator accidentally configures it as the
   // exact allowed host. Unique production deployment URLs do not match either.
-  return /^jas-si-git-(?!main(?:-|\\.))[a-z0-9-]+\\.vercel\\.app$/i.test(hostname);
+  return /^jas-si-git-(?!main(?:-|\.))[a-z0-9-]+\.vercel\.app$/i.test(hostname);
 }
 
 function resolvePreviewEndpoint(raw, allowedHostRaw, expectedPath) {
