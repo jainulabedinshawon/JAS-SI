@@ -53,6 +53,14 @@ class PostgresGitHubWebhookInbox:
 
             with psycopg.connect(self._database_dsn, connect_timeout=5) as connection:
                 with connection.cursor() as cursor:
+                    # Fail closed if an operator accidentally supplies a broad
+                    # runtime, worker, verifier, or owner DSN.
+                    cursor.execute("SELECT session_user")
+                    identity = cursor.fetchone()
+                    if not identity or identity[0] != "jas_si_github_webhook_login":
+                        raise GitHubWebhookInboxError(
+                            "Dedicated GitHub webhook database identity is required"
+                        )
                     # The dedicated webhook login has direct EXECUTE on this
                     # SECURITY DEFINER routine. Do not SET ROLE: its runtime
                     # membership is deliberately non-inheriting and non-settable.
