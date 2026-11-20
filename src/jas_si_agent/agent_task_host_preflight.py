@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import re
 
 
 class AgentHostPreflightError(RuntimeError):
@@ -16,13 +17,17 @@ def verify_agent_host_database_access(
     required_functions: Sequence[str],
 ) -> None:
     """Verify dedicated login, capability switch, routine grants, and table isolation."""
-    expected_logins = {
-        "jas_si_agent_worker": "jas_si_agent_worker_login",
-        "jas_si_agent_verifier": "jas_si_agent_verifier_login",
+    expected_login_patterns = {
+        "jas_si_agent_worker": r"jas_si_agent_worker_login(?:_[a-z0-9_]{1,32})?",
+        "jas_si_agent_verifier": r"jas_si_agent_verifier_login(?:_[a-z0-9_]{1,32})?",
     }
     if not isinstance(dsn, str) or not dsn.strip():
         raise AgentHostPreflightError("Agent host database DSN is required")
-    if capability_role not in expected_logins or expected_login != expected_logins[capability_role]:
+    if (
+        capability_role not in expected_login_patterns
+        or not isinstance(expected_login, str)
+        or re.fullmatch(expected_login_patterns[capability_role], expected_login) is None
+    ):
         raise AgentHostPreflightError("Agent host database identity is invalid")
     if not required_functions or any(
         not isinstance(item, str)
