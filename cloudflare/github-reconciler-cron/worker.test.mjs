@@ -75,7 +75,7 @@ test("endpoint host must exactly match the configured staging host", async () =>
   globalThis.fetch = async () => { called = true; return new Response("{}"); };
   await assert.rejects(
     worker.scheduled({}, env({
-      JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-another-preview.vercel.app",
+      JAS_SI_RECONCILER_ALLOWED_HOST: "jas-si-git-another-preview.vercel.app",
     })),
     /Only an HTTPS JAS-SI Vercel Preview endpoint is allowed/,
   );
