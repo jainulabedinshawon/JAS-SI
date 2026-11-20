@@ -238,7 +238,6 @@ class Settings:
     github_app_id: Optional[int] = None
     github_app_private_key_pem: Optional[bytes] = field(default=None, repr=False)
     github_reconciler_database_url: Optional[str] = field(default=None, repr=False)
-    github_reconciler_trigger_secret: Optional[bytes] = field(default=None, repr=False)
     github_reconciler_poll_seconds: int = 15
 
     @classmethod
@@ -277,19 +276,6 @@ class Settings:
         github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
         if github_webhook_secret is not None and len(github_webhook_secret) < 32:
             raise ValueError("JAS_SI_GITHUB_WEBHOOK_SECRET must contain at least 32 UTF-8 bytes")
-        raw_reconciler_trigger_secret = os.getenv("JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET")
-        github_reconciler_trigger_secret = (
-            raw_reconciler_trigger_secret.encode("utf-8")
-            if raw_reconciler_trigger_secret else None
-        )
-        if (
-            github_reconciler_trigger_secret is not None
-            and len(github_reconciler_trigger_secret) < 32
-        ):
-            raise ValueError(
-                "JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET must contain at least 32 UTF-8 bytes"
-            )
-
         if (hmac_secret is None) != (provider_id is None):
             raise ValueError(
                 "Trusted Anchor HMAC secret and provider ID "
@@ -351,6 +337,5 @@ class Settings:
             github_app_id=github_oauth[5],
             github_app_private_key_pem=github_app_private_key_pem,
             github_reconciler_database_url=(os.getenv("JAS_SI_GITHUB_RECONCILER_DATABASE_URL") or None),
-            github_reconciler_trigger_secret=github_reconciler_trigger_secret,
             github_reconciler_poll_seconds=github_reconciler_poll_seconds,
         )
