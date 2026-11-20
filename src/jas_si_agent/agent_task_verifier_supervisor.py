@@ -19,6 +19,7 @@ from jas_si_agent.agent_task_host_preflight import (
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
 from jas_si_agent.github_app_tokens import (
     build_github_app_tenant_credential_provider,
+    decode_github_app_private_key_b64,
 )
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
@@ -107,19 +108,29 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Verifier database readiness preflight failed") from None
 
-    app_id_raw = os.environ.get("GITHUB_APP_ID", "").strip()
+    app_id_raw = os.environ.get(
+        "JAS_SI_GITHUB_APP_ID", os.environ.get("GITHUB_APP_ID", "")
+    ).strip()
+    private_key_b64 = os.environ.get("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64", "").strip()
     private_key_path = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
-    if bool(app_id_raw) != bool(private_key_path):
+    if private_key_b64 and private_key_path:
+        raise SystemExit("Configure only one GitHub App private-key source")
+    has_key = bool(private_key_b64 or private_key_path)
+    if bool(app_id_raw) != has_key:
         raise SystemExit(
-            "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH must be configured together"
+            "GitHub App ID and exactly one private-key source must be configured together"
         )
     if app_id_raw:
         try:
             app_id = int(app_id_raw)
+            key_kwargs = (
+                {"private_key_pem": decode_github_app_private_key_b64(private_key_b64)}
+                if private_key_b64 else {"private_key_path": private_key_path}
+            )
             credential_provider = build_github_app_tenant_credential_provider(
                 database_dsn=dsn,
                 app_id=app_id,
-                private_key_path=private_key_path,
+                **key_kwargs,
             )
         except (ValueError, TypeError):
             raise SystemExit("GitHub App runtime configuration is invalid") from None
