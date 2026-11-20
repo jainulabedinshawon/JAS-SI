@@ -105,6 +105,7 @@ from jas_si_agent.github_webhook_inbox import (
     GitHubWebhookInboxError,
     PostgresGitHubWebhookInbox,
 )
+from jas_si_agent.github_installation_reconciler import build_reconciler
 
 
 settings = Settings.from_env()
@@ -2092,5 +2093,50 @@ async def receive_github_webhook(request: Request) -> JSONResponse:
             "delivery_id": receipt.delivery_id,
             "duplicate": not receipt.inserted,
             "state": receipt.status,
+        },
+    )
+
+
+@app.post("/internal/github/reconcile", include_in_schema=False)
+def trigger_github_installation_reconciliation(request: Request) -> JSONResponse:
+    """Run a bounded reconciliation batch from an authenticated scheduler.
+
+    The scheduler only wakes this endpoint. PostgreSQL owns claim leases and
+    retry timing; GitHub App API snapshots remain the source of truth.
+    """
+    expected = settings.github_reconciler_trigger_secret
+    if not isinstance(expected, bytes) or len(expected) < 32:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub reconciliation trigger is not configured",
+        )
+
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, supplied = authorization.partition(" ")
+    if (
+        not separator
+        or scheme.lower() != "bearer"
+        or not hmac.compare_digest(supplied.encode("utf-8"), expected)
+    ):
+        raise HTTPException(status_code=401, detail="Scheduler authorization failed")
+
+    try:
+        reconciler = build_reconciler(settings)
+        # Keep each serverless invocation deliberately bounded. Database
+        # claim routines make overlapping scheduler invocations safe.
+        webhook_counts = reconciler.process_batch(limit=2)
+        pending_counts = reconciler.process_pending_claims(limit=2)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub reconciliation is temporarily unavailable",
+        ) from None
+
+    return JSONResponse(
+        status_code=200,
+        headers={"Cache-Control": "no-store"},
+        content={
+            "webhook": webhook_counts,
+            "pending_claims": pending_counts,
         },
     )
