@@ -144,6 +144,64 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
                 Settings.from_env()
 
 
+    def test_github_oauth_configuration_is_loaded_and_secrets_are_redacted(self) -> None:
+        import base64
+        import json
+        secret = "github-oauth-client-secret-" + "S" * 24
+        keyring = json.dumps({"v1": base64.b64encode(b"K" * 32).decode("ascii")})
+        env = {
+            "JAS_SI_GITHUB_OAUTH_CLIENT_ID": "Iv1." + "a" * 24,
+            "JAS_SI_GITHUB_OAUTH_CLIENT_SECRET": secret,
+            "JAS_SI_GITHUB_OAUTH_REDIRECT_URI": "https://jas-si.example.test/v1/github/oauth/callback",
+            "JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING": keyring,
+            "JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION": "v1",
+            "JAS_SI_GITHUB_APP_ID": "4567",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual(settings.github_oauth_client_id, env["JAS_SI_GITHUB_OAUTH_CLIENT_ID"])
+        self.assertEqual(settings.github_oauth_client_secret, secret)
+        self.assertEqual(settings.github_oauth_encryption_keyring, {"v1": b"K" * 32})
+        self.assertEqual(settings.github_app_id, 4567)
+        self.assertNotIn(secret, repr(settings))
+        self.assertNotIn("KKKK", repr(settings))
+
+    def test_partial_github_oauth_configuration_is_rejected(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"JAS_SI_GITHUB_OAUTH_CLIENT_ID": "Iv1." + "a" * 24},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "complete set"):
+                Settings.from_env()
+
+    def test_github_oauth_redirect_must_use_exact_callback_path(self) -> None:
+        import base64
+        import json
+        env = {
+            "JAS_SI_GITHUB_OAUTH_CLIENT_ID": "Iv1." + "a" * 24,
+            "JAS_SI_GITHUB_OAUTH_CLIENT_SECRET": "S" * 32,
+            "JAS_SI_GITHUB_OAUTH_REDIRECT_URI": "https://jas-si.example.test/other",
+            "JAS_SI_GITHUB_OAUTH_ENCRYPTION_KEYRING": json.dumps(
+                {"v1": base64.b64encode(b"K" * 32).decode("ascii")}
+            ),
+            "JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION": "v1",
+            "JAS_SI_GITHUB_APP_ID": "4567",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(ValueError, "fixed HTTPS JAS-SI callback path"):
+                Settings.from_env()
+
+    def test_public_api_settings_ignore_reconciler_private_key(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": "not-base64"},
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertFalse(hasattr(settings, "github_app_private_key_pem"))
+        self.assertFalse(hasattr(settings, "github_reconciler_database_url"))
+
     def test_github_webhook_secret_is_loaded_and_not_exposed(self) -> None:
         secret = "github-webhook-secret-with-at-least-32-bytes"
         with patch.dict(
@@ -163,7 +221,6 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "JAS_SI_GITHUB_WEBHOOK_SECRET"):
                 Settings.from_env()
-
 
 if __name__ == "__main__":
     unittest.main()

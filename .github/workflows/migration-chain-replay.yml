@@ -8,10 +8,13 @@ on:
       - feat/github-webhook-durable-inbox-v1
       - feat/github-webhook-http-ingress-v1
       - feat/github-installation-user-ownership-proof-v1
+      - feat/github-oauth-state-pkce-contract-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
       - "tests/test_github_webhook_inbox_postgres_integration.py"
+      - "tests/test_github_oauth_attempt_postgres_integration.py"
+      - "tests/test_github_installation_reconciliation_postgres_integration.py"
   pull_request:
     branches:
       - feat/github-webhook-http-ingress-v1
@@ -19,14 +22,19 @@ on:
       - feat/customer-identity-onboarding-v1
       - fix/tenant-suspension-locking-after-onboarding-fix
       - feat/durable-agent-task-store-v1
+      - feat/verifier-inconclusive-review-lifecycle-rebased
       - feat/github-app-token-issuer-v1
       - feat/github-installation-onboarding-security-v1
       - feat/github-webhook-durable-inbox-v1
+      - feat/github-installation-user-ownership-proof-v1
+      - feat/github-oauth-state-pkce-contract-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
       - "tests/test_customer_identity_postgres_integration.py"
       - "tests/test_github_webhook_inbox_postgres_integration.py"
+      - "tests/test_github_oauth_attempt_postgres_integration.py"
+      - "tests/test_github_installation_reconciliation_postgres_integration.py"
 
 permissions:
   contents: read
@@ -37,12 +45,16 @@ concurrency:
 
 jobs:
   clean-postgres-replay:
-    name: PostgreSQL 16 clean replay and idempotency
+    name: PostgreSQL ${{ matrix.postgres-version }} clean replay and idempotency
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [16, 18]
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.postgres-version }}
         env:
           POSTGRES_DB: jas_si_migration_replay
           POSTGRES_USER: jas_si
@@ -74,6 +86,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import re
           from pathlib import Path
           import sys
           import psycopg
@@ -120,9 +133,19 @@ jobs:
               "20261128_agent_task_verifier_claims.sql",
               "20261129_agent_runtime_default_acl_boundary.sql",
               "20261130_customer_tenant_active_guard_reassert.sql",
+              "20261130a_general_runtime_default_acl_boundary.sql",
+              "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
               "20261201_github_installation_binding.sql",
               "20261202_github_webhook_inbox.sql",
               "20261203_api_key_provisioner_rls_policies.sql",
+              "20261204_github_oauth_attempt_store.sql",
+              "20261206_github_installation_claims.sql",
+              "20261207_github_installation_reconciliation.sql",
+              "20261208_github_webhook_login_boundary.sql",
+              "20261209_github_reconciler_login_boundary.sql",
+              "20261210_github_login_hyphen_boundary.sql",
+              "20261211_github_reconcile_tenant_row_lock.sql",
+              "20261212_github_reconcile_tenant_row_lock_rls.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
@@ -144,8 +167,15 @@ jobs:
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
+                      # Production's broad runtime identity is a LOGIN role;
+                      # mirror that contract in clean replay without using it
+                      # as an application service DSN.
+                      login_clause = (
+                          "LOGIN PASSWORD 'test-only-runtime-password'"
+                          if role == "jas_si_runtime" else "NOLOGIN"
+                      )
                       cur.execute(
-                          f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                          f'CREATE ROLE "{role}" {login_clause} NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
 
@@ -173,8 +203,109 @@ jobs:
                       path = migration_dir / name
                       if not path.is_file():
                           raise SystemExit(f"Missing migration in canonical replay order: {name}")
-                      cur.execute(path.read_text(encoding="utf-8"))
+                      migration_sql = path.read_text(encoding="utf-8")
+                      # Split only on semicolons outside quoted strings, comments,
+                      # identifiers, and PostgreSQL dollar-quoted function/DO bodies.
+                      statements = []
+                      start = 0
+                      i = 0
+                      quote = None
+                      dollar_tag = None
+                      line_comment = False
+                      block_depth = 0
+                      while i < len(migration_sql):
+                          if line_comment:
+                              if migration_sql[i] == "\n":
+                                  line_comment = False
+                              i += 1
+                              continue
+                          if block_depth:
+                              if migration_sql.startswith("/*", i):
+                                  block_depth += 1
+                                  i += 2
+                              elif migration_sql.startswith("*/", i):
+                                  block_depth -= 1
+                                  i += 2
+                              else:
+                                  i += 1
+                              continue
+                          if dollar_tag is not None:
+                              if migration_sql.startswith(dollar_tag, i):
+                                  i += len(dollar_tag)
+                                  dollar_tag = None
+                              else:
+                                  i += 1
+                              continue
+                          if quote == "'":
+                              if migration_sql[i] == "'" and i+1 < len(migration_sql) and migration_sql[i+1] == "'":
+                                  i += 2
+                              elif migration_sql[i] == "'":
+                                  quote = None
+                                  i += 1
+                              else:
+                                  i += 1
+                              continue
+                          if quote == '"':
+                              if migration_sql[i] == '"' and i+1 < len(migration_sql) and migration_sql[i+1] == '"':
+                                  i += 2
+                              elif migration_sql[i] == '"':
+                                  quote = None
+                                  i += 1
+                              else:
+                                  i += 1
+                              continue
+                          if migration_sql.startswith("--", i):
+                              line_comment = True
+                              i += 2
+                          elif migration_sql.startswith("/*", i):
+                              block_depth = 1
+                              i += 2
+                          elif migration_sql[i] in ("'", '"'):
+                              quote = migration_sql[i]
+                              i += 1
+                          elif migration_sql[i] == "$":
+                              match = re.match(r"\$[A-Za-z_0-9]*\$", migration_sql[i:])
+                              if match:
+                                  dollar_tag = match.group(0)
+                                  i += len(dollar_tag)
+                              else:
+                                  i += 1
+                          elif migration_sql[i] == ";":
+                              statement = migration_sql[start:i+1].strip()
+                              if statement:
+                                  statements.append(statement)
+                              start = i+1
+                              i += 1
+                          else:
+                              i += 1
+                      tail = migration_sql[start:].strip()
+                      if tail:
+                          statements.append(tail)
+                      for statement_number, statement in enumerate(statements, start=1):
+                          cur.execute("""
+                              SELECT session_user,current_user,
+                                     pg_catalog.has_schema_privilege(current_user,'public','USAGE'),
+                                     pg_catalog.has_schema_privilege(current_user,'public','CREATE')
+                          """)
+                          session_user,current_user,has_usage,has_create = cur.fetchone()
+                          try:
+                              cur.execute(statement)
+                          except psycopg.Error as exc:
+                              print(
+                                  f"Migration failed: {name}; statement={statement_number}/"
+                                  f"{len(statements)}; SQLSTATE={exc.sqlstate}; "
+                                  f"session_user={session_user}; current_user={current_user}; "
+                                  f"public_usage={has_usage}; public_create={has_create}"
+                              )
+                              print("Failing SQL statement:\n" + statement[:4000])
+                              conn.rollback()
+                              raise
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
+
+              cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_github_reconciler_test'")
+              if cur.fetchone() is None:
+                  cur.execute("CREATE ROLE jas_si_github_reconciler_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
+              cur.execute("GRANT jas_si_github_reconciler TO jas_si_github_reconciler_test")
 
               cur.execute("""
                   SELECT
@@ -482,6 +613,12 @@ jobs:
                       customer_cur.execute("RESET SESSION AUTHORIZATION")
               print("Verified database-owned customer rate limiting and denied direct table INSERT")
           PY
-      - name: Verify GitHub webhook inbox state machine on PostgreSQL 16
+      - name: Verify GitHub webhook inbox state machine on PostgreSQL ${{ matrix.postgres-version }}
         run: |
           python tests/test_github_webhook_inbox_postgres_integration.py
+      - name: Verify GitHub OAuth attempt isolation and atomic consumption on PostgreSQL ${{ matrix.postgres-version }}
+        run: |
+          python tests/test_github_oauth_attempt_postgres_integration.py
+      - name: Verify authoritative GitHub Installation reconciliation on PostgreSQL ${{ matrix.postgres-version }}
+        run: |
+          python tests/test_github_installation_reconciliation_postgres_integration.py

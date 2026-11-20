@@ -180,6 +180,33 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.make_store().claim_awaiting_verification(limit=limit)
 
+    def test_persists_inconclusive_outcome_with_claim_fence(self):
+        capture = []
+        context, _ = self.install_fake_psycopg(("awaiting_verification",), capture)
+        task = make_task()
+        with context:
+            result = self.make_store().record_inconclusive(
+                task=task,
+                reason_code="INDEPENDENT_EVIDENCE_COLLECTION_FAILED",
+            )
+
+        self.assertEqual(result, "awaiting_verification")
+        query, params = capture[0]
+        self.assertIn("jas_si_agent_task_verification_record_inconclusive", query)
+        self.assertEqual(params, (
+            TASK,
+            TENANT,
+            task.verifier_claim_token,
+            "INDEPENDENT_EVIDENCE_COLLECTION_FAILED",
+        ))
+
+    def test_inconclusive_reason_code_rejects_untrusted_text(self):
+        with self.assertRaisesRegex(ValueError, "sanitized verifier reason"):
+            self.make_store().record_inconclusive(
+                task=make_task(),
+                reason_code="collector failed; token=secret",
+            )
+
     def test_persists_independent_evidence_and_calls_atomic_finalizer(self):
         capture = []
         context, Jsonb = self.install_fake_psycopg((True,), capture)

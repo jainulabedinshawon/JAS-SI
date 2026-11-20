@@ -67,6 +67,37 @@ class PostgresAgentTaskVerifierStore:
         except Exception as exc:
             raise AgentTaskVerifierStoreError("Unable to claim pending agent task verification records") from exc
 
+    def record_inconclusive(self, *, task: PersistedTask, reason_code: str) -> str | None:
+        """Persist a task-bound inconclusive outcome and apply bounded retry policy."""
+        import re
+
+        if (
+            not isinstance(task, PersistedTask)
+            or not isinstance(task.task_id, uuid.UUID)
+            or not isinstance(task.tenant_id, uuid.UUID)
+            or not isinstance(task.verifier_claim_token, uuid.UUID)
+        ):
+            raise ValueError("A task with a current verifier claim is required")
+        if not isinstance(reason_code, str) or re.fullmatch(r"[A-Z0-9_]{1,64}", reason_code) is None:
+            raise ValueError("A sanitized verifier reason code is required")
+        try:
+            import psycopg
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT public.jas_si_agent_task_verification_record_inconclusive(
+                         %s,%s,%s,%s
+                       )""",
+                    (task.task_id, task.tenant_id, task.verifier_claim_token, reason_code),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise AgentTaskVerifierStoreError("Inconclusive verifier transition returned no result")
+            return row[0]
+        except (ImportError, ValueError, AgentTaskVerifierStoreError):
+            raise
+        except Exception as exc:
+            raise AgentTaskVerifierStoreError("Unable to persist inconclusive verifier outcome") from exc
+
     def release_claim(self, *, task: PersistedTask) -> bool:
         """Release only the matching, still-pending verifier claim."""
         if (not isinstance(task, PersistedTask) or not isinstance(task.task_id, uuid.UUID)

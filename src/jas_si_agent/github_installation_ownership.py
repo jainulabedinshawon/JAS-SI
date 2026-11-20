@@ -63,12 +63,11 @@ class GitHubUserInstallationAccessVerifier:
 
     @staticmethod
     def _positive_id(value: Any) -> int:
-        if isinstance(value, bool):
+        # GitHub's JSON API represents IDs as integers. Do not coerce strings,
+        # booleans, or floats: int(1.9) would silently truncate malformed data.
+        if type(value) is not int or value <= 0:
             raise ValueError("invalid identifier")
-        parsed = int(value)
-        if parsed <= 0:
-            raise ValueError("invalid identifier")
-        return parsed
+        return value
 
     def verify(
         self,
@@ -110,6 +109,7 @@ class GitHubUserInstallationAccessVerifier:
             found: dict[str, Any] | None = None
             total_count: int | None = None
             observed = 0
+            observed_ids: set[int] = set()
             for page in range(1, self._max_pages + 1):
                 response = client.get(
                     f"{_GITHUB_API}/user/installations",
@@ -125,7 +125,12 @@ class GitHubUserInstallationAccessVerifier:
                     raise GitHubInstallationOwnershipError(
                         "GitHub Installation response is invalid"
                     )
-                count = self._positive_id(data.get("total_count", 0)) if data.get("total_count", 0) else 0
+                raw_count = data.get("total_count")
+                if type(raw_count) is not int or raw_count < 0:
+                    raise GitHubInstallationOwnershipError(
+                        "GitHub Installation count is invalid"
+                    )
+                count = raw_count
                 if total_count is None:
                     total_count = count
                     if total_count > self._max_pages * _PAGE_SIZE:
@@ -137,6 +142,10 @@ class GitHubUserInstallationAccessVerifier:
                         "GitHub Installation list changed during verification"
                     )
                 items = data["installations"]
+                if len(items) > _PAGE_SIZE:
+                    raise GitHubInstallationOwnershipError(
+                        "GitHub Installation page exceeds the requested limit"
+                    )
                 for item in items:
                     if not isinstance(item, dict):
                         raise GitHubInstallationOwnershipError(
@@ -149,6 +158,11 @@ class GitHubUserInstallationAccessVerifier:
                         raise GitHubInstallationOwnershipError(
                             "GitHub Installation entry is invalid"
                         ) from None
+                    if item_id in observed_ids:
+                        raise GitHubInstallationOwnershipError(
+                            "GitHub returned a duplicate Installation identity"
+                        )
+                    observed_ids.add(item_id)
                     if item_id == candidate_id:
                         if found is not None:
                             raise GitHubInstallationOwnershipError(
@@ -162,9 +176,9 @@ class GitHubUserInstallationAccessVerifier:
                     "GitHub Installation list could not be completely verified"
                 )
 
-            if observed < (total_count or 0):
+            if observed != (total_count or 0):
                 raise GitHubInstallationOwnershipError(
-                    "GitHub Installation list was incomplete"
+                    "GitHub Installation count did not match the complete response"
                 )
             if found is None:
                 raise GitHubInstallationOwnershipError(
@@ -205,10 +219,16 @@ class GitHubUserInstallationAccessVerifier:
 
     @staticmethod
     def _validated_login(value: Any) -> str:
-        if not isinstance(value, str) or not 1 <= len(value) <= 39:
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= 39
+            or not value.isascii()
+        ):
             raise ValueError("invalid GitHub login")
         if not value[0].isalnum() or not value[-1].isalnum():
             raise ValueError("invalid GitHub login")
-        if any(not (char.isalnum() or char == "-") for char in value):
+        if "--" in value or any(
+            not (char.isalnum() or char == "-") for char in value
+        ):
             raise ValueError("invalid GitHub login")
         return value
