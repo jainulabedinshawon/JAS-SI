@@ -39,7 +39,6 @@ Configure these names only in the Vercel **Preview** environment for the exact J
 | Variable | Type | Requirement / validation |
 |---|---|---|
 | `JAS_SI_GITHUB_APP_ID` | Non-secret | Positive integer GitHub App ID |
-| `JAS_SI_GITHUB_APP_PRIVATE_KEY_B64` | Secret | Base64-encoded PEM private key; use the existing locally generated App key |
 | `JAS_SI_GITHUB_OAUTH_CLIENT_ID` | Non-secret | GitHub App OAuth Client ID |
 | `JAS_SI_GITHUB_OAUTH_CLIENT_SECRET` | Secret | OAuth client secret |
 | `JAS_SI_GITHUB_OAUTH_REDIRECT_URI` | Non-secret URL | Exact HTTPS Preview origin plus `/v1/github/oauth/callback`; no query or fragment |
@@ -47,8 +46,8 @@ Configure these names only in the Vercel **Preview** environment for the exact J
 | `JAS_SI_GITHUB_OAUTH_ACTIVE_KEY_VERSION` | Non-secret | Must match a key version in the keyring |
 | `JAS_SI_GITHUB_WEBHOOK_SECRET` | Secret | GitHub App webhook secret, at least 32 UTF-8 bytes |
 | `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` | Secret | Dedicated DSN authenticating as `jas_si_github_webhook_login`; never `jas_si_runtime` |
-| `JAS_SI_GITHUB_RECONCILER_DATABASE_URL` | Secret | Dedicated DSN authenticating as `jas_si_github_reconciler_login`; adapter explicitly SET ROLE to `jas_si_github_reconciler` |
-| `JAS_SI_GITHUB_RECONCILER_POLL_SECONDS` | Non-secret, optional | Defaults to 15; allowed range 1–300 |
+
+The Render reconciler service alone receives `JAS_SI_GITHUB_APP_PRIVATE_KEY_B64`, `JAS_SI_GITHUB_RECONCILER_DATABASE_URL`, and optional `JAS_SI_GITHUB_RECONCILER_POLL_SECONDS`. These are not Vercel Preview variables. `JAS_SI_GITHUB_APP_ID` is a non-secret identifier and is configured in both places where needed.
 
 The Vercel Preview hostname must be the actual deployment hostname used for the OAuth callback. Do not guess a deployment URL or use the Production hostname. The OAuth callback must be registered in the GitHub App configuration to match the configured redirect URI exactly.
 
