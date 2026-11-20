@@ -49,6 +49,7 @@ class PostgresAgentTaskWorkerStore:
         if not isinstance(worker_id, uuid.UUID):
             raise ValueError("worker_id must be a UUID")
         self._dsn = dsn.strip()
+        self._worker_id = worker_id
 
     def _connect(self):
         """Open a fresh session and explicitly assume the non-login capability role."""
