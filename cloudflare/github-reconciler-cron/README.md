@@ -21,8 +21,10 @@ account's current limits before enabling the schedule.
 - Authentication: `Authorization: Bearer <JAS_SI_GITHUB_RECONCILER_TRIGGER_SECRET>`
 - Request body: none
 - Timeout: 20 seconds
-- The API processes at most two webhook deliveries and two pending OAuth
-  claims per invocation. Database claim functions protect concurrent runs.
+- The API processes at most one authoritative GitHub Installation snapshot
+  per invocation: one webhook delivery if any are queued, otherwise one pending
+  OAuth claim. This bounds Vercel request time; PostgreSQL leases protect
+  overlapping scheduler invocations.
 - Logs contain aggregate counters only; response bodies, secrets, DSNs, and
   provider payloads are never logged.
 
