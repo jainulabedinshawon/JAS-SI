@@ -63,12 +63,11 @@ class GitHubUserInstallationAccessVerifier:
 
     @staticmethod
     def _positive_id(value: Any) -> int:
-        if isinstance(value, bool):
+        # GitHub's JSON API represents IDs as integers. Do not coerce strings,
+        # booleans, or floats: int(1.9) would silently truncate malformed data.
+        if type(value) is not int or value <= 0:
             raise ValueError("invalid identifier")
-        parsed = int(value)
-        if parsed <= 0:
-            raise ValueError("invalid identifier")
-        return parsed
+        return value
 
     def verify(
         self,
