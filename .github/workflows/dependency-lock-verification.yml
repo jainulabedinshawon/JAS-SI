@@ -17,6 +17,8 @@ on:
       - main
       - feat/agent-host-readiness-health-v1
       - feat/github-app-token-issuer-v1
+      - feat/github-webhook-durable-inbox-v1
+      - feat/github-webhook-http-ingress-v1
     paths:
       - "requirements.in"
       - "requirements.txt"
