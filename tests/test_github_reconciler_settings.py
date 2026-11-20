@@ -17,7 +17,7 @@ from jas_si_agent.github_installation_reconciler import GitHubReconcilerSettings
 
 class GitHubReconcilerSettingsTests(unittest.TestCase):
     def test_loads_only_worker_credentials_and_redacts_them(self):
-        private_key = b"-----BEGIN PRIVATE KEY-----\\nnot-a-real-key\\n-----END PRIVATE KEY-----\\n"
+        private_key = b"-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----\n"
         env = {
             "JAS_SI_GITHUB_APP_ID": "12345",
             "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": base64.b64encode(private_key).decode("ascii"),
@@ -38,7 +38,7 @@ class GitHubReconcilerSettingsTests(unittest.TestCase):
                 GitHubReconcilerSettings.from_env()
 
     def test_rejects_out_of_range_poll_interval(self):
-        private_key = b"-----BEGIN PRIVATE KEY-----\\nplaceholder\\n-----END PRIVATE KEY-----\\n"
+        private_key = b"-----BEGIN PRIVATE KEY-----\nplaceholder\n-----END PRIVATE KEY-----\n"
         env = {
             "JAS_SI_GITHUB_APP_ID": "12345",
             "JAS_SI_GITHUB_APP_PRIVATE_KEY_B64": base64.b64encode(private_key).decode("ascii"),
