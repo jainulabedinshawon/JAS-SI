@@ -9,6 +9,7 @@ services:
     autoDeploy: false
     maxShutdownDelaySeconds: 120
     envVars:
+      - fromGroup: jas-si-staging-agent-shared
       - key: JAS_SI_AGENT_WORKER_DSN
         sync: false
       - key: JAS_SI_AGENT_WORKER_ID
@@ -28,6 +29,7 @@ services:
     autoDeploy: false
     maxShutdownDelaySeconds: 120
     envVars:
+      - fromGroup: jas-si-staging-agent-shared
       - key: JAS_SI_AGENT_VERIFIER_DSN
         sync: false
       - key: JAS_SI_AGENT_VERIFIER_POLL_SECONDS
@@ -49,6 +51,7 @@ services:
     autoDeploy: false
     maxShutdownDelaySeconds: 120
     envVars:
+      - fromGroup: jas-si-staging-agent-shared
       - key: JAS_SI_GITHUB_APP_ID
         sync: false
       - key: JAS_SI_GITHUB_APP_PRIVATE_KEY_B64
