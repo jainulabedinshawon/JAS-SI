@@ -33,6 +33,7 @@ on:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
       - "docs/security/**"
+      - "cloudflare/github-reconciler-cron/**"
       - ".github/workflows/jas-si-agent-tests.yml"
 
   workflow_dispatch:
