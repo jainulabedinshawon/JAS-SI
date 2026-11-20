@@ -274,10 +274,12 @@ BEGIN
        AND status='human_review_required';
     IF NOT FOUND THEN RETURN false; END IF;
 
-    SELECT public.jas_si_agent_task_finalize_success(
-        p_evidence_id,p_task_id,p_tenant_id,p_collector_id,
-        p_evidence_digest,p_evidence_payload,p_collected_at
-    ) INTO v_success;
+    EXECUTE
+        'SELECT public.jas_si_agent_task_finalize_success(' ||
+        '$1::uuid,$2::uuid,$3::uuid,$4::text,$5::bytea,$6::jsonb,$7::timestamptz)'
+        INTO v_success
+        USING p_evidence_id,p_task_id,p_tenant_id,p_collector_id,
+              p_evidence_digest,p_evidence_payload,p_collected_at;
 
     IF v_success IS NOT TRUE THEN
         UPDATE public.jas_si_agent_tasks
