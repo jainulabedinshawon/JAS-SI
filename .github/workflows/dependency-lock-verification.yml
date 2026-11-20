@@ -63,14 +63,33 @@ jobs:
             requirements.in
           diff -u requirements.lock.txt /tmp/requirements.lock.txt
 
-      - name: Verify committed runtime pins match the same inputs
+      - name: Verify runtime pins match the committed lock
         run: |
-          pip-compile \
-            --resolver=backtracking \
-            --no-emit-hashes \
-            --output-file=/tmp/requirements.txt \
-            requirements.in
-          diff -u requirements.txt /tmp/requirements.txt
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          def pins(path):
+              result = {}
+              for line in Path(path).read_text().splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#") or line.startswith("-"):
+                      continue
+                  match = re.match(r"^([A-Za-z0-9_.-]+)(?:\\[[^]]+\\])?==([^\\s;]+)", line)
+                  if match:
+                      name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+                      result[name] = match.group(2)
+              return result
+
+          runtime = pins("requirements.txt")
+          locked = pins("requirements.lock.txt")
+          if runtime != locked:
+              missing = sorted(set(locked) - set(runtime))
+              extra = sorted(set(runtime) - set(locked))
+              changed = sorted(k for k in set(runtime) & set(locked) if runtime[k] != locked[k])
+              raise SystemExit(f"Runtime/lock mismatch: missing={missing}, extra={extra}, changed={changed}")
+          print(f"Runtime pins match all {len(locked)} locked packages.")
+          PY
 
       - name: Install committed locked dependencies
         run: |
