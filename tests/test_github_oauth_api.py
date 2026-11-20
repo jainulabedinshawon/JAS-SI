@@ -30,8 +30,10 @@ class FakeOAuthService:
     def __init__(self, account):
         self.account = account
         self.consumed = None
+        self.started = 0
 
     def begin(self, *, session_token, account, installation_id):
+        self.started += 1
         assert session_token == "S" * 43
         assert account == self.account
         assert installation_id == 98765
@@ -90,7 +92,7 @@ class GitHubOAuthApiTests(unittest.TestCase):
         )
         self.old_settings = api.settings
         self.settings = SimpleNamespace(
-            environment="test",
+            environment="preview",
             database_url=None,
             api_rate_limit_pepper=None,
             rate_limit_requests=60,
@@ -239,6 +241,29 @@ class GitHubOAuthApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_all_oauth_routes_are_preview_only(self):
+        self.settings.environment = "production"
+        start = self.client.post(
+            "/v1/customer/github/oauth/start",
+            headers={"X-JAS-SI-CSRF": "C" * 43},
+            json={"installation_id": 98765},
+        )
+        callback = self.client.get(
+            "/v1/github/oauth/callback?state=" + "A" * 43
+            + "&code=github-authorization-code"
+        )
+        complete = self.client.post(
+            "/v1/github/oauth/callback/complete",
+            headers={"X-JAS-SI-CSRF": "C" * 43},
+            json={"state": "A" * 43, "code": "github-authorization-code"},
+        )
+        self.assertEqual(start.status_code, 404)
+        self.assertEqual(callback.status_code, 404)
+        self.assertEqual(complete.status_code, 404)
+        self.assertEqual(api.app.state.github_oauth_service.started, 0)
+        self.assertIsNone(api.app.state.github_oauth_service.consumed)
+        self.assertIsNone(api.app.state.github_installation_claim_store.recorded)
 
 
 if __name__ == "__main__":
