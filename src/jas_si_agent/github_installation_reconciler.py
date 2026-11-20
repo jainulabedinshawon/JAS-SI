@@ -7,18 +7,51 @@ No webhook payload field is used as tenant, account, App, or repository truth.
 """
 from __future__ import annotations
 
+import base64
 import logging
+import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from jas_si_agent.github_app_api import (
     GitHubAppAPIError,
     GitHubAppInstallationAPI,
 )
-from jas_si_agent.config import Settings
 
 _LOG = logging.getLogger("jas_si.github_installation_reconciler")
+
+
+@dataclass(frozen=True)
+class GitHubReconcilerSettings:
+    """Credentials loaded only by the isolated Render reconciler process."""
+
+    app_id: int
+    private_key_pem: bytes = field(repr=False)
+    database_url: str = field(repr=False)
+    poll_seconds: int = 15
+
+    @classmethod
+    def from_env(cls) -> "GitHubReconcilerSettings":
+        raw_app_id = os.getenv("JAS_SI_GITHUB_APP_ID", "")
+        if not raw_app_id.isdigit() or int(raw_app_id) <= 0:
+            raise ValueError("JAS_SI_GITHUB_APP_ID must be a positive integer")
+        raw_key = os.getenv("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64", "")
+        if not raw_key or len(raw_key) > 24000:
+            raise ValueError("GitHub App private key is missing or too large")
+        try:
+            private_key = base64.b64decode(raw_key, validate=True)
+        except Exception:
+            raise ValueError("GitHub App private key must be valid base64") from None
+        if not private_key.startswith(b"-----BEGIN ") or b"PRIVATE KEY-----" not in private_key[:80]:
+            raise ValueError("GitHub App private key must encode a PEM private key")
+        database_url = os.getenv("JAS_SI_GITHUB_RECONCILER_DATABASE_URL", "")
+        if not database_url.strip():
+            raise ValueError("Dedicated GitHub reconciler database URL is required")
+        raw_poll = os.getenv("JAS_SI_GITHUB_RECONCILER_POLL_SECONDS", "15")
+        if not raw_poll.isdigit() or not 1 <= int(raw_poll) <= 300:
+            raise ValueError("JAS_SI_GITHUB_RECONCILER_POLL_SECONDS must be between 1 and 300")
+        return cls(int(raw_app_id), private_key, database_url.strip(), int(raw_poll))
 
 
 @dataclass(frozen=True)
@@ -232,25 +265,21 @@ class PostgresGitHubInstallationReconciler:
         return counts
 
 
-def build_reconciler(settings: Settings) -> PostgresGitHubInstallationReconciler:
-    if not settings.github_app_id or not settings.github_app_private_key_pem:
-        raise RuntimeError("GitHub App ID and private key are required by the reconciler")
-    if not settings.github_reconciler_database_url:
-        raise RuntimeError("Dedicated GitHub reconciler database URL is required")
+def build_reconciler(settings: GitHubReconcilerSettings) -> PostgresGitHubInstallationReconciler:
     github_api = GitHubAppInstallationAPI(
-        app_id=settings.github_app_id,
-        private_key_pem=settings.github_app_private_key_pem,
+        app_id=settings.app_id,
+        private_key_pem=settings.private_key_pem,
     )
     return PostgresGitHubInstallationReconciler(
-        database_dsn=settings.github_reconciler_database_url,
+        database_dsn=settings.database_url,
         github_api=github_api,
     )
 
 
 def main() -> None:
-    settings = Settings.from_env()
+    settings = GitHubReconcilerSettings.from_env()
     reconciler = build_reconciler(settings)
-    poll_seconds = settings.github_reconciler_poll_seconds
+    poll_seconds = settings.poll_seconds
     _LOG.info("GitHub Installation reconciler started; poll_seconds=%s", poll_seconds)
     while True:
         try:
