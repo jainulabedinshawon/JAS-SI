@@ -7,12 +7,11 @@ App state before applying repository bindings.
 
 ## Free-plan fit
 
-The Worker uses one scheduled invocation and one outbound HTTPS request.
-Cloudflare's current Workers Free limits include 100,000 requests/day, 10 ms CPU
-per invocation, and up to five Cron Triggers per account. One invocation per
-minute is 1,440 scheduled executions/day. The request spends most of its time
-waiting on network I/O, which does not count as Worker CPU time. Verify the
-account's current limits before enabling the schedule.
+The Worker is designed for a low-CPU scheduled invocation with one outbound
+HTTPS request. Before enabling it, verify the Cloudflare account's current
+Free-plan request, CPU, Cron Trigger, and billing limits in the dashboard.
+A once-per-minute schedule would produce 1,440 invocations/day. The Worker is
+stateless and is not a replacement for a persistent task worker.
 
 ## Runtime contract
 
