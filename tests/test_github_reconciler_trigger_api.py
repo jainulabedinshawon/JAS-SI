@@ -15,10 +15,16 @@ class _FakeReconciler:
     def __init__(self):
         self.webhook_calls = []
         self.pending_calls = []
+        self.webhook_claimed = 1
 
     def process_batch(self, *, limit):
         self.webhook_calls.append(limit)
-        return {"claimed": 1, "processed": 1, "retry": 0, "lease_lost": 0}
+        return {
+            "claimed": self.webhook_claimed,
+            "processed": self.webhook_claimed,
+            "retry": 0,
+            "lease_lost": 0,
+        }
 
     def process_pending_claims(self, *, limit):
         self.pending_calls.append(limit)
@@ -57,9 +63,20 @@ class GitHubReconcilerTriggerApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.headers["cache-control"], "no-store")
-        self.assertEqual(self.reconciler.webhook_calls, [2])
-        self.assertEqual(self.reconciler.pending_calls, [2])
+        self.assertEqual(self.reconciler.webhook_calls, [1])
+        self.assertEqual(self.reconciler.pending_calls, [])
         self.assertEqual(response.json()["webhook"]["processed"], 1)
+        self.assertEqual(response.json()["pending_claims"]["claimed"], 0)
+
+    def test_polls_one_pending_claim_only_when_webhook_queue_is_empty(self):
+        self.reconciler.webhook_claimed = 0
+        response = self.client.post(
+            "/internal/github/reconcile",
+            headers={"Authorization": "Bearer " + self.secret.decode()},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.reconciler.webhook_calls, [1])
+        self.assertEqual(self.reconciler.pending_calls, [1])
         self.assertEqual(response.json()["pending_claims"]["reconciled"], 1)
 
     def test_fails_closed_when_scheduler_secret_is_not_configured(self):
