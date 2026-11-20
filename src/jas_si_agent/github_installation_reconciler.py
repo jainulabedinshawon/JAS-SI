@@ -45,7 +45,15 @@ class PostgresGitHubInstallationReconciler:
         conn = psycopg.connect(self._dsn, connect_timeout=5)
         try:
             with conn.cursor() as cur:
+                cur.execute("SELECT session_user")
+                identity = cur.fetchone()
+                if not identity or identity[0] != "jas_si_github_reconciler_login":
+                    raise RuntimeError("Dedicated GitHub reconciler database identity is required")
                 cur.execute("SET ROLE jas_si_github_reconciler")
+                cur.execute("SELECT current_user")
+                capability = cur.fetchone()
+                if not capability or capability[0] != "jas_si_github_reconciler":
+                    raise RuntimeError("GitHub reconciler capability role was not assumed")
             return conn
         except Exception:
             conn.close()
