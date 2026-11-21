@@ -1,4 +1,5 @@
 name: JAS-SI Staging Agent DSN Preflight
+# Read-only live Staging boundary verification; this comment-only commit triggers an auditable rerun.
 
 on:
   workflow_dispatch:
