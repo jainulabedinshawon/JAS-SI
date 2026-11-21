@@ -39,7 +39,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from jas_si_agent.config import Settings
 from jas_si_agent.api_rate_limit import PostgresApiRateLimiter
@@ -105,6 +105,12 @@ from jas_si_agent.github_capability_asgi_tls import (
 )
 from jas_si_agent.github_capability_identity import (
     CertificateWorkloadIdentityRegistry,
+    WorkloadIdentity,
+    require_authenticated_workload,
+)
+from jas_si_agent.github_capability_broker import (
+    GitHubCapabilityBrokerError,
+    PostgresGitHubCapabilityBroker,
 )
 
 from jas_si_agent.github_webhook_inbox import (
@@ -137,6 +143,79 @@ if isinstance(
     app.state.github_capability_identity_registry = (
         settings.github_capability_workload_identities
     )
+
+class GitHubCapabilityResolveRequest(BaseModel):
+    """Only task selector and role-specific persisted lease proof are accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: uuid.UUID
+    lease_fence: Optional[int] = Field(default=None, ge=1)
+    verifier_claim_token: Optional[uuid.UUID] = None
+
+
+@app.post("/internal/github/capabilities/resolve")
+def resolve_github_task_capability(
+    payload: GitHubCapabilityResolveRequest,
+    workload: WorkloadIdentity = Depends(require_authenticated_workload),
+) -> dict:
+    """Resolve a capability using mTLS identity plus persisted DB lease/claim.
+
+    The principal and role are derived only from the pinned certificate
+    registry. Request bodies cannot select either identity attribute.
+    """
+    database_url = settings.github_capability_broker_database_url
+    if not database_url:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub capability Broker database is not configured",
+        )
+    if workload.role == "worker":
+        if payload.lease_fence is None or payload.verifier_claim_token is not None:
+            raise HTTPException(status_code=422, detail="Worker lease fence is required")
+    elif workload.role == "verifier":
+        if payload.verifier_claim_token is None or payload.lease_fence is not None:
+            raise HTTPException(status_code=422, detail="Verifier claim token is required")
+    else:
+        raise HTTPException(status_code=403, detail="Workload role is not authorized")
+
+    broker = getattr(request_app_state := app.state, "github_capability_broker", None)
+    if broker is None:
+        try:
+            broker = PostgresGitHubCapabilityBroker(database_url)
+            request_app_state.github_capability_broker = broker
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=503,
+                detail="GitHub capability Broker is not configured safely",
+            ) from None
+    try:
+        capability = broker.resolve(
+            task_id=payload.task_id,
+            principal_id=workload.principal_id,
+            role=workload.role,
+            lease_fence=payload.lease_fence,
+            verifier_claim_token=payload.verifier_claim_token,
+        )
+    except GitHubCapabilityBrokerError:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub capability authorization is unavailable",
+        ) from None
+    if capability is None:
+        raise HTTPException(status_code=404, detail="Task capability is not authorized")
+
+    return {
+        "task_id": str(capability.task_id),
+        "tenant_id": str(capability.tenant_id),
+        "installation_id": capability.installation_id,
+        "repository": capability.repository_full_name,
+        "capability_role": capability.capability_role,
+        "expires_at": capability.expires_at.isoformat(),
+        "commit_sha": capability.commit_sha,
+        "repository_paths": capability.repository_paths,
+    }
+
 
 api_key_header = APIKeyHeader(
     name="X-API-Key",
