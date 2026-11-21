@@ -105,10 +105,23 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             # ADMIN OPTION on the newly-created capability role, without SET/INHERIT.
             admin.execute("CREATE ROLE cloud_admin SUPERUSER LOGIN PASSWORD 'cloud-admin-test-secret'")
             admin.execute("CREATE ROLE neondb_owner NOLOGIN")
+            admin.commit()
             from psycopg.conninfo import make_conninfo
             cloud_admin_dsn = make_conninfo(dsn, user="cloud_admin", password="cloud-admin-test-secret")
             with psycopg.connect(cloud_admin_dsn) as cloud_admin:
                 cloud_admin.execute("GRANT jas_si_agent_capability_broker TO neondb_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+            managed_membership = admin.execute("""
+                SELECT member.rolname, grantor.rolname, m.admin_option,
+                       m.inherit_option, m.set_option
+                FROM pg_auth_members m
+                JOIN pg_roles member ON member.oid=m.member
+                JOIN pg_roles grantor ON grantor.oid=m.grantor
+                JOIN pg_roles granted ON granted.oid=m.roleid
+                WHERE granted.rolname='jas_si_agent_capability_broker'
+                  AND member.rolname='neondb_owner'
+            """).fetchone()
+            self.assertEqual(managed_membership, ("neondb_owner", "cloud_admin", True, False, False))
+            admin.commit()
             with admin.transaction():
                 admin.execute(migration)  # Must accept only the exact Neon owner membership.
             admin.execute("CREATE ROLE jas_si_agent_broker_login_test LOGIN PASSWORD 'broker-test-secret' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
