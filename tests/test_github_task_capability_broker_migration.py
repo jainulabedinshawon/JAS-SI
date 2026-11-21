@@ -176,7 +176,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_worker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
-            self.assertTrue(admin.execute("SELECT has_function_privilege('jas_si_agent_capability_broker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
+            self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_capability_broker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
 
 
 if __name__ == "__main__":
