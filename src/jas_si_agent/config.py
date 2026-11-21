@@ -13,6 +13,11 @@ from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from typing import Optional
 
+from jas_si_agent.github_capability_identity import (
+    CertificateWorkloadIdentityRegistry,
+    WorkloadIdentity,
+)
+
 
 _MIN_HMAC_SECRET_BYTES = 32
 _MIN_API_KEY_PEPPER_BYTES = 32
@@ -179,6 +184,44 @@ def _read_github_oauth_config() -> tuple[Optional[str], Optional[str], Optional[
     return client_id, client_secret, redirect_uri, keyring, active_version, app_id
 
 
+
+def _read_github_capability_workload_identities() -> Optional[CertificateWorkloadIdentityRegistry]:
+    raw = os.getenv("JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES must be valid JSON"
+        ) from None
+    if not isinstance(decoded, dict) or not decoded:
+        raise ValueError(
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES must be a non-empty object"
+        )
+    identities = {}
+    for fingerprint, item in decoded.items():
+        if not isinstance(item, dict) or set(item) != {"principal_id", "role"}:
+            raise ValueError(
+                "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES entries must contain principal_id and role"
+            )
+        try:
+            identities[fingerprint] = WorkloadIdentity(
+                principal_id=item["principal_id"],
+                role=item["role"],
+            )
+        except (TypeError, ValueError):
+            raise ValueError(
+                "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES contains an invalid identity"
+            ) from None
+    try:
+        return CertificateWorkloadIdentityRegistry(identities)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES contains an invalid certificate map"
+        ) from None
+
+
 @dataclass(frozen=True)
 class Settings:
     service_name: str = "JAS-SI API"
@@ -220,6 +263,7 @@ class Settings:
     github_oauth_encryption_keyring: Optional[dict[str, bytes]] = field(default=None, repr=False)
     github_oauth_active_key_version: Optional[str] = None
     github_app_id: Optional[int] = None
+    github_capability_workload_identities: Optional[CertificateWorkloadIdentityRegistry] = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -249,6 +293,7 @@ class Settings:
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
         github_oauth = _read_github_oauth_config()
+        github_capability_workload_identities = _read_github_capability_workload_identities()
         raw_webhook_secret = os.getenv("JAS_SI_GITHUB_WEBHOOK_SECRET")
         github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
         if github_webhook_secret is not None and len(github_webhook_secret) < 32:
@@ -312,4 +357,5 @@ class Settings:
             github_oauth_encryption_keyring=github_oauth[3],
             github_oauth_active_key_version=github_oauth[4],
             github_app_id=github_oauth[5],
+            github_capability_workload_identities=github_capability_workload_identities,
         )
