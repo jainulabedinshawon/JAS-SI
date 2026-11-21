@@ -2,8 +2,6 @@ name: JAS-SI Staging Agent DSN Preflight
 
 on:
   pull_request:
-    branches:
-      - main
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/staging-agent-dsn-preflight.yml"
