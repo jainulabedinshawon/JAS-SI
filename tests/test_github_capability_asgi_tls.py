@@ -103,6 +103,20 @@ class ASGITLSClientCertificateMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertNotIn("verified_client_certificate_der", child["state"])
 
+    async def test_downstream_state_mutations_remain_visible_to_outer_middleware(self):
+        original_state = {"request_id": "req-2"}
+        observed = {}
+
+        async def app(child_scope, receive, send):
+            child_scope["state"]["usage_event"] = {"event_id": "event-1"}
+
+        async def outer(scope, receive, send):
+            await ASGITLSClientCertificateMiddleware(app)(scope, receive, send)
+            observed.update(scope["state"])
+
+        await outer({"type": "http", "state": original_state}, None, None)
+        self.assertEqual(observed["usage_event"]["event_id"], "event-1")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

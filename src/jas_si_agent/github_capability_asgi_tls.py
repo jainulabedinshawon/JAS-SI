@@ -89,8 +89,11 @@ class ASGITLSClientCertificateMiddleware:
 
         child_scope = dict(scope)
         current_state = scope.get("state")
-        child_state = dict(current_state) if isinstance(current_state, dict) else {}
-        # Never preserve a caller/upstream-supplied value for this reserved key.
+        # Starlette middleware shares request.state across the middleware
+        # stack. Preserve that per-request dictionary so endpoint mutations
+        # (e.g. usage-event metadata) remain visible to outer middleware.
+        # The reserved certificate slot is always overwritten from TLS data.
+        child_state = current_state if isinstance(current_state, dict) else {}
         child_state.pop(_STATE_KEY, None)
         certificate_der = _client_certificate_der(scope)
         if certificate_der is not None:
