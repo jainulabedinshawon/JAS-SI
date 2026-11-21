@@ -60,8 +60,8 @@ class PostgresGitHubCapabilityBroker:
     ) -> ResolvedGitHubTaskCapability | None:
         if not isinstance(task_id, UUID):
             raise GitHubCapabilityBrokerError("Task identifier is invalid")
-        if not isinstance(principal_id, str) or not principal_id:
-            raise GitHubCapabilityBrokerError("Authenticated workload identity is required")
+        if not isinstance(principal_id, str) or not principal_id or len(principal_id) > 63:
+            raise GitHubCapabilityBrokerError("Authenticated workload identity is invalid")
         if role == "worker":
             if (isinstance(lease_fence, bool) or not isinstance(lease_fence, int)
                     or lease_fence < 1 or verifier_claim_token is not None):
