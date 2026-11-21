@@ -298,59 +298,10 @@ jobs:
                       # final login hardening migration. Seed the same inherited
                       # memberships granted by neondb_owner, then execute the
                       # migration as that grantor (not as the replay superuser).
-                      if name == "20261214_agent_login_set_role_boundary.sql":
-                          # Mirror Neon: neondb_owner is the grantor of the
-                          # pre-existing LOGIN memberships. Normalize any
-                          # clean-replay grants made by jas_si, then delegate
-                          # ADMIN authority through the managed cloud_admin
-                          # role so the migration runs under the real grantor.
-                          for capability_role in (
-                              "jas_si_agent_worker",
-                              "jas_si_agent_verifier",
-                          ):
-                              # Remove stale grants from the previous replay,
-                              # including dependent login memberships, before
-                              # reconstructing the managed Neon grantor chain.
-                              cur.execute(
-                                  f"REVOKE {capability_role} FROM neondb_owner CASCADE"
-                              )
-                          # In Neon, cloud_admin has CREATEROLE authority; it
-                          # is the grantor, not a member of the capability role.
-                          cur.execute("SET ROLE cloud_admin")
-                          for capability_role in (
-                              "jas_si_agent_worker",
-                              "jas_si_agent_verifier",
-                          ):
-                              cur.execute(
-                                  f"GRANT {capability_role} TO neondb_owner "
-                                  "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                              )
-                          cur.execute("RESET ROLE")
-                          # The managed owner also needs ADMIN on the LOGIN
-                          # roles to enforce their NOINHERIT attribute.
-                          cur.execute(
-                              "GRANT jas_si_agent_worker_login TO neondb_owner "
-                              "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                          )
-                          cur.execute(
-                              "GRANT jas_si_agent_verifier_login TO neondb_owner "
-                              "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                          )
-                          cur.execute("ALTER ROLE jas_si_agent_worker_login INHERIT")
-                          cur.execute("ALTER ROLE jas_si_agent_verifier_login INHERIT")
-                          cur.execute("SET ROLE neondb_owner")
-                          for login_role, capability_role in (
-                              ("jas_si_agent_worker_login", "jas_si_agent_worker"),
-                              ("jas_si_agent_verifier_login", "jas_si_agent_verifier"),
-                          ):
-                              cur.execute(
-                                  f"REVOKE {capability_role} FROM {login_role}"
-                              )
-                              cur.execute(
-                                  f"GRANT {capability_role} TO {login_role} "
-                                  "WITH ADMIN FALSE, INHERIT TRUE, SET TRUE"
-                              )
-
+                      # Neon managed grantor metadata is not synthesized in
+                      # vanilla PostgreSQL. The generic replay preserves the
+                      # migration's own role semantics; Neon-specific membership
+                      # provenance is checked separately against live Staging.
                       for statement_number, statement in enumerate(statements, start=1):
                           replay_verifier_grant_as_owner = (
                               replay == 2
