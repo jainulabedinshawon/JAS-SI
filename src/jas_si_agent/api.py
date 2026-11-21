@@ -100,6 +100,9 @@ from jas_si_agent.github_installation_ownership import (
     GitHubInstallationOwnershipError,
     GitHubUserInstallationAccessVerifier,
 )
+from jas_si_agent.github_capability_asgi_tls import (
+    ASGITLSClientCertificateMiddleware,
+)
 
 from jas_si_agent.github_webhook_inbox import (
     GitHubWebhookInboxError,
@@ -119,6 +122,10 @@ app = FastAPI(
         "Versioned API routes have a shared sliding-window rate limit."
     ),
 )
+
+# Workload identities are sourced only from the ASGI TLS extension.
+# Capability deployments must terminate mTLS at a trusted ASGI server.
+app.add_middleware(ASGITLSClientCertificateMiddleware)
 
 api_key_header = APIKeyHeader(
     name="X-API-Key",
