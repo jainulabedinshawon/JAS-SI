@@ -931,3 +931,6 @@ jobs:
       - name: Verify authoritative GitHub Installation reconciliation on PostgreSQL ${{ matrix.postgres-version }}
         run: |
           python tests/test_github_installation_reconciliation_postgres_integration.py
+      - name: Verify Neon managed grantor role boundary on PostgreSQL ${{ matrix.postgres-version }}
+        run: |
+          python tests/test_neon_managed_grantor_role_boundary.py
