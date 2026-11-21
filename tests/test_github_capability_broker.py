@@ -98,7 +98,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         self.assertEqual(result.repository_paths, ["src/main.py", "tests/test_main.py"])
         self.assertEqual(connection.cursor_value.statements[0], "SET ROLE jas_si_agent_capability_broker")
         self.assertEqual(
-            connection.cursor_value.parameters[0],
+            connection.cursor_value.parameters[1],
             (self.task_id, "worker.staging.instance-1", "worker", 7, None),
         )
         self.assertEqual(connect.call_args.kwargs["application_name"], "jas-si-github-capability-broker")
@@ -119,7 +119,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             )
         self.assertEqual(result.capability_role, "verifier")
         self.assertEqual(
-            connection.cursor_value.parameters[0],
+            connection.cursor_value.parameters[1],
             (self.task_id, "verifier.staging.instance-1", "verifier", None, self.claim_token),
         )
 
