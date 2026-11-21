@@ -60,4 +60,4 @@ jobs:
       - name: Compile source and tests
         run: python -m compileall -q src/jas_si_agent tests
       - name: Run broker migration contract and PostgreSQL integration
-        run: python -m unittest tests.test_github_task_capability_broker_migration -v
+        run: python -m unittest discover -s tests -p 'test_github_task_capability_broker_migration.py' -v
