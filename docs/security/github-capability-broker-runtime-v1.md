@@ -26,7 +26,7 @@ The endpoint is disabled by default. For a dedicated non-production Broker servi
 - Set JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES to the exact SHA-256 fingerprint registry.
 - Terminate mTLS at a trusted ASGI listener configured with a dedicated workload CA and mandatory client certificate validation. The TLS listener—not an HTTP proxy header—must supply the ASGI TLS extension.
 
-Do not set these variables on the public Vercel deployment. The endpoint returns 404 unless explicitly enabled, and it is unconditionally unavailable when JAS_SI_ENVIRONMENT=production. A configured fingerprint registry alone does not enable the endpoint.
+Do not set these variables on the public Vercel deployment. The endpoint returns 404 unless explicitly enabled with JAS_SI_ENVIRONMENT=preview; development, test, and production environments are all denied. A configured fingerprint registry alone does not enable the endpoint.
 
 The Broker DSN must authenticate as a dedicated jas_si_agent_broker_login... role. That login must be NOINHERIT, have no superuser/role-creation/database-creation/replication/BYPASSRLS privileges, and have membership in jas_si_agent_capability_broker with INHERIT FALSE, SET TRUE, and ADMIN FALSE. PR #108 intentionally does not create login roles or credentials; provision this principal only through a separately reviewed Staging-only operations procedure.
 
