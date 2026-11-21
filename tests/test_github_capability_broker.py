@@ -16,6 +16,9 @@ from jas_si_agent.github_capability_broker import (
     GitHubCapabilityBrokerError,
     PostgresGitHubCapabilityBroker,
 )
+from jas_si_agent.github_capability_identity import WorkloadIdentity
+from jas_si_agent import api as api_module
+from types import SimpleNamespace
 
 
 class _Cursor:
@@ -176,6 +179,76 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
                 )
         self.assertNotIn("secret", str(raised.exception))
         self.assertNotIn("postgres://", str(raised.exception))
+
+
+class _FakeResolvedCapability:
+    def __init__(self, task_id):
+        self.task_id = task_id
+        self.tenant_id = uuid4()
+        self.installation_id = 123456
+        self.repository_full_name = "owner/private-repo"
+        self.capability_role = "worker"
+        self.expires_at = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+        self.commit_sha = "b" * 40
+        self.repository_paths = ["src/main.py"]
+
+
+class _FakeBroker:
+    def __init__(self):
+        self.arguments = None
+
+    def resolve(self, **kwargs):
+        self.arguments = kwargs
+        return _FakeResolvedCapability(kwargs["task_id"])
+
+
+class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
+    def tearDown(self):
+        if hasattr(api_module.app.state, "github_capability_broker"):
+            delattr(api_module.app.state, "github_capability_broker")
+
+    def test_route_uses_certificate_registry_identity_and_returns_metadata_only(self):
+        broker = _FakeBroker()
+        api_module.app.state.github_capability_broker = broker
+        task_id = uuid4()
+        payload = api_module.GitHubCapabilityResolveRequest(
+            task_id=task_id,
+            lease_fence=9,
+        )
+        workload = WorkloadIdentity("worker.staging.instance-1", "worker")
+        with patch.object(
+            api_module,
+            "settings",
+            SimpleNamespace(
+                github_capability_broker_database_url=(
+                    "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+                )
+            ),
+        ):
+            result = api_module.resolve_github_task_capability(payload, workload)
+
+        self.assertEqual(
+            broker.arguments,
+            {
+                "task_id": task_id,
+                "principal_id": "worker.staging.instance-1",
+                "role": "worker",
+                "lease_fence": 9,
+                "verifier_claim_token": None,
+            },
+        )
+        self.assertEqual(result["repository"], "owner/private-repo")
+        self.assertNotIn("access_token", result)
+        self.assertNotIn("principal_id", result)
+
+    def test_request_model_rejects_client_supplied_identity_fields(self):
+        with self.assertRaises(Exception):
+            api_module.GitHubCapabilityResolveRequest(
+                task_id=uuid4(),
+                lease_fence=1,
+                principal_id="attacker",
+                role="worker",
+            )
 
 
 if __name__ == "__main__":
