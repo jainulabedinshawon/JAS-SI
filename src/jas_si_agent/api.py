@@ -164,6 +164,10 @@ def resolve_github_task_capability(
     The principal and role are derived only from the pinned certificate
     registry. Request bodies cannot select either identity attribute.
     """
+    if not settings.github_capability_broker_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    if settings.environment == "production":
+        raise HTTPException(status_code=404, detail="Not found")
     database_url = settings.github_capability_broker_database_url
     if not database_url:
         raise HTTPException(
