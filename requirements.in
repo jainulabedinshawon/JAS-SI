@@ -1,5 +1,0 @@
-fastapi
-uvicorn
-httpx
-psycopg[binary]
-cryptography==45.0.7
