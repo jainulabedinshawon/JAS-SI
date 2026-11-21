@@ -21,13 +21,20 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_auth_members m
         JOIN pg_catalog.pg_roles login_role ON login_role.oid=m.member
+        JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
         WHERE m.roleid=v_role.oid
-          AND (login_role.rolname NOT LIKE 'jas_si_agent_broker_login%'
-               OR NOT login_role.rolcanlogin OR login_role.rolinherit
-               OR login_role.rolsuper OR login_role.rolcreatedb
-               OR login_role.rolcreaterole OR login_role.rolreplication
-               OR login_role.rolbypassrls
-               OR m.inherit_option OR NOT m.set_option OR m.admin_option)
+          AND NOT (
+              (login_role.rolname LIKE 'jas_si_agent_broker_login%'
+               AND login_role.rolcanlogin AND NOT login_role.rolinherit
+               AND NOT login_role.rolsuper AND NOT login_role.rolcreatedb
+               AND NOT login_role.rolcreaterole AND NOT login_role.rolreplication
+               AND NOT login_role.rolbypassrls
+               AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option)
+              OR
+              (login_role.rolname='neondb_owner'
+               AND grantor_role.rolname='cloud_admin'
+               AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+          )
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_auth_members WHERE member=v_role.oid
     ) THEN
