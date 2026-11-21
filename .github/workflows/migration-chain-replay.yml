@@ -9,6 +9,7 @@ on:
       - feat/github-webhook-http-ingress-v1
       - feat/github-installation-user-ownership-proof-v1
       - feat/github-oauth-state-pkce-contract-v1
+      - feat/agent-task-db-principal-binding-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -28,6 +29,8 @@ on:
       - feat/github-webhook-durable-inbox-v1
       - feat/github-installation-user-ownership-proof-v1
       - feat/github-oauth-state-pkce-contract-v1
+      - feat/agent-task-db-principal-binding-v1
+      - feat/github-capability-workload-identity-v1
     paths:
       - "src/jas_si_agent/migrations/**"
       - ".github/workflows/migration-chain-replay.yml"
@@ -146,6 +149,8 @@ jobs:
               "20261210_github_login_hyphen_boundary.sql",
               "20261211_github_reconcile_tenant_row_lock.sql",
               "20261212_github_reconcile_tenant_row_lock_rls.sql",
+              "20261213_agent_task_db_principal_binding.sql",
+              "20261214_agent_login_set_role_boundary.sql",
           )
           missing_acl_migrations = [
               name for name in required_acl_migrations
@@ -163,7 +168,7 @@ jobs:
               for role in (
                   "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
                   "neondb_owner", "jas_si_agent_worker_login",
-                  "jas_si_agent_verifier_login",
+                  "jas_si_agent_verifier_login", "cloud_admin",
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
@@ -174,9 +179,12 @@ jobs:
                           "LOGIN PASSWORD 'test-only-runtime-password'"
                           if role == "jas_si_runtime" else "NOLOGIN"
                       )
+                      createrole_clause = (
+                          "CREATEROLE" if role in ("neondb_owner", "cloud_admin") else "NOCREATEROLE"
+                      )
                       cur.execute(
                           f'CREATE ROLE "{role}" {login_clause} NOSUPERUSER NOCREATEDB '
-                          "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                          f'{createrole_clause} NOREPLICATION NOBYPASSRLS NOINHERIT'
                       )
 
               # Seed the known-bad future-object grants so the ACL boundary
@@ -199,6 +207,11 @@ jobs:
               )
 
               for replay in (1, 2):
+                  # Replay twice against vanilla PostgreSQL semantics. Do not
+                  # synthesize Neon's managed cloud_admin grantor graph here:
+                  # CREATEROLE alone does not grant ADMIN on an existing role.
+                  # The actual Neon membership/grantor graph is checked by the
+                  # separate read-only Staging catalog preflight.
                   for name in migrations:
                       path = migration_dir / name
                       if not path.is_file():
@@ -281,6 +294,9 @@ jobs:
                       tail = migration_sql[start:].strip()
                       if tail:
                           statements.append(tail)
+                      # Generic PostgreSQL replay runs migrations as the
+                      # database bootstrap principal. Neon managed grantor
+                      # provenance is validated separately against live Staging.
                       for statement_number, statement in enumerate(statements, start=1):
                           cur.execute("""
                               SELECT session_user,current_user,
@@ -297,9 +313,11 @@ jobs:
                                   f"session_user={session_user}; current_user={current_user}; "
                                   f"public_usage={has_usage}; public_create={has_create}"
                               )
-                              print("Failing SQL statement:\n" + statement[:4000])
+                              print("Failing SQL statement:\\n" + statement[:4000])
                               conn.rollback()
                               raise
+                      if name == "20261214_agent_login_set_role_boundary.sql":
+                          cur.execute("RESET ROLE")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
               cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_github_reconciler_test'")
@@ -396,15 +414,128 @@ jobs:
                       """INSERT INTO public.jas_si_agent_tasks(
                            task_id,tenant_id,api_key_id,idempotency_key,request_hash,
                            task_type,status,input_payload,attempt_count,max_attempts,
-                           lease_owner,lease_expires_at,lease_fence
+                           lease_owner,lease_expires_at,lease_fence,lease_owner_principal
                          ) VALUES (%s,%s,%s,%s,%s,'reasoning','running','{}'::jsonb,
-                                   1,3,%s,clock_timestamp()+interval '2 minutes',1)""",
+                                   1,3,%s,clock_timestamp()+interval '2 minutes',1,'jas_si_agent_worker_test')""",
                       (task_id,tenant_id,key_id,f"retry-{error_code}",
                        bytes([len(error_code)])*32,str(worker_id)),
                   )
 
               cur.execute("CREATE ROLE jas_si_agent_worker_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
               cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
+              cur.execute("CREATE ROLE jas_si_agent_worker_other_test LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT")
+              cancel_task_id = uuid4()
+              cancel_worker_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,attempt_count,max_attempts,
+                       lease_owner,lease_expires_at,lease_fence,lease_owner_principal
+                     ) VALUES (%s,%s,%s,%s,%s,'reasoning','cancel_requested','{}'::jsonb,
+                               1,3,%s,clock_timestamp()+interval '2 minutes',1,
+                               'jas_si_agent_worker_test')""",
+                  (cancel_task_id,tenant_id,key_id,
+                   f"foreign-cancel-{cancel_task_id.hex}",bytes([43])*32,
+                   str(cancel_worker_id)),
+              )
+
+              cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_other_test")
+              expired_task_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,attempt_count,max_attempts,
+                       lease_owner,lease_expires_at,lease_fence,lease_owner_principal,
+                       next_attempt_at
+                     ) VALUES (%s,%s,%s,%s,%s,'reasoning','running','{}'::jsonb,
+                               1,3,%s,clock_timestamp()-interval '1 second',7,
+                               'jas_si_agent_worker_test',clock_timestamp()-interval '1 day')""",
+                  (expired_task_id,tenant_id,key_id,f"expired-reclaim-{uuid4().hex}",
+                   bytes([23])*32,str(worker_id)),
+              )
+              # Expired work is released and reclaimed by the next login;
+              # the new lease must bind to that new authenticated principal.
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_other_test")
+              cur.execute("SET ROLE jas_si_agent_worker")
+              cur.execute(
+                  "SELECT task_id,lease_fence FROM public.jas_si_agent_task_claim(%s,60)",
+                  (uuid4(),),
+              )
+              reclaimed = cur.fetchone()
+              if reclaimed is None or reclaimed[0] != expired_task_id or reclaimed[1] != 8:
+                  raise SystemExit(f"Expired lease was not safely reclaimed: {reclaimed!r}")
+              cur.execute("RESET SESSION AUTHORIZATION")
+              cur.execute(
+                  "SELECT lease_owner_principal FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                  (expired_task_id,),
+              )
+              if cur.fetchone()[0] != "jas_si_agent_worker_other_test":
+                  raise SystemExit("Reclaimed lease was not rebound to the new authenticated LOGIN")
+              # Exercise every Worker lifecycle mutation against a lease owned
+              # by a different LOGIN with the same capability role.
+              def expect_foreign_principal_denied(cursor, savepoint, statement, params, label):
+                  cursor.execute("SAVEPOINT " + savepoint)
+                  try:
+                      cursor.execute(statement, params)
+                  except psycopg.Error as exc:
+                      if exc.sqlstate != "42501":
+                          raise
+                      cursor.execute("ROLLBACK TO SAVEPOINT " + savepoint)
+                  else:
+                      raise SystemExit("Foreign database principal unexpectedly performed " + label)
+                  cursor.execute("RELEASE SAVEPOINT " + savepoint)
+
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_other_test")
+              cur.execute("SET ROLE jas_si_agent_worker")
+              foreign_worker_task_id = task_ids["MODEL_TIMEOUT"]
+              for savepoint, statement, params, label in (
+                  ("foreign_worker_renew_guard",
+                   "SELECT public.jas_si_agent_task_renew(%s,%s,1,60)",
+                   (worker_id,foreign_worker_task_id),"lease renewal"),
+                  ("foreign_worker_report_guard",
+                   "SELECT public.jas_si_agent_task_report(%s,%s,1,'{}'::jsonb)",
+                   (worker_id,foreign_worker_task_id),"task reporting"),
+                  ("foreign_worker_fail_guard",
+                   "SELECT public.jas_si_agent_task_fail(%s,%s,1,'FOREIGN_WORKER',0)",
+                   (worker_id,foreign_worker_task_id),"task failure"),
+                  ("foreign_worker_cancel_guard",
+                   "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,1)",
+                   (cancel_worker_id,cancel_task_id),"cancellation acknowledgement"),
+              ):
+                  expect_foreign_principal_denied(cur,savepoint,statement,params,label)
+              cur.execute("RESET SESSION AUTHORIZATION")
+              # Legacy active leases created before this migration have no
+              # authenticated principal. They must fail closed until expiry.
+              legacy_worker_task_id = uuid4()
+              legacy_worker_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,attempt_count,max_attempts,
+                       lease_owner,lease_expires_at,lease_fence,next_attempt_at
+                     ) VALUES (%s,%s,%s,%s,%s,'reasoning','running','{}'::jsonb,
+                               1,3,%s,clock_timestamp()+interval '2 minutes',4,
+                               clock_timestamp()-interval '1 day')""",
+                  (legacy_worker_task_id,tenant_id,key_id,
+                   f"legacy-worker-{legacy_worker_task_id.hex}",bytes([31])*32,
+                   str(legacy_worker_id)),
+              )
+              cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_test")
+              cur.execute("SET ROLE jas_si_agent_worker")
+              cur.execute("SAVEPOINT legacy_worker_lease_guard")
+              try:
+                  cur.execute(
+                      "SELECT public.jas_si_agent_task_fail(%s,%s,4,'LEGACY_LEASE',0)",
+                      (legacy_worker_id,legacy_worker_task_id),
+                  )
+              except psycopg.Error as exc:
+                  if exc.sqlstate != "42501":
+                      raise
+                  cur.execute("ROLLBACK TO SAVEPOINT legacy_worker_lease_guard")
+              else:
+                  raise SystemExit("An unbound legacy Worker lease was accepted before expiry")
+              cur.execute("RELEASE SAVEPOINT legacy_worker_lease_guard")
+              cur.execute("RESET SESSION AUTHORIZATION")
               cur.execute("SET SESSION AUTHORIZATION jas_si_agent_worker_test")
               # The capability role is deliberately NOINHERIT; the worker
               # process must explicitly SET ROLE to its narrowly granted API.
@@ -459,7 +590,185 @@ jobs:
                   "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
               )
               cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test")
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_verifier_other_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_other_test")
+              verifier_task_id = uuid4()
+              cur.execute(
+                  """INSERT INTO public.jas_si_agent_tasks(
+                       task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                       task_type,status,input_payload,result_payload,attempt_count,max_attempts,
+                       reported_at
+                     ) VALUES (%s,%s,%s,%s,%s,'github.read_repository','awaiting_verification',
+                               '{"repository":"jas-si-test/tenant-a","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}'::jsonb,
+                               '{"claimed_success":true}'::jsonb,1,3,clock_timestamp())""",
+                  (verifier_task_id,tenant_id,key_id,f"verifier-principal-{verifier_task_id.hex}",
+                   bytes([19])*32),
+              )
               conn.commit()
+
+              # The verifier claim is owned by its authenticated LOGIN. A
+              # second LOGIN with the same capability role cannot release it.
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute(
+                          "SELECT task_id,tenant_id,verifier_claim_token "
+                          "FROM public.jas_si_agent_task_verification_claim(1,120)"
+                      )
+                      verifier_claim = verifier_cur.fetchone()
+                      if verifier_claim is None or verifier_claim[0] != verifier_task_id:
+                          raise SystemExit(f"Verifier principal fixture was not claimed: {verifier_claim!r}")
+                      verifier_task, verifier_tenant, verifier_token = verifier_claim
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_other_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      expect_foreign_principal_denied(
+                          verifier_cur,"foreign_verifier_release_guard",
+                          "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)",
+                          (verifier_task,verifier_tenant,verifier_token),"verifier claim release",
+                      )
+                      expect_foreign_principal_denied(
+                          verifier_cur,"foreign_verifier_inconclusive_guard",
+                          "SELECT public.jas_si_agent_task_verification_record_inconclusive(%s,%s,%s,'FOREIGN_VERIFIER')",
+                          (verifier_task,verifier_tenant,verifier_token),"inconclusive finalization",
+                      )
+                      foreign_evidence_digest = bytes([41])*32
+                      expect_foreign_principal_denied(
+                          verifier_cur,"foreign_verifier_success_guard",
+                          """SELECT public.jas_si_agent_task_finalize_success(
+                               %s,%s,%s,%s,%s,%s,
+                               jsonb_build_object(
+                                 'collector_id',%s::text,
+                                 'verification_status','VERIFIED_SUCCESS',
+                                 'task_id',%s::text,
+                                 'tenant_id',%s::text,
+                                 'repository','jas-si-test/tenant-a',
+                                 'commit_sha','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                                 'evidence_digest',pg_catalog.encode(%s,'hex')
+                               ),
+                               pg_catalog.clock_timestamp()
+                             )""",
+                          (uuid4(),verifier_task,verifier_tenant,verifier_token,
+                           "foreign-verifier-test",foreign_evidence_digest,
+                           "foreign-verifier-test",str(verifier_task),str(verifier_tenant),
+                           foreign_evidence_digest),
+                          "successful evidence finalization",
+                      )
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute(
+                          "SELECT public.jas_si_agent_task_verification_record_inconclusive(%s,%s,%s,'EXPECTED_INCONCLUSIVE')",
+                          (verifier_task,verifier_tenant,verifier_token),
+                      )
+                      if verifier_cur.fetchone()[0] != "awaiting_verification":
+                          raise SystemExit("Owning verifier LOGIN could not record its inconclusive outcome")
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+
+              # Legacy active verifier claims created before this migration
+              # have no principal. They must fail closed until expiry.
+              legacy_verifier_task_id = uuid4()
+              legacy_verifier_token = uuid4()
+              with psycopg.connect(dsn) as host_conn:
+                  with host_conn.cursor() as host_cur:
+                      host_cur.execute(
+                          """INSERT INTO public.jas_si_agent_tasks(
+                               task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                               task_type,status,input_payload,result_payload,attempt_count,max_attempts,
+                               reported_at,verifier_claim_token,verifier_claimed_at,
+                               verifier_lease_expires_at,verifier_attempt_count,
+                               verifier_next_attempt_at
+                             ) VALUES (%s,%s,%s,%s,%s,'github.read_repository','awaiting_verification',
+                                       '{"repository":"jas-si-test/tenant-a","commit_sha":"cccccccccccccccccccccccccccccccccccccccc","paths":["README.md"]}'::jsonb,
+                                       '{"claimed_success":true}'::jsonb,1,3,
+                                       clock_timestamp()-interval '1 day',%s,
+                                       clock_timestamp()-interval '1 minute',
+                                       clock_timestamp()+interval '2 minutes',1,
+                                       clock_timestamp()-interval '1 day')""",
+                          (legacy_verifier_task_id,tenant_id,key_id,
+                           f"legacy-verifier-{legacy_verifier_task_id.hex}",
+                           bytes([37])*32,legacy_verifier_token),
+                      )
+                      host_conn.commit()
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute("SAVEPOINT legacy_verifier_claim_guard")
+                      try:
+                          verifier_cur.execute(
+                              "SELECT public.jas_si_agent_task_verification_record_inconclusive(%s,%s,%s,'LEGACY_CLAIM')",
+                              (legacy_verifier_task_id,tenant_id,legacy_verifier_token),
+                          )
+                      except psycopg.Error as exc:
+                          if exc.sqlstate != "42501":
+                              raise
+                          verifier_cur.execute("ROLLBACK TO SAVEPOINT legacy_verifier_claim_guard")
+                      else:
+                          raise SystemExit("An unbound legacy Verifier claim was accepted before expiry")
+                      verifier_cur.execute("RELEASE SAVEPOINT legacy_verifier_claim_guard")
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+
+              # An expired verifier claim may be reclaimed by a different
+              # authenticated LOGIN; the replacement claim must bind to it.
+              expired_verifier_task_id = uuid4()
+              expired_verifier_token = uuid4()
+              with psycopg.connect(dsn) as host_conn:
+                  with host_conn.cursor() as host_cur:
+                      host_cur.execute(
+                          """INSERT INTO public.jas_si_agent_tasks(
+                               task_id,tenant_id,api_key_id,idempotency_key,request_hash,
+                               task_type,status,input_payload,result_payload,attempt_count,max_attempts,
+                               reported_at,verifier_claim_token,verifier_claimed_at,
+                               verifier_lease_expires_at,verifier_attempt_count,
+                               verifier_next_attempt_at,verifier_claim_owner
+                             ) VALUES (%s,%s,%s,%s,%s,'github.read_repository','awaiting_verification',
+                                       '{"repository":"jas-si-test/tenant-a","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["README.md"]}'::jsonb,
+                                       '{"claimed_success":true}'::jsonb,1,3,
+                                       clock_timestamp()-interval '1 day',%s,
+                                       clock_timestamp()-interval '2 minutes',
+                                       clock_timestamp()-interval '1 minute',1,
+                                       clock_timestamp()-interval '1 day',
+                                       'jas_si_agent_verifier_test')""",
+                          (expired_verifier_task_id,tenant_id,key_id,
+                           f"expired-verifier-{expired_verifier_task_id.hex}",
+                           bytes([29])*32,expired_verifier_token),
+                      )
+                      host_conn.commit()
+              with psycopg.connect(dsn) as verifier_conn:
+                  with verifier_conn.cursor() as verifier_cur:
+                      verifier_cur.execute("SET SESSION AUTHORIZATION jas_si_agent_verifier_other_test")
+                      verifier_cur.execute("SET ROLE jas_si_agent_verifier")
+                      verifier_cur.execute(
+                          "SELECT task_id,verifier_claim_token FROM "
+                          "public.jas_si_agent_task_verification_claim(1,120)"
+                      )
+                      reclaimed_verifier = verifier_cur.fetchone()
+                      if reclaimed_verifier is None or reclaimed_verifier[0] != expired_verifier_task_id:
+                          raise SystemExit(
+                              f"Expired verifier claim was not reclaimed: {reclaimed_verifier!r}"
+                          )
+                      verifier_cur.execute("RESET SESSION AUTHORIZATION")
+              with psycopg.connect(dsn) as host_conn:
+                  with host_conn.cursor() as host_cur:
+                      host_cur.execute(
+                          "SELECT verifier_claim_owner FROM public.jas_si_agent_tasks WHERE task_id=%s",
+                          (expired_verifier_task_id,),
+                      )
+                      if host_cur.fetchone()[0] != "jas_si_agent_verifier_other_test":
+                          raise SystemExit(
+                              "Reclaimed verifier claim was not rebound to the new authenticated LOGIN"
+                          )
+              print("Verified Worker lease and Verifier claim ownership against authenticated PostgreSQL LOGIN")
+
 
               for login_role, capability_role in (
                   ("jas_si_agent_worker_test","jas_si_agent_worker"),
@@ -622,3 +931,6 @@ jobs:
       - name: Verify authoritative GitHub Installation reconciliation on PostgreSQL ${{ matrix.postgres-version }}
         run: |
           python tests/test_github_installation_reconciliation_postgres_integration.py
+      - name: Verify Neon managed grantor role boundary on PostgreSQL ${{ matrix.postgres-version }}
+        run: |
+          python tests/test_neon_managed_grantor_role_boundary.py

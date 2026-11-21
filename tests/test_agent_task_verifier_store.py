@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+_EXECUTED_SQL = []
+
 from jas_si_agent.agent_task_verifier_store import (
     PostgresAgentTaskVerifierStore,
 )
@@ -87,6 +89,7 @@ class FakeCursor:
         return False
 
     def execute(self, query, params):
+        _EXECUTED_SQL.append(query)
         self.executed = (query, params)
 
     def fetchone(self):
@@ -119,6 +122,7 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
         )
 
     def install_fake_psycopg(self, row, capture):
+        _EXECUTED_SQL.clear()
         def connect(dsn):
             self.assertEqual(dsn, "postgresql://dedicated-verifier")
             return FakeConnection(row, capture)
@@ -173,6 +177,7 @@ class AgentTaskVerifierStoreTests(unittest.TestCase):
         self.assertEqual(report.result_payload["repository"], "owner/project")
         self.assertIn("jas_si_agent_task_verification_claim", capture[0][0])
         self.assertEqual(capture[0][1], (5, 120))
+        self.assertIn("SET ROLE jas_si_agent_verifier", _EXECUTED_SQL)
 
     def test_verification_list_rejects_invalid_limit_before_database(self):
         for limit in (0, 21, True, 1.5):
