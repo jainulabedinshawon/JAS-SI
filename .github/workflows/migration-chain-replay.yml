@@ -207,49 +207,11 @@ jobs:
               )
 
               for replay in (1, 2):
-                  if replay == 2:
-                      # Rebuild the live Neon grantor chain. CASCADE removes
-                      # the replay-1 owner/login memberships that depend on the
-                      # jas_si grant; cloud_admin's CREATEROLE authority then
-                      # grants the owner membership without becoming a member.
-                      cur.execute(
-                          "REVOKE jas_si_agent_verifier FROM neondb_owner CASCADE"
-                      )
-                      cur.execute("SET ROLE cloud_admin")
-                      cur.execute(
-                          "GRANT jas_si_agent_verifier TO neondb_owner "
-                          "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                      )
-                      cur.execute("RESET ROLE")
-                      cur.execute("SET ROLE neondb_owner")
-                      cur.execute(
-                          "GRANT jas_si_agent_verifier TO neondb_owner "
-                          "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
-                      )
-                      cur.execute(
-                          "GRANT jas_si_agent_verifier TO jas_si_agent_verifier_login "
-                          "WITH ADMIN FALSE, INHERIT TRUE, SET TRUE"
-                      )
-                      cur.execute("RESET ROLE")
-                      cur.execute("""
-                          SELECT granted.rolname, member_role.rolname,
-                                 grantor_role.rolname, m.admin_option,
-                                 m.inherit_option, m.set_option,
-                                 member_role.rolcanlogin, member_role.rolinherit,
-                                 member_role.rolsuper, member_role.rolcreatedb,
-                                 member_role.rolcreaterole, member_role.rolreplication,
-                                 member_role.rolbypassrls
-                            FROM pg_catalog.pg_auth_members m
-                            JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid
-                            JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
-                            JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
-                           WHERE granted.rolname='jas_si_agent_verifier'
-                              OR member_role.rolname='jas_si_agent_verifier'
-                           ORDER BY granted.rolname,member_role.rolname,grantor_role.rolname
-                      """)
-                      print("Verifier capability membership fixture:")
-                      for membership_row in cur.fetchall():
-                          print("VERIFIER_MEMBERSHIP=" + repr(membership_row))
+                  # Replay twice against vanilla PostgreSQL semantics. Do not
+                  # synthesize Neon's managed cloud_admin grantor graph here:
+                  # CREATEROLE alone does not grant ADMIN on an existing role.
+                  # The actual Neon membership/grantor graph is checked by the
+                  # separate read-only Staging catalog preflight.
                   for name in migrations:
                       path = migration_dir / name
                       if not path.is_file():
