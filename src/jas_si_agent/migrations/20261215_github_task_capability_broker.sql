@@ -44,6 +44,8 @@ END
 $roles$;
 
 GRANT USAGE ON SCHEMA public TO jas_si_agent_capability_broker;
+-- The task-owner SECURITY DEFINER lookup joins active tenant state under FORCE RLS.
+GRANT SELECT ON public.jas_si_tenants TO jas_si_agent_task_owner;
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
