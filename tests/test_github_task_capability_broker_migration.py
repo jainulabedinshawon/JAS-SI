@@ -106,8 +106,8 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             with admin.transaction():
                 admin.execute(migration)  # Recheck after approved-style login membership exists.
             admin.execute("INSERT INTO public.jas_si_tenants VALUES ('11111111-1111-4111-8111-111111111111','active')")
-            admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','github.read_repository','running',%s,'jas_si_agent_broker_login_test',now()+interval '5 minutes',4,NULL,NULL,NULL,0)", ('{"repository":"octo/repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}',))
-            admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111','github.read_repository','awaiting_verification',%s,NULL,NULL,0,'jas_si_agent_broker_login_test','44444444-4444-4444-8444-444444444444',now()+interval '5 minutes',1)", ('{"repository":"octo/repo","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["src/main.py"]}',))
+            admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','github.read_repository','running',%s,'jas_si_agent_worker_login',now()+interval '5 minutes',4,NULL,NULL,NULL,0)", ('{"repository":"octo/repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}',))
+            admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111','github.read_repository','awaiting_verification',%s,NULL,NULL,0,'jas_si_agent_verifier_login','44444444-4444-4444-8444-444444444444',now()+interval '5 minutes',1)", ('{"repository":"octo/repo","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["src/main.py"]}',))
             admin.execute("INSERT INTO public.jas_si_github_app_installations VALUES (123,'11111111-1111-4111-8111-111111111111','active',now())")
             admin.execute("INSERT INTO public.jas_si_github_app_installation_repositories VALUES (123,'11111111-1111-4111-8111-111111111111','octo/repo','active',now())")
             admin.commit()
@@ -122,15 +122,26 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             # Login role has SET-only membership: explicitly enter the Broker
             # capability role; inherited execution is intentionally forbidden.
             broker.execute("SET ROLE jas_si_agent_capability_broker")
+            # The DB session is the Broker; persisted lease/claim principals
+            # remain the distinct Worker and Verifier login identities.
+            self.assertEqual(
+                broker.execute("SELECT session_user").fetchone()[0],
+                "jas_si_agent_broker_login_test",
+            )
             row = broker.execute(
                 "SELECT task_id,tenant_id,installation_id,repository_full_name,capability_role,lease_fence,verifier_claim_token,expires_at,commit_sha,repository_paths FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
-                ("22222222-2222-4222-8222-222222222222","jas_si_agent_broker_login_test"),
+                ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
             ).fetchone()
             self.assertIsNotNone(row)
             self.assertEqual(row[2],123)
             self.assertEqual(row[3],"octo/repo")
             self.assertIsNone(row[6])
             self.assertEqual(row[8],"a"*40)
+            wrong_worker_principal = broker.execute(
+                "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
+                ("22222222-2222-4222-8222-222222222222","jas_si_agent_verifier_login"),
+            ).fetchone()
+            self.assertIsNone(wrong_worker_principal)
             stale = broker.execute(
                 "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',3,NULL)",
                 ("22222222-2222-4222-8222-222222222222","jas_si_agent_broker_login_test"),
@@ -138,14 +149,19 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             self.assertIsNone(stale)
             verified = broker.execute(
                 "SELECT verifier_claim_token,commit_sha,repository_paths FROM public.jas_si_github_task_capability_resolve(%s,%s,'verifier',NULL,%s)",
-                ("33333333-3333-4333-8333-333333333333","jas_si_agent_broker_login_test","44444444-4444-4444-8444-444444444444"),
+                ("33333333-3333-4333-8333-333333333333","jas_si_agent_verifier_login","44444444-4444-4444-8444-444444444444"),
             ).fetchone()
             self.assertIsNotNone(verified)
             self.assertEqual(str(verified[0]),"44444444-4444-4444-8444-444444444444")
             self.assertEqual(verified[1],"b"*40)
+            wrong_verifier_principal = broker.execute(
+                "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'verifier',NULL,%s)",
+                ("33333333-3333-4333-8333-333333333333","jas_si_agent_worker_login","44444444-4444-4444-8444-444444444444"),
+            ).fetchone()
+            self.assertIsNone(wrong_verifier_principal)
             invalid_claim = broker.execute(
                 "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'verifier',NULL,%s)",
-                ("33333333-3333-4333-8333-333333333333","jas_si_agent_broker_login_test","55555555-5555-4555-8555-555555555555"),
+                ("33333333-3333-4333-8333-333333333333","jas_si_agent_verifier_login","55555555-5555-4555-8555-555555555555"),
             ).fetchone()
             self.assertIsNone(invalid_claim)
         with psycopg.connect(dsn) as admin:
