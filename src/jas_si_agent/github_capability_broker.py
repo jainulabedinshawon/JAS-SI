@@ -104,9 +104,23 @@ class PostgresGitHubCapabilityBroker:
                     paths: Any = row[9]
                     if not isinstance(paths, list) or not 1 <= len(paths) <= 10:
                         raise GitHubCapabilityBrokerError("Persisted repository path scope is invalid")
-                    if any(not isinstance(path, str) or not path or len(path) > 500 for path in paths):
+                    if any(
+                        not isinstance(path, str)
+                        or not path
+                        or len(path) > 500
+                        or path.startswith("/")
+                        or "\\" in path
+                        or "\\x00" in path
+                        or any(part in {"", ".", ".."} for part in path.split("/"))
+                        for path in paths
+                    ):
                         raise GitHubCapabilityBrokerError("Persisted repository path scope is invalid")
-                    if not isinstance(row[7], datetime) or not isinstance(row[8], str):
+                    if (
+                        not isinstance(row[7], datetime)
+                        or not isinstance(row[8], str)
+                        or len(row[8]) != 40
+                        or any(char not in "0123456789abcdef" for char in row[8])
+                    ):
                         raise GitHubCapabilityBrokerError("Persisted task capability metadata is invalid")
                     return ResolvedGitHubTaskCapability(
                         task_id=row[0],
