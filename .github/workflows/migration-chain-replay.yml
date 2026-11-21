@@ -294,22 +294,10 @@ jobs:
                       tail = migration_sql[start:].strip()
                       if tail:
                           statements.append(tail)
-                      # Reproduce the live Neon grantor boundary for the
-                      # final login hardening migration. Seed the same inherited
-                      # memberships granted by neondb_owner, then execute the
-                      # migration as that grantor (not as the replay superuser).
-                      # Neon managed grantor metadata is not synthesized in
-                      # vanilla PostgreSQL. The generic replay preserves the
-                      # migration's own role semantics; Neon-specific membership
-                      # provenance is checked separately against live Staging.
+                      # Generic PostgreSQL replay runs migrations as the
+                      # database bootstrap principal. Neon managed grantor
+                      # provenance is validated separately against live Staging.
                       for statement_number, statement in enumerate(statements, start=1):
-                          replay_verifier_grant_as_owner = (
-                              replay == 2
-                              and name == "20261127_agent_task_evidence_finalization.sql"
-                              and statement_number == 1
-                          )
-                          if replay_verifier_grant_as_owner:
-                              cur.execute("SET ROLE neondb_owner")
                           cur.execute("""
                               SELECT session_user,current_user,
                                      pg_catalog.has_schema_privilege(current_user,'public','USAGE'),
@@ -328,9 +316,6 @@ jobs:
                               print("Failing SQL statement:\\n" + statement[:4000])
                               conn.rollback()
                               raise
-                          finally:
-                              if replay_verifier_grant_as_owner:
-                                  cur.execute("RESET ROLE")
                       if name == "20261214_agent_login_set_role_boundary.sql":
                           cur.execute("RESET ROLE")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
