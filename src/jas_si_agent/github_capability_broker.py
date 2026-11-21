@@ -87,7 +87,7 @@ class PostgresGitHubCapabilityBroker:
                                lease_fence, verifier_claim_token, expires_at,
                                commit_sha, repository_paths
                           FROM public.jas_si_github_task_capability_resolve(
-                               %s, %s, %s, %s, %s
+                               %s, %s::name, %s, %s, %s
                           )
                         """,
                         (
