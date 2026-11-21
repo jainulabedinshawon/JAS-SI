@@ -149,7 +149,13 @@ jobs:
                                   raise SystemExit(
                                       f"FAIL: required Staging table missing for {expected_login}"
                                   )
-                              for privilege in privileges:
+                              # PostgreSQL 17 introduced MAINTAIN as a distinct
+                              # table privilege. Check it where supported without
+                              # breaking PostgreSQL 16 compatibility.
+                              checked_privileges = privileges + (
+                                  ("MAINTAIN",) if int(version) >= 170000 else ()
+                              )
+                              for privilege in checked_privileges:
                                   cur.execute(
                                       "SELECT pg_catalog.has_table_privilege(current_user, %s, %s)",
                                       ("public." + table, privilege),
