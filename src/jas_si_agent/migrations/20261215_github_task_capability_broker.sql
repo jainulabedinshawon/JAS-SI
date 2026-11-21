@@ -59,6 +59,7 @@ CREATE OR REPLACE FUNCTION public.jas_si_github_task_capability_resolve(
     repository_full_name text,
     capability_role text,
     fence bigint,
+    verifier_claim_token uuid,
     expires_at timestamptz,
     commit_sha text,
     repository_paths jsonb
@@ -84,7 +85,8 @@ BEGIN
     RETURN QUERY
     SELECT q.task_id,q.tenant_id,i.installation_id,r.repository_full_name::text,
            p_workload_role,
-           CASE WHEN p_workload_role='worker' THEN q.lease_fence ELSE q.verifier_attempt_count::bigint END,
+           CASE WHEN p_workload_role='worker' THEN q.lease_fence ELSE NULL::bigint END,
+           CASE WHEN p_workload_role='verifier' THEN q.verifier_claim_token ELSE NULL::uuid END,
            CASE WHEN p_workload_role='worker' THEN q.lease_expires_at ELSE q.verifier_lease_expires_at END,
            q.input_payload->>'commit_sha',
            q.input_payload->'paths'
