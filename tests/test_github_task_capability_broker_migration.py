@@ -144,7 +144,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             self.assertIsNone(wrong_worker_principal)
             stale = broker.execute(
                 "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',3,NULL)",
-                ("22222222-2222-4222-8222-222222222222","jas_si_agent_broker_login_test"),
+                ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
             ).fetchone()
             self.assertIsNone(stale)
             verified = broker.execute(
@@ -164,6 +164,13 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 ("33333333-3333-4333-8333-333333333333","jas_si_agent_verifier_login","55555555-5555-4555-8555-555555555555"),
             ).fetchone()
             self.assertIsNone(invalid_claim)
+        worker_dsn = make_conninfo(dsn, user="jas_si_agent_worker_login", password="worker-test-secret")
+        with psycopg.connect(worker_dsn) as worker:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                worker.execute(
+                    "SELECT * FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
+                    ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
+                ).fetchone()
         with psycopg.connect(dsn) as admin:
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_worker','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
