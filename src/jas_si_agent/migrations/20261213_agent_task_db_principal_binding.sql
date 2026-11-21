@@ -95,10 +95,14 @@ BEGIN
 END
 $trigger$;
 
+-- The function owner must revoke its default PUBLIC EXECUTE ACL itself.
+-- Do this before RESET ROLE; a database owner that is not a superuser cannot
+-- revoke another role's function ACL merely by owning the schema/table.
+REVOKE ALL ON FUNCTION public.jas_si_agent_task_bind_db_principal() FROM PUBLIC;
+
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 REVOKE TRIGGER ON TABLE public.jas_si_agent_tasks FROM jas_si_agent_task_owner;
-REVOKE ALL ON FUNCTION public.jas_si_agent_task_bind_db_principal() FROM PUBLIC;
 
 DO $block$
 DECLARE
