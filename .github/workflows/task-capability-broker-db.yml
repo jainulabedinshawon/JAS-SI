@@ -9,8 +9,6 @@ on:
       - "tests/test_github_task_capability_broker_migration.py"
       - ".github/workflows/task-capability-broker-db.yml"
   pull_request:
-    branches:
-      - feat/task-scoped-github-capability-broker-db-v1
     paths:
       - "src/jas_si_agent/migrations/20261215_github_task_capability_broker.sql"
       - "tests/test_github_task_capability_broker_migration.py"
