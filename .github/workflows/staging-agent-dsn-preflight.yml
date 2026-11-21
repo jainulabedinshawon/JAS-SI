@@ -103,7 +103,9 @@ jobs:
                               )
                           if not is_member or is_forbidden or not login_noinherit or not set_only_membership:
                               raise SystemExit(
-                                  f"FAIL: {expected_login} must have a non-admin SET-only capability membership and NOINHERIT login"
+                                  f"FAIL: {expected_login} role boundary mismatch "
+                                  f"(capability_member={is_member}, forbidden_capability_member={is_forbidden}, "
+                                  f"login_noinherit={login_noinherit}, set_only_nonadmin_membership={set_only_membership})"
                               )
 
                           cur.execute("""
@@ -170,26 +172,46 @@ jobs:
                   f"{len(routines)} routine grants; direct table access denied."
               )
 
-          check_dsn(
-              "JAS_SI_AGENT_WORKER_DSN",
-              "jas_si_agent_worker_login",
-              "jas_si_agent_worker",
-              "jas_si_agent_verifier",
-              WORKER_ROUTINES,
-              {
-                  "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
-                  "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
-              },
+          checks = (
+              (
+                  "Worker",
+                  "JAS_SI_AGENT_WORKER_DSN",
+                  "jas_si_agent_worker_login",
+                  "jas_si_agent_worker",
+                  "jas_si_agent_verifier",
+                  WORKER_ROUTINES,
+              ),
+              (
+                  "Verifier",
+                  "JAS_SI_AGENT_VERIFIER_DSN",
+                  "jas_si_agent_verifier_login",
+                  "jas_si_agent_verifier",
+                  "jas_si_agent_worker",
+                  VERIFIER_ROUTINES,
+              ),
           )
-          check_dsn(
-              "JAS_SI_AGENT_VERIFIER_DSN",
-              "jas_si_agent_verifier_login",
-              "jas_si_agent_verifier",
-              "jas_si_agent_worker",
-              VERIFIER_ROUTINES,
-              {
-                  "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
-                  "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
-              },
-          )
+          failures = []
+          for label, env_name, expected_login, capability, forbidden_capability, routines in checks:
+              try:
+                  check_dsn(
+                      env_name,
+                      expected_login,
+                      capability,
+                      forbidden_capability,
+                      routines,
+                      {
+                          "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
+                          "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
+                      },
+                  )
+              except SystemExit as exc:
+                  failures.append(f"{label}: {exc}")
+              except Exception as exc:
+                  failures.append(f"{label}: unexpected {type(exc).__name__} during read-only preflight")
+
+          if failures:
+              for failure in failures:
+                  print(failure)
+              raise SystemExit(f"FAIL: {len(failures)} Staging login preflight check(s) failed")
+          print("PASS: both Staging Worker and Verifier login preflights passed.")
           PY
