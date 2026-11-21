@@ -28,18 +28,27 @@ The endpoint is disabled by default. For a dedicated non-production Broker servi
 
 Do not set these variables on the public Vercel deployment. The endpoint returns 404 unless explicitly enabled with JAS_SI_ENVIRONMENT=preview; development, test, and production environments are all denied. A configured fingerprint registry alone does not enable the endpoint.
 
-The Broker DSN must authenticate as a dedicated jas_si_agent_broker_login... role. That login must be NOINHERIT, have no superuser/role-creation/database-creation/replication/BYPASSRLS privileges, and have membership in jas_si_agent_capability_broker with INHERIT FALSE, SET TRUE, and ADMIN FALSE. PR #108 intentionally does not create login roles or credentials; provision this principal only through a separately reviewed Staging-only operations procedure.
+The Broker DSN must authenticate as a dedicated jas_si_agent_broker_login role. That login must be NOINHERIT, have no superuser/role-creation/database-creation/replication/BYPASSRLS privileges, and have membership in jas_si_agent_capability_broker with INHERIT FALSE, SET TRUE, and ADMIN FALSE. PR #108 intentionally does not create login roles or credentials; provision this principal only through a separately reviewed Staging-only operations procedure.
 
 ## Important capability limitation
 
 GitHub App installation tokens are repository-scoped, not path- or commit-scoped. This endpoint therefore does not hand a token to Worker or Verifier. If path-level and pinned-commit enforcement is required, the next stage must be a Broker-mediated read proxy that validates every requested path and commit against this persisted capability before making GitHub API calls. A raw repository token must not be described as enforcing path-level scope.
 
+## Verified CI evidence at current PR #109 head
+
+Current PR #109 head: 9e3b547a976a9837276ed39d7fb26a551ec50b37.
+
+- GitHub Actions run 44955917005, "JAS-SI Agent Authorization Tests": PASS. The Python 3.10 job completed dependency installation, compilation, the full discovered unit-test suite, and Cloudflare webhook ingress proxy tests.
+- GitHub Actions run 44955917021, "JAS-SI Dependency Lock Verification": PASS. Lock regeneration, runtime/lock pin comparison, hash-verified install, compilation, and the complete discovered unit-test suite passed.
+- GitHub Actions push run 44955911006 for the same head: PASS for Dependency Lock Verification.
+
+These are CI checks, not deployment or end-to-end evidence.
+
 ## Evidence gates still outstanding
 
-- Exact-head CI for this PR.
-- Trusted listener deployment and certificate-chain configuration evidence.
-- Dedicated Broker login provisioned on Neon Staging and its membership/ACL verified.
-- Apply PR #108 migration on Neon Staging only, after dependency-chain and CI review.
+- Trusted mTLS listener deployment and certificate-chain configuration evidence.
+- Dedicated Broker login provisioned on Neon Staging and its membership/ACL verified. The NOLOGIN capability role and task-scoped resolver exist, but the dedicated login does not.
+- PR #108 task-scoped Broker migration has been applied to Neon Staging only; catalog checks confirm the role and resolver boundary. No Production migration has been run.
 - Adversarial Staging E2E for Worker and Verifier, including cross-principal, stale fence, expired claim, wrong tenant/repository, and request-header/body spoofing.
 - Broker-mediated repository-read proxy, token issuer composition, and independent verification of returned GitHub content.
 - Production remains read-only; no production enablement is authorized by this change.
