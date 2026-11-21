@@ -15,6 +15,8 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         required = (
             "jas_si_agent_capability_broker",
             "jas_si_github_task_capability_resolve",
+            "jas_si_github_installation_binding_resolve",
+            "revoke all on function public.jas_si_github_installation_binding_resolve",
             "pg_has_role(session_user",
             "lease_owner_principal",
             "lease_fence=p_lease_fence",
@@ -66,6 +68,14 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         CREATE TABLE public.jas_si_github_app_installation_repositories(
           installation_id bigint NOT NULL,tenant_id uuid NOT NULL,repository_full_name text NOT NULL,
           status text NOT NULL,verified_at timestamptz);
+        CREATE FUNCTION public.jas_si_github_installation_binding_resolve(p_tenant_id uuid,p_repository_full_name text)
+          RETURNS TABLE(tenant_id uuid,installation_id bigint,repository_full_name text)
+          LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog
+          AS $ SELECT NULL::uuid,NULL::bigint,NULL::text WHERE false $;
+        GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
+        ALTER FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text) OWNER TO jas_si_agent_task_owner;
+        GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
+          TO jas_si_agent_worker,jas_si_agent_verifier;
         ALTER TABLE public.jas_si_tenants ENABLE ROW LEVEL SECURITY;
         ALTER TABLE public.jas_si_tenants FORCE ROW LEVEL SECURITY;
         ALTER TABLE public.jas_si_agent_tasks ENABLE ROW LEVEL SECURITY;
@@ -134,6 +144,9 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         with psycopg.connect(dsn) as admin:
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_worker','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
+            self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_worker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
+            self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
+            self.assertTrue(admin.execute("SELECT has_function_privilege('jas_si_agent_capability_broker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
 
 
 if __name__ == "__main__":
