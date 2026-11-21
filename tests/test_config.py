@@ -260,5 +260,27 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "JAS_SI_GITHUB_WEBHOOK_SECRET"):
                 Settings.from_env()
 
+    def test_github_capability_broker_is_disabled_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings.from_env()
+        self.assertFalse(settings.github_capability_broker_enabled)
+        self.assertIsNone(settings.github_capability_broker_database_url)
+
+    def test_github_capability_broker_requires_explicit_opt_in(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED": "true",
+                "JAS_SI_GITHUB_CAPABILITY_BROKER_DATABASE_URL": (
+                    "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+                ),
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertTrue(settings.github_capability_broker_enabled)
+        self.assertNotIn("secret", repr(settings))
+
+
 if __name__ == "__main__":
     unittest.main()
