@@ -208,13 +208,12 @@ jobs:
 
               for replay in (1, 2):
                   if replay == 2:
-                      # Mirror the two live Neon membership records exactly:
-                      # cloud_admin grants the ADMIN-only membership to
-                      # neondb_owner, then neondb_owner owns its SET-only
-                      # self-membership. cloud_admin is NOT a member of the
-                      # verifier capability role.
+                      # Remove the fixture's earlier direct cloud_admin
+                      # membership (granted by jas_si). Live Neon has no such
+                      # row: cloud_admin is only the grantor of neondb_owner's
+                      # ADMIN-only membership.
                       cur.execute(
-                          "REVOKE jas_si_agent_verifier FROM neondb_owner "
+                          "REVOKE jas_si_agent_verifier FROM cloud_admin "
                           "GRANTED BY jas_si"
                       )
                       cur.execute("SET ROLE cloud_admin")
