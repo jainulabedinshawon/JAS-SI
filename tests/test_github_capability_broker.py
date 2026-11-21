@@ -252,6 +252,22 @@ class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
                 role="worker",
             )
 
+    def test_route_kill_switch_precedes_certificate_identity(self):
+        from fastapi.testclient import TestClient
+        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=False, environment="preview", github_capability_broker_database_url=None)):
+            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
+        self.assertEqual(response.status_code, 404)
+
+    def test_production_environment_cannot_enable_broker_route(self):
+        from fastapi.testclient import TestClient
+        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=True, environment="production", github_capability_broker_database_url="postgresql://broker:secret@db.example.test/db?sslmode=verify-full")):
+            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
+        self.assertEqual(response.status_code, 404)
+
+    def test_boolean_lease_fence_is_rejected(self):
+        with self.assertRaises(Exception):
+            api_module.GitHubCapabilityResolveRequest(task_id=uuid4(), lease_fence=True)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
