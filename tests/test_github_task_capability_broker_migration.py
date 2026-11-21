@@ -84,12 +84,17 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         CREATE POLICY repo_taskowner_read ON public.jas_si_github_app_installation_repositories FOR SELECT TO jas_si_agent_task_owner USING(true);
         """
         migration = MIGRATION.read_text(encoding="utf-8")
-        with psycopg.connect(dsn, autocommit=True) as admin:
+        with psycopg.connect(dsn) as admin:
             admin.execute(schema)
-            admin.execute(migration)
-            admin.execute(migration)  # Idempotency/replay check.
+            admin.commit()
+            with admin.transaction():
+                admin.execute(migration)
+            with admin.transaction():
+                admin.execute(migration)  # Idempotency/replay check.
             admin.execute("CREATE ROLE jas_si_agent_broker_login_test LOGIN PASSWORD 'broker-test-secret' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
             admin.execute("GRANT jas_si_agent_capability_broker TO jas_si_agent_broker_login_test WITH ADMIN FALSE, INHERIT FALSE, SET TRUE")
+            with admin.transaction():
+                admin.execute(migration)  # Recheck after approved-style login membership exists.
             admin.execute("INSERT INTO public.jas_si_tenants VALUES ('11111111-1111-4111-8111-111111111111','active')")
             admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','github.read_repository','running',%s,'jas_si_agent_broker_login_test',now()+interval '5 minutes',4,NULL,NULL,NULL,0)", ('{"repository":"octo/repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}',))
             admin.execute("INSERT INTO public.jas_si_github_app_installations VALUES (123,'11111111-1111-4111-8111-111111111111','active',now())")
