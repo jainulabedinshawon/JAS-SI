@@ -59,7 +59,23 @@ jobs:
   authorization-tests:
     name: Agent Unit Tests (Python 3.10)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: jas_si_broker_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: broker-ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jas_si_broker_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JAS_SI_BROKER_MIGRATION_TEST_DSN: postgresql://postgres:broker-ci-only-password@localhost:5432/jas_si_broker_test
 
     steps:
       - name: Checkout repository
