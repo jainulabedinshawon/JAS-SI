@@ -30,17 +30,29 @@ Do not set these variables on the public Vercel deployment. The endpoint returns
 
 The Broker DSN must authenticate as a dedicated jas_si_agent_broker_login role. That login must be NOINHERIT, have no superuser/role-creation/database-creation/replication/BYPASSRLS privileges, and have membership in jas_si_agent_capability_broker with INHERIT FALSE, SET TRUE, and ADMIN FALSE. PR #108 intentionally does not create login roles or credentials; provision this principal only through a separately reviewed Staging-only operations procedure.
 
+## Cloudflare mTLS edge is not a drop-in ASGI TLS listener
+
+Cloudflare Workers expose verified client-certificate state through request.cf.tlsClientAuth, and can forward RFC 9440 Client-Cert headers. Cloudflare documentation explicitly warns that certificate values may be present even for invalid certificates and that inbound Client-Cert / Client-Cert-Chain headers must be removed before trusted values are constructed.
+
+The current JAS-SI ASGI middleware trusts the TLS extension, not forwarded HTTP certificate headers. Therefore a Cloudflare Worker forwarding certificate headers does NOT satisfy the current listener contract and must not be enabled as-is.
+
+A future Cloudflare edge design requires a separately reviewed trust adapter: enforce certVerified=true, certRevoked=false, and complete/non-truncated certificate data at the edge; remove all client-supplied certificate/assertion headers; authenticate the Worker-to-origin channel so direct-origin requests cannot forge edge assertions; and use a replay-resistant, integrity-protected origin assertion or a real origin mTLS termination that provides the ASGI TLS extension. The origin must independently validate the assertion/certificate and bind it to the configured workload identity registry. Until implemented and adversarially tested, use a dedicated ASGI mTLS listener only.
+
+The Cloudflare account inventory was read-only checked during this review and returned no deployed Workers scripts. No Worker, hostname, certificate, DNS, or origin settings were created or changed.
+
 ## Important capability limitation
 
 GitHub App installation tokens are repository-scoped, not path- or commit-scoped. This endpoint therefore does not hand a token to Worker or Verifier. If path-level and pinned-commit enforcement is required, the next stage must be a Broker-mediated read proxy that validates every requested path and commit against this persisted capability before making GitHub API calls. A raw repository token must not be described as enforcing path-level scope.
 
 ## Verified CI evidence at current PR #109 head
 
-Current PR #109 head: 9e3b547a976a9837276ed39d7fb26a551ec50b37.
+Current PR #109 head: 942592de698580c854405618a5f06cbcda247e7a.
 
-- GitHub Actions run 44955917005, "JAS-SI Agent Authorization Tests": PASS. The Python 3.10 job completed dependency installation, compilation, the full discovered unit-test suite, and Cloudflare webhook ingress proxy tests.
-- GitHub Actions run 44955917021, "JAS-SI Dependency Lock Verification": PASS. Lock regeneration, runtime/lock pin comparison, hash-verified install, compilation, and the complete discovered unit-test suite passed.
-- GitHub Actions push run 44955911006 for the same head: PASS for Dependency Lock Verification.
+- GitHub Actions run 44956223754, "JAS-SI Agent Authorization Tests": PASS.
+- GitHub Actions run 44956223747, "JAS-SI Dependency Lock Verification": PASS.
+- GitHub Actions run 44956217955, "JAS-SI Agent Authorization Tests": PASS.
+
+The Agent Authorization job completed dependency installation, Python 3.10 verification, compilation, the full discovered unit-test suite, and Cloudflare webhook ingress proxy tests. Dependency Lock Verification completed lock regeneration, runtime/lock pin comparison, hash-verified installation, compilation, and the full discovered unit-test suite.
 
 These are CI checks, not deployment or end-to-end evidence.
 
