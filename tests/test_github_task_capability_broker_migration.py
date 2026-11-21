@@ -101,6 +101,15 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 admin.execute(migration)
             with admin.transaction():
                 admin.execute(migration)  # Idempotency/replay check.
+            # Model Neon-managed ownership: cloud_admin grants neondb_owner
+            # ADMIN OPTION on the newly-created capability role, without SET/INHERIT.
+            admin.execute("CREATE ROLE cloud_admin SUPERUSER LOGIN PASSWORD 'cloud-admin-test-secret'")
+            admin.execute("CREATE ROLE neondb_owner NOLOGIN")
+            admin.execute("SET ROLE cloud_admin")
+            admin.execute("GRANT jas_si_agent_capability_broker TO neondb_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+            admin.execute("RESET ROLE")
+            with admin.transaction():
+                admin.execute(migration)  # Must accept only the exact Neon owner membership.
             admin.execute("CREATE ROLE jas_si_agent_broker_login_test LOGIN PASSWORD 'broker-test-secret' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
             admin.execute("GRANT jas_si_agent_capability_broker TO jas_si_agent_broker_login_test WITH ADMIN FALSE, INHERIT FALSE, SET TRUE")
             with admin.transaction():
