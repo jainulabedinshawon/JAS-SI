@@ -110,6 +110,10 @@ class CertificateWorkloadIdentityTests(unittest.TestCase):
             with self.assertRaises(WorkloadIdentityError):
                 self.registry.resolve(value, now=self.now)
 
+    def test_workload_principal_cannot_exceed_postgresql_name_limit(self):
+        with self.assertRaises(ValueError):
+            WorkloadIdentity("w" * 63, "worker")
+
     def test_registry_rejects_invalid_fingerprint_role_and_duplicate_principal(self):
         with self.assertRaises(ValueError):
             CertificateWorkloadIdentityRegistry({"not-a-fingerprint": self.identity})
