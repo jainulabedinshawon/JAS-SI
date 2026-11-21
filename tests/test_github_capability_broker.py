@@ -220,6 +220,8 @@ class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
             api_module,
             "settings",
             SimpleNamespace(
+                github_capability_broker_enabled=True,
+                environment="preview",
                 github_capability_broker_database_url=(
                     "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
                 )
