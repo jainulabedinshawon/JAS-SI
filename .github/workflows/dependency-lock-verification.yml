@@ -19,6 +19,7 @@ on:
       - feat/github-app-token-issuer-v1
       - feat/github-webhook-durable-inbox-v1
       - feat/github-webhook-http-ingress-v1
+      - feat/task-scoped-github-capability-broker-db-v1
     paths:
       - "requirements.in"
       - "requirements.txt"
