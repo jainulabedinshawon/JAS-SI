@@ -38,7 +38,9 @@ The current JAS-SI ASGI middleware trusts the TLS extension, not forwarded HTTP 
 
 A future Cloudflare edge design requires a separately reviewed trust adapter: enforce certVerified=true, certRevoked=false, and complete/non-truncated certificate data at the edge; remove all client-supplied certificate/assertion headers; authenticate the Worker-to-origin channel so direct-origin requests cannot forge edge assertions; and use a replay-resistant, integrity-protected origin assertion or a real origin mTLS termination that provides the ASGI TLS extension. The origin must independently validate the assertion/certificate and bind it to the configured workload identity registry. Until implemented and adversarially tested, use a dedicated ASGI mTLS listener only.
 
-The Cloudflare account inventory was read-only checked during this review and returned no deployed Workers scripts. No Worker, hostname, certificate, DNS, or origin settings were created or changed.
+The Cloudflare account inventory was read-only checked during this review and returned no deployed Workers scripts. The Access applications and mTLS certificate inventory APIs returned `access.api.error.not_enabled`; Cloudflare Access is not enabled on this account. No Worker, hostname, certificate, DNS, or origin settings were created or changed.
+
+Cloudflare's current Access mTLS documentation states that Access mTLS is not included in its Free plan and requires Enterprise or pay-as-you-go Zero Trust. Free customers can use Access service tokens for automated authentication, but that is a different trust mechanism and is not a drop-in replacement for the existing certificate-fingerprint registry. Zone-level mTLS is a separate feature with separate plan availability and has not been validated for this account. Do not enable or purchase a plan as part of this PR.
 
 ## Important capability limitation
 
