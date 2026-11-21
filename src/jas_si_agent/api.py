@@ -144,30 +144,36 @@ if isinstance(
         settings.github_capability_workload_identities
     )
 
+def require_enabled_authenticated_workload(request: Request) -> WorkloadIdentity:
+    """Apply the route kill-switch before evaluating certificate identity."""
+    if (
+        not settings.github_capability_broker_enabled
+        or str(settings.environment).casefold() == "production"
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+    return require_authenticated_workload(request)
+
+
 class GitHubCapabilityResolveRequest(BaseModel):
     """Only task selector and role-specific persisted lease proof are accepted."""
 
     model_config = ConfigDict(extra="forbid")
 
     task_id: uuid.UUID
-    lease_fence: Optional[int] = Field(default=None, ge=1)
+    lease_fence: Optional[int] = Field(default=None, ge=1, strict=True)
     verifier_claim_token: Optional[uuid.UUID] = None
 
 
 @app.post("/internal/github/capabilities/resolve")
 def resolve_github_task_capability(
     payload: GitHubCapabilityResolveRequest,
-    workload: WorkloadIdentity = Depends(require_authenticated_workload),
+    workload: WorkloadIdentity = Depends(require_enabled_authenticated_workload),
 ) -> dict:
     """Resolve a capability using mTLS identity plus persisted DB lease/claim.
 
     The principal and role are derived only from the pinned certificate
     registry. Request bodies cannot select either identity attribute.
     """
-    if not settings.github_capability_broker_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
-    if settings.environment == "production":
-        raise HTTPException(status_code=404, detail="Not found")
     database_url = settings.github_capability_broker_database_url
     if not database_url:
         raise HTTPException(
