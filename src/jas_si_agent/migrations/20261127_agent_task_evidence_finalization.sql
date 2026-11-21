@@ -27,19 +27,7 @@ BEGIN
           JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
          WHERE m.member=v_role OR (m.roleid=v_role AND NOT (
              (member_role.rolname='neondb_owner'
-              AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option
-              AND (
-                  grantor_role.rolname='neondb_owner'
-                  OR grantor_role.rolname='cloud_admin'
-                  OR (
-                      grantor_role.rolname=session_user
-                      AND EXISTS (
-                          SELECT 1 FROM pg_catalog.pg_roles bootstrap_grantor
-                           WHERE bootstrap_grantor.rolname=session_user
-                             AND bootstrap_grantor.rolsuper
-                      )
-                  )
-              )
+              AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option)
              OR
              (member_role.rolname='neondb_owner'
               AND grantor_role.rolname='cloud_admin'
