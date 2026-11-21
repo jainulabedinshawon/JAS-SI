@@ -11,6 +11,8 @@ on:
       - feat/github-webhook-durable-inbox-v1
       - feat/github-installation-user-ownership-proof-v1
       - feat/github-oauth-state-pkce-contract-v1
+      - feat/github-capability-workload-identity-v1
+      - feat/agent-task-db-principal-binding-v1
       - fix/shared-api-rate-limiter-v1
       - feat/tenant-github-installation-binding-v1
       - feat/github-installation-onboarding-security-v1
@@ -30,6 +32,8 @@ on:
       - feat/github-webhook-durable-inbox-v1
       - feat/github-installation-user-ownership-proof-v1
       - feat/github-oauth-state-pkce-contract-v1
+      - feat/github-capability-workload-identity-v1
+      - feat/agent-task-db-principal-binding-v1
       - fix/shared-api-rate-limiter-v1
     paths:
       - "src/jas_si_agent/**"

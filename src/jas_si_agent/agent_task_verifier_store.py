@@ -33,6 +33,19 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("Dedicated verifier PostgreSQL DSN is required")
         self._dsn = dsn.strip()
 
+    def _connect(self):
+        """Open a fresh session and explicitly assume the non-login capability role."""
+        import psycopg
+
+        connection = psycopg.connect(self._dsn)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET ROLE jas_si_agent_verifier", None)
+            return connection
+        except Exception:
+            connection.close()
+            raise
+
     def claim_awaiting_verification(self, *, limit: int = 10, lease_seconds: int = 120) -> list[tuple[PersistedTask, WorkerTaskReport]]:
         """Atomically claim a bounded verifier batch with expiring fencing tokens."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
@@ -41,7 +54,7 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("verifier lease must be between 5 and 300 seconds")
         try:
             import psycopg
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT task_id,tenant_id,task_type,input_payload,result_payload,reported_at,verifier_claim_token "
                     "FROM public.jas_si_agent_task_verification_claim(%s,%s)",
@@ -82,7 +95,7 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("A sanitized verifier reason code is required")
         try:
             import psycopg
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT public.jas_si_agent_task_verification_record_inconclusive(
                          %s,%s,%s,%s
@@ -105,7 +118,7 @@ class PostgresAgentTaskVerifierStore:
             raise ValueError("A task with a verifier claim token is required")
         try:
             import psycopg
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT public.jas_si_agent_task_verification_release(%s,%s,%s)",
                     (task.task_id, task.tenant_id, task.verifier_claim_token),
@@ -261,7 +274,7 @@ class PostgresAgentTaskVerifierStore:
             import psycopg
             from psycopg.types.json import Jsonb
 
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT public.jas_si_agent_task_finalize_success(
                          %s,%s,%s,%s,%s,%s,%s,%s

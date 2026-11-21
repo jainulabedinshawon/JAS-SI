@@ -11,6 +11,16 @@ Security invariant: a caller's task ID, tenant ID, repository, worker UUID, or v
 - Worker task lifecycle and Verifier claim/finalization currently use their dedicated PostgreSQL capability logins directly. Their caller-supplied worker UUID and verifier claim token are not cryptographic workload identities.
 - The current installation-binding resolver checks tenant/repository binding, but does not bind token issuance to a live Worker lease or Verifier claim.
 
+## Database-login isolation bridge (implemented separately from the broker)
+
+The task-principal migration binds Worker leases and Verifier claims to PostgreSQL `session_user`. The host preflight accepts only bounded role-specific login names:
+- Worker: `jas_si_agent_worker_login` or `jas_si_agent_worker_login_<instance>`.
+- Verifier: `jas_si_agent_verifier_login` or `jas_si_agent_verifier_login_<instance>`.
+- Worker supervisor may receive `JAS_SI_AGENT_WORKER_DB_LOGIN`; Verifier supervisor may receive `JAS_SI_AGENT_VERIFIER_DB_LOGIN`. Each value is checked against the role-specific allowlist and compared with PostgreSQL `session_user`.
+- Every distinct login must be separately provisioned with its own credential and only the matching NOLOGIN capability-role membership. Never share its DSN/credential with another workload.
+- This is a **single database-login per configured service identity** bridge. Replicas sharing the same DSN remain one principal; this is not per-replica identity and does not replace broker authentication.
+- The migration does not create LOGIN roles, set passwords, provision DSNs, or alter Render services. Provisioning credentials and Staging application require separate approval.
+
 ## Required trust model
 
 1. Authenticate each workload at the broker boundary using mutually authenticated TLS or an equivalently strong workload identity mechanism. Map the authenticated certificate/service identity to a server-side Worker or Verifier principal. Never accept a caller-supplied UUID as identity.

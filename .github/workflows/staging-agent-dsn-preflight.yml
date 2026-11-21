@@ -1,6 +1,11 @@
 name: JAS-SI Staging Agent DSN Preflight
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/staging-agent-dsn-preflight.yml"
+
   workflow_dispatch:
 
   push:
@@ -72,39 +77,68 @@ jobs:
                           cur.execute("SET TRANSACTION READ ONLY")
                           cur.execute("SET LOCAL statement_timeout = '10s'")
                           cur.execute("""
-                              SELECT current_user, current_database(),
+                              SELECT session_user, current_user, current_database(),
                                      current_setting('server_version_num'),
                                      pg_catalog.pg_has_role(session_user, %s, 'MEMBER'),
-                                     pg_catalog.pg_has_role(session_user, %s, 'MEMBER')
-                          """, (capability, forbidden_capability))
-                          login, database, version, is_member, is_forbidden = cur.fetchone()
+                                     pg_catalog.pg_has_role(session_user, %s, 'MEMBER'),
+                                     EXISTS (
+                                         SELECT 1 FROM pg_catalog.pg_roles login_role
+                                          WHERE login_role.rolname = session_user
+                                            AND login_role.rolinherit = false
+                                     ),
+                                     EXISTS (
+                                         SELECT 1
+                                           FROM pg_catalog.pg_auth_members membership
+                                           JOIN pg_catalog.pg_roles member_role
+                                             ON member_role.oid = membership.member
+                                           JOIN pg_catalog.pg_roles granted_role
+                                             ON granted_role.oid = membership.roleid
+                                          WHERE member_role.rolname = session_user
+                                            AND granted_role.rolname = %s
+                                            AND membership.admin_option = false
+                                            AND membership.inherit_option = false
+                                            AND membership.set_option = true
+                                     )
+                          """, (capability, forbidden_capability, capability))
+                          authenticated_login, current_role, database, version, is_member, is_forbidden, login_noinherit, set_only_membership = cur.fetchone()
 
-                          if login != expected_login:
+                          if authenticated_login != expected_login or current_role != expected_login:
                               raise SystemExit(
                                   f"FAIL: {env_name} authenticated as an unexpected login role"
                               )
-                          if not is_member or is_forbidden:
+                          if not is_member or is_forbidden or not login_noinherit or not set_only_membership:
                               raise SystemExit(
-                                  f"FAIL: {expected_login} capability membership is incorrect"
+                                  f"FAIL: {expected_login} role boundary mismatch "
+                                  f"(capability_member={is_member}, forbidden_capability_member={is_forbidden}, "
+                                  f"login_noinherit={login_noinherit}, set_only_nonadmin_membership={set_only_membership})"
                               )
 
                           cur.execute("""
-                              SELECT rolsuper, rolcreatedb, rolcreaterole,
+                              SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
                                      rolreplication, rolbypassrls
                                 FROM pg_catalog.pg_roles
-                               WHERE rolname = current_user
+                               WHERE rolname = session_user
                           """)
                           attrs = cur.fetchone()
-                          if attrs is None or any(attrs):
+                          if attrs is None or attrs[0] is not True or any(attrs[1:]):
                               raise SystemExit(
-                                  f"FAIL: {expected_login} has an elevated PostgreSQL role attribute"
+                                  f"FAIL: {expected_login} has an elevated or invalid PostgreSQL login role attribute"
+                              )
+
+                          # The capability grant is SET-only, so validate routine
+                          # and table privileges only after the explicit role switch.
+                          cur.execute("SET LOCAL ROLE " + capability)
+                          cur.execute("SELECT current_user")
+                          if cur.fetchone()[0] != capability:
+                              raise SystemExit(
+                                  f"FAIL: {expected_login} could not assume its capability role"
                               )
 
                           for routine in routines:
                               signature = "public." + routine
                               cur.execute(
                                   "SELECT pg_catalog.to_regprocedure(%s) IS NOT NULL, "
-                                  "pg_catalog.has_function_privilege(session_user, %s, 'EXECUTE')",
+                                  "pg_catalog.has_function_privilege(current_user, %s, 'EXECUTE')",
                                   (signature, signature),
                               )
                               exists, can_execute = cur.fetchone()
@@ -122,9 +156,15 @@ jobs:
                                   raise SystemExit(
                                       f"FAIL: required Staging table missing for {expected_login}"
                                   )
-                              for privilege in privileges:
+                              # PostgreSQL 17 introduced MAINTAIN as a distinct
+                              # table privilege. Check it where supported without
+                              # breaking PostgreSQL 16 compatibility.
+                              checked_privileges = privileges + (
+                                  ("MAINTAIN",) if int(version) >= 170000 else ()
+                              )
+                              for privilege in checked_privileges:
                                   cur.execute(
-                                      "SELECT pg_catalog.has_table_privilege(session_user, %s, %s)",
+                                      "SELECT pg_catalog.has_table_privilege(current_user, %s, %s)",
                                       ("public." + table, privilege),
                                   )
                                   if cur.fetchone()[0]:
@@ -137,26 +177,46 @@ jobs:
                   f"{len(routines)} routine grants; direct table access denied."
               )
 
-          check_dsn(
-              "JAS_SI_AGENT_WORKER_DSN",
-              "jas_si_agent_worker_login",
-              "jas_si_agent_worker",
-              "jas_si_agent_verifier",
-              WORKER_ROUTINES,
-              {
-                  "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
-                  "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
-              },
+          checks = (
+              (
+                  "Worker",
+                  "JAS_SI_AGENT_WORKER_DSN",
+                  "jas_si_agent_worker_login",
+                  "jas_si_agent_worker",
+                  "jas_si_agent_verifier",
+                  WORKER_ROUTINES,
+              ),
+              (
+                  "Verifier",
+                  "JAS_SI_AGENT_VERIFIER_DSN",
+                  "jas_si_agent_verifier_login",
+                  "jas_si_agent_verifier",
+                  "jas_si_agent_worker",
+                  VERIFIER_ROUTINES,
+              ),
           )
-          check_dsn(
-              "JAS_SI_AGENT_VERIFIER_DSN",
-              "jas_si_agent_verifier_login",
-              "jas_si_agent_verifier",
-              "jas_si_agent_worker",
-              VERIFIER_ROUTINES,
-              {
-                  "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
-                  "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
-              },
-          )
+          failures = []
+          for label, env_name, expected_login, capability, forbidden_capability, routines in checks:
+              try:
+                  check_dsn(
+                      env_name,
+                      expected_login,
+                      capability,
+                      forbidden_capability,
+                      routines,
+                      {
+                          "jas_si_agent_tasks": NO_DIRECT_TABLE_PRIVILEGES,
+                          "jas_si_agent_evidence_records": NO_DIRECT_TABLE_PRIVILEGES,
+                      },
+                  )
+              except SystemExit as exc:
+                  failures.append(f"{label}: {exc}")
+              except Exception as exc:
+                  failures.append(f"{label}: unexpected {type(exc).__name__} during read-only preflight")
+
+          if failures:
+              for failure in failures:
+                  print(failure)
+              raise SystemExit(f"FAIL: {len(failures)} Staging login preflight check(s) failed")
+          print("PASS: both Staging Worker and Verifier login preflights passed.")
           PY

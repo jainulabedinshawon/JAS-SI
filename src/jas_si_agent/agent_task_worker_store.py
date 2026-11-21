@@ -51,6 +51,19 @@ class PostgresAgentTaskWorkerStore:
         self._dsn = dsn.strip()
         self._worker_id = worker_id
 
+    def _connect(self):
+        """Open a fresh session and explicitly assume the non-login capability role."""
+        import psycopg
+
+        connection = psycopg.connect(self._dsn)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET ROLE jas_si_agent_worker", None)
+            return connection
+        except Exception:
+            connection.close()
+            raise
+
     @staticmethod
     def _validate_lease_seconds(value: int) -> None:
         if isinstance(value, bool) or not isinstance(value, int) or not 15 <= value <= 300:
@@ -69,7 +82,7 @@ class PostgresAgentTaskWorkerStore:
         try:
             import psycopg
 
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT task_id,tenant_id,task_type,input_payload,attempt_count,max_attempts,"
                     "lease_fence,lease_expires_at "
@@ -103,7 +116,7 @@ class PostgresAgentTaskWorkerStore:
         try:
             import psycopg
 
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT public.jas_si_agent_task_renew(%s,%s,%s,%s)",
                     (self._worker_id, task_id, lease_fence, lease_seconds),
@@ -123,7 +136,7 @@ class PostgresAgentTaskWorkerStore:
         try:
             import psycopg
 
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT public.jas_si_agent_task_ack_cancel(%s,%s,%s)",
                     (self._worker_id, task_id, lease_fence),
@@ -164,7 +177,7 @@ class PostgresAgentTaskWorkerStore:
             import psycopg
             from psycopg.types.json import Jsonb
 
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT public.jas_si_agent_task_report(%s,%s,%s,%s)",
                     (self._worker_id, task_id, lease_fence, Jsonb(normalized)),
@@ -193,7 +206,7 @@ class PostgresAgentTaskWorkerStore:
         try:
             import psycopg
 
-            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+            with self._connect() as connection, connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT public.jas_si_agent_task_fail(%s,%s,%s,%s,%s)",
                     (self._worker_id, task_id, lease_fence, error_code, retry_delay_seconds),

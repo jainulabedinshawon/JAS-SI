@@ -94,9 +94,10 @@ def main() -> None:
         verify_agent_host_database_access(
             dsn,
             capability_role="jas_si_agent_verifier",
-            expected_login="jas_si_agent_verifier_login",
+            expected_login=os.environ.get("JAS_SI_AGENT_VERIFIER_DB_LOGIN", "jas_si_agent_verifier_login").strip(),
             required_functions=(
                 "public.jas_si_agent_task_verification_claim(integer,integer)",
+                "public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text)",
                 "public.jas_si_agent_task_verification_release(uuid,uuid,uuid)",
                 "public.jas_si_agent_task_finalize_success(uuid,uuid,uuid,uuid,text,bytea,jsonb,timestamptz)",
             ),
