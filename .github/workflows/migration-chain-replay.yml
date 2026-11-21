@@ -229,6 +229,25 @@ jobs:
                           "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
                       )
                       cur.execute("RESET ROLE")
+                      cur.execute("""
+                          SELECT granted.rolname, member_role.rolname,
+                                 grantor_role.rolname, m.admin_option,
+                                 m.inherit_option, m.set_option,
+                                 member_role.rolcanlogin, member_role.rolinherit,
+                                 member_role.rolsuper, member_role.rolcreatedb,
+                                 member_role.rolcreaterole, member_role.rolreplication,
+                                 member_role.rolbypassrls
+                            FROM pg_catalog.pg_auth_members m
+                            JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid
+                            JOIN pg_catalog.pg_roles member_role ON member_role.oid=m.member
+                            JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
+                           WHERE granted.rolname='jas_si_agent_verifier'
+                              OR member_role.rolname='jas_si_agent_verifier'
+                           ORDER BY granted.rolname,member_role.rolname,grantor_role.rolname
+                      """)
+                      print("Verifier capability membership fixture:")
+                      for membership_row in cur.fetchall():
+                          print("VERIFIER_MEMBERSHIP=" + repr(membership_row))
                   for name in migrations:
                       path = migration_dir / name
                       if not path.is_file():
