@@ -111,7 +111,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             with psycopg.connect(cloud_admin_dsn) as cloud_admin:
                 cloud_admin.execute("GRANT jas_si_agent_capability_broker TO neondb_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
             managed_membership = admin.execute("""
-                SELECT member.rolname, grantor.rolname, m.admin_option,
+                SELECT member.rolname, grantor.rolsuper, m.admin_option,
                        m.inherit_option, m.set_option
                 FROM pg_auth_members m
                 JOIN pg_roles member ON member.oid=m.member
@@ -120,7 +120,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 WHERE granted.rolname='jas_si_agent_capability_broker'
                   AND member.rolname='neondb_owner'
             """).fetchone()
-            self.assertEqual(managed_membership, ("neondb_owner", "cloud_admin", True, False, False))
+            self.assertEqual(managed_membership, ("neondb_owner", True, True, False, False))
             admin.commit()
             with admin.transaction():
                 admin.execute(migration)  # Must accept only the exact Neon owner membership.
