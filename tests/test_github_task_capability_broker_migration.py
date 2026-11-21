@@ -85,7 +85,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         ALTER TABLE public.jas_si_github_app_installation_repositories ENABLE ROW LEVEL SECURITY;
         ALTER TABLE public.jas_si_github_app_installation_repositories FORCE ROW LEVEL SECURITY;
         GRANT USAGE ON SCHEMA public TO jas_si_agent_task_owner;
-        GRANT SELECT ON public.jas_si_tenants,public.jas_si_agent_tasks,
+        GRANT SELECT ON public.jas_si_agent_tasks,
           public.jas_si_github_app_installations,public.jas_si_github_app_installation_repositories
           TO jas_si_agent_task_owner;
         CREATE POLICY tenant_taskowner_read ON public.jas_si_tenants FOR SELECT TO jas_si_agent_task_owner USING(true);
@@ -101,10 +101,34 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 admin.execute(migration)
             with admin.transaction():
                 admin.execute(migration)  # Idempotency/replay check.
+            # Model Neon-managed ownership: cloud_admin grants neondb_owner
+            # ADMIN OPTION on the newly-created capability role, without SET/INHERIT.
+            admin.execute("CREATE ROLE cloud_admin SUPERUSER LOGIN PASSWORD 'cloud-admin-test-secret'")
+            admin.execute("CREATE ROLE neondb_owner NOLOGIN")
+            admin.commit()
+            from psycopg.conninfo import make_conninfo
+            cloud_admin_dsn = make_conninfo(dsn, user="cloud_admin", password="cloud-admin-test-secret")
+            with psycopg.connect(cloud_admin_dsn) as cloud_admin:
+                cloud_admin.execute("GRANT jas_si_agent_capability_broker TO neondb_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE")
+            managed_membership = admin.execute("""
+                SELECT member.rolname, grantor.rolsuper, m.admin_option,
+                       m.inherit_option, m.set_option
+                FROM pg_auth_members m
+                JOIN pg_roles member ON member.oid=m.member
+                JOIN pg_roles grantor ON grantor.oid=m.grantor
+                JOIN pg_roles granted ON granted.oid=m.roleid
+                WHERE granted.rolname='jas_si_agent_capability_broker'
+                  AND member.rolname='neondb_owner'
+            """).fetchone()
+            self.assertEqual(managed_membership, ("neondb_owner", True, True, False, False))
+            admin.commit()
+            with admin.transaction():
+                admin.execute(migration)  # Must accept only the exact Neon owner membership.
             admin.execute("CREATE ROLE jas_si_agent_broker_login_test LOGIN PASSWORD 'broker-test-secret' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
             admin.execute("GRANT jas_si_agent_capability_broker TO jas_si_agent_broker_login_test WITH ADMIN FALSE, INHERIT FALSE, SET TRUE")
             with admin.transaction():
                 admin.execute(migration)  # Recheck after approved-style login membership exists.
+            self.assertTrue(admin.execute("SELECT has_table_privilege('jas_si_agent_task_owner','public.jas_si_tenants','SELECT')").fetchone()[0])
             admin.execute("INSERT INTO public.jas_si_tenants VALUES ('11111111-1111-4111-8111-111111111111','active')")
             admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','github.read_repository','running',%s,'jas_si_agent_worker_login',now()+interval '5 minutes',4,NULL,NULL,NULL,0)", ('{"repository":"octo/repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}',))
             admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111','github.read_repository','awaiting_verification',%s,NULL,NULL,0,'jas_si_agent_verifier_login','44444444-4444-4444-8444-444444444444',now()+interval '5 minutes',1)", ('{"repository":"octo/repo","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["src/main.py"]}',))
@@ -112,7 +136,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             admin.execute("INSERT INTO public.jas_si_github_app_installation_repositories VALUES (123,'11111111-1111-4111-8111-111111111111','octo/repo','active',now())")
             admin.commit()
             admin.execute("GRANT USAGE ON SCHEMA public TO jas_si_agent_capability_broker")
-            admin.execute("GRANT SELECT ON public.jas_si_agent_tasks,public.jas_si_tenants,public.jas_si_github_app_installations,public.jas_si_github_app_installation_repositories TO jas_si_agent_task_owner")
+            admin.execute("GRANT SELECT ON public.jas_si_agent_tasks,public.jas_si_github_app_installations,public.jas_si_github_app_installation_repositories TO jas_si_agent_task_owner")
             admin.commit()
             # The routine is SECURITY DEFINER, owned by the task owner, and the
             # task-owner policies make the minimal persisted lookup available.
@@ -176,7 +200,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_worker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
-            self.assertTrue(admin.execute("SELECT has_function_privilege('jas_si_agent_capability_broker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
+            self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_capability_broker','public.jas_si_github_installation_binding_resolve(uuid,text)','EXECUTE')").fetchone()[0])
 
 
 if __name__ == "__main__":

@@ -21,13 +21,20 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_auth_members m
         JOIN pg_catalog.pg_roles login_role ON login_role.oid=m.member
+        JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
         WHERE m.roleid=v_role.oid
-          AND (login_role.rolname NOT LIKE 'jas_si_agent_broker_login%'
-               OR NOT login_role.rolcanlogin OR login_role.rolinherit
-               OR login_role.rolsuper OR login_role.rolcreatedb
-               OR login_role.rolcreaterole OR login_role.rolreplication
-               OR login_role.rolbypassrls
-               OR m.inherit_option OR NOT m.set_option OR m.admin_option)
+          AND NOT (
+              (login_role.rolname LIKE 'jas_si_agent_broker_login%'
+               AND login_role.rolcanlogin AND NOT login_role.rolinherit
+               AND NOT login_role.rolsuper AND NOT login_role.rolcreatedb
+               AND NOT login_role.rolcreaterole AND NOT login_role.rolreplication
+               AND NOT login_role.rolbypassrls
+               AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option)
+              OR
+              (login_role.rolname='neondb_owner'
+               AND grantor_role.rolsuper
+               AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+          )
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_auth_members WHERE member=v_role.oid
     ) THEN
@@ -44,6 +51,8 @@ END
 $roles$;
 
 GRANT USAGE ON SCHEMA public TO jas_si_agent_capability_broker;
+-- The task-owner SECURITY DEFINER lookup joins active tenant state under FORCE RLS.
+GRANT SELECT ON public.jas_si_tenants TO jas_si_agent_task_owner;
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
 
@@ -51,8 +60,8 @@ SET LOCAL ROLE jas_si_agent_task_owner;
 -- Revoke it from both workload roles; only the Broker may use it directly.
 REVOKE ALL ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
     FROM PUBLIC,jas_si_agent_worker,jas_si_agent_verifier;
-GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
-    TO jas_si_agent_capability_broker;
+-- Broker uses the stricter task-scoped resolver below; do not grant it the
+-- legacy unscoped installation lookup routine.
 
 CREATE OR REPLACE FUNCTION public.jas_si_github_task_capability_resolve(
     p_task_id uuid,
@@ -83,6 +92,7 @@ BEGIN
             USING ERRCODE='42501';
     END IF;
     IF p_task_id IS NULL OR p_workload_principal IS NULL
+       OR p_workload_role IS NULL
        OR p_workload_role NOT IN ('worker','verifier')
        OR (p_workload_role='worker' AND (p_lease_fence IS NULL OR p_verifier_claim_token IS NOT NULL))
        OR (p_workload_role='verifier' AND (p_verifier_claim_token IS NULL OR p_lease_fence IS NOT NULL)) THEN
@@ -156,7 +166,7 @@ BEGIN
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_binding,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_binding,'EXECUTE')
-       OR NOT pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_binding,'EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_binding,'EXECUTE')
        OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(
           COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=v_proc),
                    pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=v_proc)))
