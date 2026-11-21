@@ -22,8 +22,8 @@ from types import SimpleNamespace
 
 
 class _Cursor:
-    def __init__(self, row):
-        self.row = row
+    def __init__(self, row, session_user="jas_si_agent_broker_login"):
+        self.rows = [(session_user,), row]
         self.statements = []
         self.parameters = []
 
@@ -38,12 +38,12 @@ class _Cursor:
         self.parameters.append(parameters)
 
     def fetchone(self):
-        return self.row
+        return self.rows.pop(0)
 
 
 class _Connection:
-    def __init__(self, row):
-        self.cursor_value = _Cursor(row)
+    def __init__(self, row, session_user="jas_si_agent_broker_login"):
+        self.cursor_value = _Cursor(row, session_user=session_user)
         self.closed = False
 
     def __enter__(self):
@@ -96,12 +96,32 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         self.assertEqual(result.task_id, self.task_id)
         self.assertEqual(result.repository_full_name, "owner/private-repo")
         self.assertEqual(result.repository_paths, ["src/main.py", "tests/test_main.py"])
-        self.assertEqual(connection.cursor_value.statements[0], "SET ROLE jas_si_agent_capability_broker")
+        self.assertEqual(connection.cursor_value.statements[0], "SELECT session_user")
+        self.assertEqual(connection.cursor_value.statements[1], "SET ROLE jas_si_agent_capability_broker")
         self.assertEqual(
-            connection.cursor_value.parameters[1],
+            connection.cursor_value.parameters[2],
             (self.task_id, "worker.staging.instance-1", "worker", 7, None),
         )
         self.assertEqual(connect.call_args.kwargs["application_name"], "jas-si-github-capability-broker")
+        self.assertTrue(connection.closed)
+
+    def test_rejects_non_dedicated_database_login_before_set_role(self):
+        connection = _Connection(self.row, session_user="neondb_owner")
+        with patch("jas_si_agent.github_capability_broker.psycopg.connect", return_value=connection):
+            broker = PostgresGitHubCapabilityBroker(
+                "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+            )
+            with self.assertRaisesRegex(
+                GitHubCapabilityBrokerError, "login identity is not authorized"
+            ):
+                broker.resolve(
+                    task_id=self.task_id,
+                    principal_id="worker.staging.instance-1",
+                    role="worker",
+                    lease_fence=7,
+                )
+
+        self.assertEqual(connection.cursor_value.statements, ["SELECT session_user"])
         self.assertTrue(connection.closed)
 
     def test_verifier_resolution_uses_claim_token_not_worker_fence(self):
