@@ -139,7 +139,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             )
         self.assertEqual(result.capability_role, "verifier")
         self.assertEqual(
-            connection.cursor_value.parameters[1],
+            connection.cursor_value.parameters[2],
             (self.task_id, "verifier.staging.instance-1", "verifier", None, self.claim_token),
         )
 
