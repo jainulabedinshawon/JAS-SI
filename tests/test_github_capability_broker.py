@@ -123,6 +123,18 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             (self.task_id, "verifier.staging.instance-1", "verifier", None, self.claim_token),
         )
 
+    def test_principal_longer_than_postgresql_name_limit_is_rejected(self):
+        broker = PostgresGitHubCapabilityBroker(
+            "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+        )
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            broker.resolve(
+                task_id=self.task_id,
+                principal_id="w" * 64,
+                role="worker",
+                lease_fence=7,
+            )
+
     def test_worker_cannot_supply_verifier_claim_token(self):
         broker = PostgresGitHubCapabilityBroker(
             "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
