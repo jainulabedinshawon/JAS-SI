@@ -18,7 +18,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID
 from fastapi import HTTPException, Request
 
 
-_PRINCIPAL_RE = re.compile(r"^[a-z][a-z0-9._:-]{2,127}$")
+_PRINCIPAL_RE = re.compile(r"^[a-z][a-z0-9._:-]{2,62}$")
 _FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_ROLES = frozenset({"worker", "verifier"})
 
