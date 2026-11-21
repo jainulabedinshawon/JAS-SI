@@ -148,7 +148,7 @@ def require_enabled_authenticated_workload(request: Request) -> WorkloadIdentity
     """Apply the route kill-switch before evaluating certificate identity."""
     if (
         not settings.github_capability_broker_enabled
-        or str(settings.environment).casefold() == "production"
+        or str(settings.environment).casefold() != "preview"
     ):
         raise HTTPException(status_code=404, detail="Not found")
     return require_authenticated_workload(request)
