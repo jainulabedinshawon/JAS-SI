@@ -1,7 +1,7 @@
--- Task-scoped database capability lookup for the isolated GitHub Broker.
--- Broker authenticates workload certificates before calling this routine.
--- The DB confirms the dedicated Broker login and the persisted lease/claim;
--- task, tenant and repository fields supplied by the caller are never authority.
+-- Task-scoped DB authorization for the isolated GitHub Capability Broker.
+-- Broker TLS/certificate authentication occurs in the service; this routine
+-- independently fences that authenticated principal against persisted task state.
+-- This migration does not create LOGIN roles, credentials, services, or tokens.
 
 DO $roles$
 DECLARE v_role pg_catalog.pg_roles%ROWTYPE;
@@ -36,8 +36,9 @@ BEGIN
     IF pg_catalog.to_regclass('public.jas_si_agent_tasks') IS NULL
        OR pg_catalog.to_regclass('public.jas_si_github_app_installations') IS NULL
        OR pg_catalog.to_regclass('public.jas_si_github_app_installation_repositories') IS NULL
-       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_agent_task_owner') THEN
-        RAISE EXCEPTION 'Task and verified GitHub binding migrations must precede broker authorization';
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='jas_si_agent_task_owner')
+       OR pg_catalog.to_regprocedure('public.jas_si_github_installation_binding_resolve(uuid,text)') IS NULL THEN
+        RAISE EXCEPTION 'Task and verified GitHub binding migrations must precede Broker authorization';
     END IF;
 END
 $roles$;
@@ -45,6 +46,13 @@ $roles$;
 GRANT USAGE ON SCHEMA public TO jas_si_agent_capability_broker;
 GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
 SET LOCAL ROLE jas_si_agent_task_owner;
+
+-- Existing resolver was callable by the hosts and is not lease/claim scoped.
+-- Revoke it from both workload roles; only the Broker may use it directly.
+REVOKE ALL ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
+    FROM PUBLIC,jas_si_agent_worker,jas_si_agent_verifier;
+GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
+    TO jas_si_agent_capability_broker;
 
 CREATE OR REPLACE FUNCTION public.jas_si_github_task_capability_resolve(
     p_task_id uuid,
@@ -58,7 +66,7 @@ CREATE OR REPLACE FUNCTION public.jas_si_github_task_capability_resolve(
     installation_id bigint,
     repository_full_name text,
     capability_role text,
-    fence bigint,
+    lease_fence bigint,
     verifier_claim_token uuid,
     expires_at timestamptz,
     commit_sha text,
@@ -68,8 +76,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path=pg_catalog
 AS $function$
-DECLARE
-    v_now timestamptz := pg_catalog.clock_timestamp();
+DECLARE v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
     IF NOT pg_catalog.pg_has_role(session_user,'jas_si_agent_capability_broker','MEMBER') THEN
         RAISE EXCEPTION 'Capability Broker database identity is not authorized'
@@ -97,61 +104,7 @@ BEGIN
         ON r.tenant_id=i.tenant_id AND r.installation_id=i.installation_id
      WHERE q.task_id=p_task_id
        AND q.task_type='github.read_repository'
-       AND q.input_payload->>'commit_sha' ~ '^[0-9a-f]{40}
-       AND i.status='active' AND i.verified_at IS NOT NULL
-       AND r.status='active' AND r.verified_at IS NOT NULL
-       AND pg_catalog.lower(r.repository_full_name)
-           =pg_catalog.lower(q.input_payload->>'repository')
-       AND (
-          (p_workload_role='worker'
-           AND q.status='running'
-           AND q.lease_owner_principal=p_workload_principal
-           AND q.lease_expires_at>v_now
-           AND q.lease_fence=p_lease_fence)
-          OR
-          (p_workload_role='verifier'
-           AND q.status='awaiting_verification'
-           AND q.verifier_claim_owner=p_workload_principal
-           AND q.verifier_claim_token=p_verifier_claim_token
-           AND q.verifier_lease_expires_at>v_now)
-       )
-     LIMIT 1;
-END;
-$function$;
-
-REVOKE ALL ON FUNCTION public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)
-    FROM PUBLIC,jas_si_agent_worker,jas_si_agent_verifier;
-GRANT EXECUTE ON FUNCTION public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)
-    TO jas_si_agent_capability_broker;
-
-RESET ROLE;
-REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
-
-DO $assert$
-DECLARE v_proc oid; v_owner text;
-BEGIN
-    SELECT p.oid,pg_catalog.pg_get_userbyid(p.proowner)
-      INTO v_proc,v_owner FROM pg_catalog.pg_proc p
-      JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-     WHERE n.nspname='public'
-       AND p.proname='jas_si_github_task_capability_resolve'
-       AND p.oid='public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)'::regprocedure;
-    IF v_proc IS NULL OR v_owner<>'jas_si_agent_task_owner'
-       OR NOT (SELECT prosecdef FROM pg_catalog.pg_proc WHERE oid=v_proc)
-       OR NOT (SELECT COALESCE(proconfig,ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog']
-                 FROM pg_catalog.pg_proc WHERE oid=v_proc)
-       OR NOT pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_proc,'EXECUTE')
-       OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_proc,'EXECUTE')
-       OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
-       OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(
-          COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=v_proc),
-                   pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=v_proc)))
-          ) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') THEN
-        RAISE EXCEPTION 'Broker task-scoped authorization routine ACL/owner boundary invalid';
-    END IF;
-END
-$assert$;
-
+       AND q.input_payload->>'commit_sha' ~ '^[0-9a-f]{40}$'
        AND pg_catalog.jsonb_typeof(q.input_payload->'paths')='array'
        AND pg_catalog.jsonb_array_length(q.input_payload->'paths') BETWEEN 1 AND 10
        AND t.status='active'
@@ -185,7 +138,7 @@ RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_agent_task_owner;
 
 DO $assert$
-DECLARE v_proc oid; v_owner text;
+DECLARE v_proc oid; v_owner text; v_binding oid;
 BEGIN
     SELECT p.oid,pg_catalog.pg_get_userbyid(p.proowner)
       INTO v_proc,v_owner FROM pg_catalog.pg_proc p
@@ -193,6 +146,7 @@ BEGIN
      WHERE n.nspname='public'
        AND p.proname='jas_si_github_task_capability_resolve'
        AND p.oid='public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)'::regprocedure;
+    v_binding := 'public.jas_si_github_installation_binding_resolve(uuid,text)'::regprocedure;
     IF v_proc IS NULL OR v_owner<>'jas_si_agent_task_owner'
        OR NOT (SELECT prosecdef FROM pg_catalog.pg_proc WHERE oid=v_proc)
        OR NOT (SELECT COALESCE(proconfig,ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog']
@@ -200,6 +154,9 @@ BEGIN
        OR NOT pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_binding,'EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_binding,'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_binding,'EXECUTE')
        OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(
           COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=v_proc),
                    pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=v_proc)))
