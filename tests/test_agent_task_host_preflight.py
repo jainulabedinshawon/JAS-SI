@@ -60,6 +60,10 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         query, params = self.cursor.execute.call_args.args
         self.assertIn("session_user", query)
         self.assertIn("current_user", query)
+        self.assertIn("pg_auth_members", query)
+        self.assertIn("membership.inherit_option IS FALSE", query)
+        self.assertIn("membership.set_option IS TRUE", query)
+        self.assertIn("membership.admin_option IS FALSE", query)
         self.assertEqual(
             params,
             ("jas_si_agent_verifier",
@@ -138,6 +142,22 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
             )
 
     def test_rejects_unsafe_login_role_attributes(self):
+        row = list(self.valid_row(
+            "jas_si_agent_worker_login", "jas_si_agent_worker", 5
+        ))
+        row[3] = True
+        self.cursor.fetchone.return_value = tuple(row)
+        with self.assertRaises(AgentHostPreflightError):
+            verify_agent_host_database_access(
+                "postgresql://not-logged",
+                capability_role="jas_si_agent_worker",
+                expected_login="jas_si_agent_worker_login",
+                required_functions=WORKER_FUNCTIONS,
+            )
+
+    def test_rejects_non_set_only_or_admin_capability_membership(self):
+        # The SQL preflight folds role attributes and the exact capability
+        # membership options into the unsafe-login predicate.
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
         ))
