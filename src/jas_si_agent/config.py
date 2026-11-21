@@ -264,6 +264,8 @@ class Settings:
     github_oauth_active_key_version: Optional[str] = None
     github_app_id: Optional[int] = None
     github_capability_workload_identities: Optional[CertificateWorkloadIdentityRegistry] = field(default=None, repr=False)
+    github_capability_broker_database_url: Optional[str] = field(default=None, repr=False)
+    github_capability_broker_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -294,6 +296,8 @@ class Settings:
         provider_id = _read_optional_provider_id()
         github_oauth = _read_github_oauth_config()
         github_capability_workload_identities = _read_github_capability_workload_identities()
+        github_capability_broker_database_url = os.getenv("JAS_SI_GITHUB_CAPABILITY_BROKER_DATABASE_URL") or None
+        github_capability_broker_enabled = _read_bool("JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED", False)
         raw_webhook_secret = os.getenv("JAS_SI_GITHUB_WEBHOOK_SECRET")
         github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
         if github_webhook_secret is not None and len(github_webhook_secret) < 32:
@@ -358,4 +362,6 @@ class Settings:
             github_oauth_active_key_version=github_oauth[4],
             github_app_id=github_oauth[5],
             github_capability_workload_identities=github_capability_workload_identities,
+            github_capability_broker_database_url=github_capability_broker_database_url,
+            github_capability_broker_enabled=github_capability_broker_enabled,
         )

@@ -18,6 +18,7 @@ on:
       - feat/github-installation-onboarding-security-v1
       - feat/configure-github-capability-identity-registry-v1
       - feat/task-scoped-github-capability-broker-db-v1
+      - feat/github-capability-broker-runtime-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
@@ -39,6 +40,7 @@ on:
       - fix/shared-api-rate-limiter-v1
       - integrate/pr101-tls-transport-into-agent-db-principal-v1
       - feat/configure-github-capability-identity-registry-v1
+      - feat/task-scoped-github-capability-broker-db-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
