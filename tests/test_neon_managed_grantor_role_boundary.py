@@ -50,17 +50,27 @@ def main() -> None:
                 cur.execute(f'REVOKE "{capability}" FROM "{login}"')
                 cur.execute(f'REVOKE "{capability}" FROM neondb_owner')
                 cur.execute(f'REVOKE "{capability}" FROM cloud_admin')
+                cur.execute(f'REVOKE "{login}" FROM neondb_owner')
+                cur.execute(f'REVOKE "{login}" FROM cloud_admin')
                 cur.execute(
                     f'GRANT "{capability}" TO cloud_admin '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
+                cur.execute(
+                    f'GRANT "{login}" TO cloud_admin '
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
 
             # cloud_admin is the upstream managed grantor and delegates
             # ADMIN OPTION to neondb_owner, matching the Neon graph.
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
-            for _, capability in pairs:
+            for login, capability in pairs:
                 cur.execute(
                     f'GRANT "{capability}" TO neondb_owner '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
+                cur.execute(
+                    f'GRANT "{login}" TO neondb_owner '
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
             cur.execute("RESET SESSION AUTHORIZATION")
