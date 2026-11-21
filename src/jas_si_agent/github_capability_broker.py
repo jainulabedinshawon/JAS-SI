@@ -79,6 +79,19 @@ class PostgresGitHubCapabilityBroker:
                 application_name="jas-si-github-capability-broker",
             ) as connection:
                 with connection.cursor() as cursor:
+                    # TLS verification authenticates the server, not the DB
+                    # login. Refuse privileged or accidentally reused DSNs.
+                    cursor.execute("SELECT session_user")
+                    login_row = cursor.fetchone()
+                    if (
+                        not isinstance(login_row, (tuple, list))
+                        or len(login_row) != 1
+                        or login_row[0] != "jas_si_agent_broker_login"
+                    ):
+                        raise GitHubCapabilityBrokerError(
+                            "Broker database login identity is not authorized"
+                        )
+
                     cursor.execute("SET ROLE jas_si_agent_capability_broker")
                     cursor.execute(
                         """
