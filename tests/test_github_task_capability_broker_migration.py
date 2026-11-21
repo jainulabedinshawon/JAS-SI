@@ -110,11 +110,14 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111','github.read_repository','awaiting_verification',%s,NULL,NULL,0,'jas_si_agent_broker_login_test','44444444-4444-4444-8444-444444444444',now()+interval '5 minutes',1)", ('{"repository":"octo/repo","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["src/main.py"]}',))
             admin.execute("INSERT INTO public.jas_si_github_app_installations VALUES (123,'11111111-1111-4111-8111-111111111111','active',now())")
             admin.execute("INSERT INTO public.jas_si_github_app_installation_repositories VALUES (123,'11111111-1111-4111-8111-111111111111','octo/repo','active',now())")
+            admin.commit()
             admin.execute("GRANT USAGE ON SCHEMA public TO jas_si_agent_capability_broker")
             admin.execute("GRANT SELECT ON public.jas_si_agent_tasks,public.jas_si_tenants,public.jas_si_github_app_installations,public.jas_si_github_app_installation_repositories TO jas_si_agent_task_owner")
             # The routine is SECURITY DEFINER, owned by the task owner, and the
             # task-owner policies make the minimal persisted lookup available.
-        with psycopg.connect("postgresql://jas_si_agent_broker_login_test:broker-test-secret@localhost:5432/postgres") as broker:
+        from psycopg.conninfo import make_conninfo
+        broker_dsn = make_conninfo(dsn, user="jas_si_agent_broker_login_test", password="broker-test-secret")
+        with psycopg.connect(broker_dsn) as broker:
             row = broker.execute(
                 "SELECT task_id,tenant_id,installation_id,repository_full_name,capability_role,fence,verifier_claim_token,expires_at,commit_sha,repository_paths FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
                 ("22222222-2222-4222-8222-222222222222","jas_si_agent_broker_login_test"),
