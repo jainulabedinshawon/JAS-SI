@@ -35,9 +35,7 @@ class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             settings = Settings.from_env()
         self.assertIsNotNone(settings.github_capability_workload_identities)
-        identity = settings.github_capability_workload_identities.resolve(
-            __import__("tests.test_config", fromlist=["x"]) if False else b"invalid"
-        ) if False else settings.github_capability_workload_identities._identities[fingerprint]
+        identity = settings.github_capability_workload_identities._identities[fingerprint]
         self.assertEqual(identity.principal_id, "worker-east-1")
         self.assertEqual(identity.role, "worker")
 
