@@ -208,13 +208,12 @@ jobs:
 
               for replay in (1, 2):
                   if replay == 2:
-                      # Remove the fixture's earlier direct cloud_admin
-                      # membership (granted by jas_si). Live Neon has no such
-                      # row: cloud_admin is only the grantor of neondb_owner's
-                      # ADMIN-only membership.
+                      # Rebuild the live Neon grantor chain. CASCADE removes
+                      # the replay-1 owner/login memberships that depend on the
+                      # jas_si grant; cloud_admin's CREATEROLE authority then
+                      # grants the owner membership without becoming a member.
                       cur.execute(
-                          "REVOKE jas_si_agent_verifier FROM cloud_admin "
-                          "GRANTED BY jas_si"
+                          "REVOKE jas_si_agent_verifier FROM neondb_owner CASCADE"
                       )
                       cur.execute("SET ROLE cloud_admin")
                       cur.execute(
@@ -226,6 +225,10 @@ jobs:
                       cur.execute(
                           "GRANT jas_si_agent_verifier TO neondb_owner "
                           "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+                      )
+                      cur.execute(
+                          "GRANT jas_si_agent_verifier TO jas_si_agent_verifier_login "
+                          "WITH ADMIN FALSE, INHERIT TRUE, SET TRUE"
                       )
                       cur.execute("RESET ROLE")
                       cur.execute("""
@@ -343,13 +346,14 @@ jobs:
                               "jas_si_agent_worker",
                               "jas_si_agent_verifier",
                           ):
+                              # Remove stale grants from the previous replay,
+                              # including dependent login memberships, before
+                              # reconstructing the managed Neon grantor chain.
                               cur.execute(
-                                  f"REVOKE {capability_role} FROM neondb_owner"
+                                  f"REVOKE {capability_role} FROM neondb_owner CASCADE"
                               )
-                              cur.execute(
-                                  f"GRANT {capability_role} TO cloud_admin "
-                                  "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                              )
+                          # In Neon, cloud_admin has CREATEROLE authority; it
+                          # is the grantor, not a member of the capability role.
                           cur.execute("SET ROLE cloud_admin")
                           for capability_role in (
                               "jas_si_agent_worker",
