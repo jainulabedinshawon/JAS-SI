@@ -18,8 +18,6 @@ from typing import Any, Protocol
 from uuid import UUID
 
 import httpx
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from jas_si_agent.github_installations import (
     TenantGitHubInstallationCredential,
@@ -94,8 +92,11 @@ def _b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def _load_rsa_private_key(path: str) -> rsa.RSAPrivateKey:
+def _load_rsa_private_key(path: str):
     try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
         pem = Path(path).read_bytes()
         key = serialization.load_pem_private_key(pem, password=None)
     except Exception:
@@ -132,6 +133,9 @@ class GitHubAppInstallationTokenIssuer:
             separators=(",", ":"),
         ).encode())
         signing_input = f"{header}.{payload}".encode("ascii")
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
         signature = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
         return f"{header}.{payload}.{_b64url(signature)}"
 
@@ -227,6 +231,73 @@ class TenantGitHubInstallationBindingResolver(Protocol):
         """Resolve an already verified installation/repository binding."""
 
 
+
+class PostgresTenantGitHubInstallationBindingResolver:
+    """Resolve only active verified bindings through the DB-owned routine.
+
+    The supplied DSN must be a dedicated Worker or Verifier login that is a
+    member of exactly its own capability role. This adapter never reads the
+    installation mapping tables directly.
+    """
+
+    def __init__(self, database_dsn: str) -> None:
+        if not isinstance(database_dsn, str) or not database_dsn.strip():
+            raise ValueError("A dedicated agent-host database DSN is required")
+        self._database_dsn = database_dsn
+
+    def resolve(
+        self, *, tenant_id: UUID, repository: str
+    ) -> TenantGitHubInstallationBinding | None:
+        if not isinstance(tenant_id, UUID):
+            raise GitHubAppTokenError("Authenticated tenant identity is required")
+        if not is_valid_github_repository(repository):
+            raise GitHubAppTokenError("Repository identifier is invalid")
+        try:
+            import psycopg
+
+            with psycopg.connect(self._database_dsn, connect_timeout=5) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT tenant_id,installation_id,repository_full_name
+                             FROM public.jas_si_github_installation_binding_resolve(%s,%s)""",
+                        (tenant_id, repository),
+                    )
+                    row = cursor.fetchone()
+        except Exception:
+            raise GitHubAppTokenError(
+                "Tenant GitHub installation binding lookup failed"
+            ) from None
+        if row is None:
+            return None
+        try:
+            return TenantGitHubInstallationBinding(
+                tenant_id=row[0],
+                installation_id=row[1],
+                repository=row[2],
+            )
+        except Exception:
+            raise GitHubAppTokenError(
+                "Tenant GitHub installation binding result is invalid"
+            ) from None
+
+
+def build_github_app_tenant_credential_provider(
+    *, database_dsn: str, app_id: int, private_key_path: str
+) -> "GitHubAppTenantCredentialProvider":
+    """Build a host-local provider from injected, non-user-controlled config."""
+    resolver = PostgresTenantGitHubInstallationBindingResolver(database_dsn)
+    issuer = GitHubAppInstallationTokenIssuer(
+        GitHubAppTokenSettings(
+            app_id=app_id,
+            private_key_path=private_key_path,
+        )
+    )
+    return GitHubAppTenantCredentialProvider(
+        binding_resolver=resolver,
+        token_issuer=issuer,
+    )
+
+
 class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
     """Bridge trusted tenant-installation records to short-lived App tokens.
 
@@ -289,6 +360,8 @@ class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
 __all__ = [
     "GitHubAppInstallationTokenIssuer",
     "GitHubAppTenantCredentialProvider",
+    "PostgresTenantGitHubInstallationBindingResolver",
+    "build_github_app_tenant_credential_provider",
     "TenantGitHubInstallationBinding",
     "TenantGitHubInstallationBindingResolver",
     "GitHubAppTokenError",

@@ -21,7 +21,6 @@ from jas_si_agent.agent_task_worker_runtime import build_github_repository_worke
 
 _LOG = logging.getLogger("jas_si_agent.worker")
 
-
 class _PublicRepositoryOnlyProvider:
     """Fail-closed provider: private installation credentials are not configured."""
 
@@ -99,10 +98,14 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Worker database readiness preflight failed") from None
 
+    # Fail closed until an authenticated task-bound capability broker is wired.
+    # The GitHub App private key must never be injected into this Worker.
+    credential_provider = _PublicRepositoryOnlyProvider()
+
     worker = build_github_repository_worker(
         worker_dsn=dsn,
         worker_id=worker_id,
-        credential_provider=_PublicRepositoryOnlyProvider(),
+        credential_provider=credential_provider,
     )
     stop_event = threading.Event()
 

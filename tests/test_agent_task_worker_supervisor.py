@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import threading
 import unittest
+import inspect
+
+import jas_si_agent.agent_task_worker_supervisor as supervisor
 
 from jas_si_agent.agent_host_health import AgentHostHealthState
 from jas_si_agent.agent_task_worker_supervisor import run_worker_loop
@@ -34,6 +37,12 @@ class FakeWorker:
 
 
 class WorkerSupervisorTests(unittest.TestCase):
+    def test_worker_never_receives_github_app_private_key_or_issuer(self):
+        source = inspect.getsource(supervisor)
+        self.assertNotIn("GITHUB_APP_PRIVATE_KEY_PATH", source)
+        self.assertNotIn("build_github_app_tenant_credential_provider", source)
+        self.assertIn("_PublicRepositoryOnlyProvider()", source)
+
     def test_rejects_invalid_poll_intervals(self):
         for interval in (0, -1, 60.1, True, "2"):
             with self.subTest(interval=interval):

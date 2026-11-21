@@ -1,8 +1,9 @@
 """Supervised host process for JAS-SI's independent task verifier.
 
 The verifier uses a dedicated database login and independently collects
-GitHub evidence. This host is intentionally public-repository-only until a
-trusted tenant GitHub App installation provider is deployed.
+GitHub evidence. Private-repository access remains disabled until this host
+uses an authenticated task-bound capability broker. The App private key is
+never injected into the Verifier.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from jas_si_agent.agent_task_host_preflight import (
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
-
 
 class _PublicRepositoryOnlyProvider:
     """Fail-closed provider: no private installation credentials are configured."""
@@ -105,9 +105,13 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Verifier database readiness preflight failed") from None
 
+    # Fail closed until an authenticated task-bound capability broker is wired.
+    # The GitHub App private key must never be injected into this Verifier.
+    credential_provider = _PublicRepositoryOnlyProvider()
+
     verifier = build_github_repository_verifier(
         verifier_dsn=dsn,
-        credential_provider=_PublicRepositoryOnlyProvider(),
+        credential_provider=credential_provider,
         collector_id=collector_id,
         batch_size=batch_size,
     )

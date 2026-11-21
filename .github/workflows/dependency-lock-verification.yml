@@ -16,6 +16,7 @@ on:
     branches:
       - main
       - feat/agent-host-readiness-health-v1
+      - feat/github-app-token-issuer-v1
     paths:
       - "requirements.in"
       - "requirements.txt"
