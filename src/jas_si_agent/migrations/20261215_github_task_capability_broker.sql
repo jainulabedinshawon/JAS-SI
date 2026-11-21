@@ -32,7 +32,7 @@ BEGIN
                AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option)
               OR
               (login_role.rolname='neondb_owner'
-               AND grantor_role.rolname='cloud_admin'
+               AND grantor_role.rolsuper
                AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
           )
     ) OR EXISTS (
