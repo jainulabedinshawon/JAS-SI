@@ -51,8 +51,8 @@ SET LOCAL ROLE jas_si_agent_task_owner;
 -- Revoke it from both workload roles; only the Broker may use it directly.
 REVOKE ALL ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
     FROM PUBLIC,jas_si_agent_worker,jas_si_agent_verifier;
-GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
-    TO jas_si_agent_capability_broker;
+-- Broker uses the stricter task-scoped resolver below; do not grant it the
+-- legacy unscoped installation lookup routine.
 
 CREATE OR REPLACE FUNCTION public.jas_si_github_task_capability_resolve(
     p_task_id uuid,
@@ -156,7 +156,7 @@ BEGIN
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_proc,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_worker',v_binding,'EXECUTE')
        OR pg_catalog.has_function_privilege('jas_si_agent_verifier',v_binding,'EXECUTE')
-       OR NOT pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_binding,'EXECUTE')
+       OR pg_catalog.has_function_privilege('jas_si_agent_capability_broker',v_binding,'EXECUTE')
        OR EXISTS (SELECT 1 FROM pg_catalog.aclexplode(
           COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=v_proc),
                    pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=v_proc)))
