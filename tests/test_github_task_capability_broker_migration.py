@@ -119,6 +119,9 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         from psycopg.conninfo import make_conninfo
         broker_dsn = make_conninfo(dsn, user="jas_si_agent_broker_login_test", password="broker-test-secret")
         with psycopg.connect(broker_dsn) as broker:
+            # Login role has SET-only membership: explicitly enter the Broker
+            # capability role; inherited execution is intentionally forbidden.
+            broker.execute("SET ROLE jas_si_agent_capability_broker")
             row = broker.execute(
                 "SELECT task_id,tenant_id,installation_id,repository_full_name,capability_role,lease_fence,verifier_claim_token,expires_at,commit_sha,repository_paths FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
                 ("22222222-2222-4222-8222-222222222222","jas_si_agent_broker_login_test"),
