@@ -83,6 +83,7 @@ BEGIN
             USING ERRCODE='42501';
     END IF;
     IF p_task_id IS NULL OR p_workload_principal IS NULL
+       OR p_workload_role IS NULL
        OR p_workload_role NOT IN ('worker','verifier')
        OR (p_workload_role='worker' AND (p_lease_fence IS NULL OR p_verifier_claim_token IS NOT NULL))
        OR (p_workload_role='verifier' AND (p_verifier_claim_token IS NULL OR p_lease_fence IS NOT NULL)) THEN
