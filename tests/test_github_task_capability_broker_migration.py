@@ -71,7 +71,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         CREATE FUNCTION public.jas_si_github_installation_binding_resolve(p_tenant_id uuid,p_repository_full_name text)
           RETURNS TABLE(tenant_id uuid,installation_id bigint,repository_full_name text)
           LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog
-          AS $ SELECT NULL::uuid,NULL::bigint,NULL::text WHERE false $;
+          AS $stub$ SELECT NULL::uuid,NULL::bigint,NULL::text WHERE false $stub$;
         GRANT CREATE ON SCHEMA public TO jas_si_agent_task_owner;
         ALTER FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text) OWNER TO jas_si_agent_task_owner;
         GRANT EXECUTE ON FUNCTION public.jas_si_github_installation_binding_resolve(uuid,text)
@@ -113,6 +113,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             admin.commit()
             admin.execute("GRANT USAGE ON SCHEMA public TO jas_si_agent_capability_broker")
             admin.execute("GRANT SELECT ON public.jas_si_agent_tasks,public.jas_si_tenants,public.jas_si_github_app_installations,public.jas_si_github_app_installation_repositories TO jas_si_agent_task_owner")
+            admin.commit()
             # The routine is SECURITY DEFINER, owned by the task owner, and the
             # task-owner policies make the minimal persisted lookup available.
         from psycopg.conninfo import make_conninfo
