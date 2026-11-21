@@ -103,6 +103,9 @@ from jas_si_agent.github_installation_ownership import (
 from jas_si_agent.github_capability_asgi_tls import (
     ASGITLSClientCertificateMiddleware,
 )
+from jas_si_agent.github_capability_identity import (
+    CertificateWorkloadIdentityRegistry,
+)
 
 from jas_si_agent.github_webhook_inbox import (
     GitHubWebhookInboxError,
@@ -126,6 +129,14 @@ app = FastAPI(
 # Workload identities are sourced only from the ASGI TLS extension.
 # Capability deployments must terminate mTLS at a trusted ASGI server.
 app.add_middleware(ASGITLSClientCertificateMiddleware)
+
+if isinstance(
+    settings.github_capability_workload_identities,
+    CertificateWorkloadIdentityRegistry,
+):
+    app.state.github_capability_identity_registry = (
+        settings.github_capability_workload_identities
+    )
 
 api_key_header = APIKeyHeader(
     name="X-API-Key",
