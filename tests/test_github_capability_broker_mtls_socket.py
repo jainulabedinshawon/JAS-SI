@@ -32,7 +32,7 @@ def _certificate_pair(directory: Path, *, client: bool, trusted: bool = True):
         .not_valid_before((now - timedelta(minutes=2)).replace(tzinfo=None))
         .not_valid_after((now + timedelta(hours=2)).replace(tzinfo=None))
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .key_usage(x509.KeyUsage(
+        .add_extension(x509.KeyUsage(
             digital_signature=True, content_commitment=False, key_encipherment=True,
             data_encipherment=False, key_agreement=False, key_cert_sign=True,
             crl_sign=True, encipher_only=False, decipher_only=False,
