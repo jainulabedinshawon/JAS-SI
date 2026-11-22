@@ -30,6 +30,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/github-capability-broker-runtime-v1
       - feat/jas-si-agent-mvp-safety-core
       - feat/customer-identity-onboarding-v1
       - feat/github-webhook-http-ingress-v1
