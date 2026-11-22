@@ -361,10 +361,6 @@ class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
             GitHubCapabilityResolveRequest(task_id=uuid4(), lease_fence=True)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class ASGITLSClientCertificateTransportTests(unittest.TestCase):
     """Exercise the ASGI TLS extension boundary; not a real TCP mTLS test."""
 
@@ -479,3 +475,8 @@ class ASGITLSClientCertificateTransportTests(unittest.TestCase):
         forwarded = self._run(scope)
         self.assertIs(forwarded, scope)
         self.assertEqual(forwarded["state"], {"preserve": "me"})
+
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
