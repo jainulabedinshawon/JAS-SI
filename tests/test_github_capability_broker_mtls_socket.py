@@ -81,9 +81,13 @@ def _certificate_pair(directory: Path, *, client: bool, trusted: bool = True):
         path.write_bytes(data)
         return path
 
-    ca_path = write("ca.pem", ca.public_bytes(serialization.Encoding.PEM))
-    cert_path = write("leaf.pem", leaf.public_bytes(serialization.Encoding.PEM))
-    key_path = write("leaf-key.pem", leaf_key.private_bytes(
+    # Server and client fixtures share one temporary directory. Keep their
+    # filenames distinct so generating the second identity cannot overwrite
+    # the first identity's trust anchor, leaf certificate, or private key.
+    identity = "client" if client else "server"
+    ca_path = write(f"{identity}-ca.pem", ca.public_bytes(serialization.Encoding.PEM))
+    cert_path = write(f"{identity}-leaf.pem", leaf.public_bytes(serialization.Encoding.PEM))
+    key_path = write(f"{identity}-leaf-key.pem", leaf_key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ))
