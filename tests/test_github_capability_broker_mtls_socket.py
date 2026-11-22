@@ -32,6 +32,8 @@ def _certificate_pair(directory: Path, *, client: bool, trusted: bool = True):
         .not_valid_before((now - timedelta(minutes=2)).replace(tzinfo=None))
         .not_valid_after((now + timedelta(hours=2)).replace(tzinfo=None))
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
         .add_extension(x509.KeyUsage(
             digital_signature=True, content_commitment=False, key_encipherment=True,
             data_encipherment=False, key_agreement=False, key_cert_sign=True,
@@ -52,6 +54,7 @@ def _certificate_pair(directory: Path, *, client: bool, trusted: bool = True):
         .not_valid_before((now - timedelta(minutes=1)).replace(tzinfo=None))
         .not_valid_after((now + timedelta(hours=1)).replace(tzinfo=None))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
         .add_extension(x509.KeyUsage(
             digital_signature=True, content_commitment=False, key_encipherment=True,
             data_encipherment=False, key_agreement=False, key_cert_sign=False,
