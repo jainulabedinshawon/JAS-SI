@@ -95,7 +95,7 @@ class BrokerMTLSSocketIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 __import__("ssl").Purpose.CLIENT_AUTH
             )
             server_context.load_cert_chain(server_cert, server_key)
-            server_context.load_verify_locations(cafile=server_ca)
+            server_context.load_verify_locations(cafile=client_ca if trusted_client else server_ca)
             server_context.verify_mode = __import__("ssl").CERT_REQUIRED
 
             client_context = __import__("ssl").create_default_context(
