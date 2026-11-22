@@ -15,7 +15,6 @@ on:
   pull_request:
     branches:
       - main
-      - feat/github-capability-broker-runtime-v1
       - feat/agent-host-readiness-health-v1
       - feat/github-app-token-issuer-v1
       - feat/github-webhook-durable-inbox-v1
