@@ -16,8 +16,16 @@ from jas_si_agent.github_capability_broker import (
     GitHubCapabilityBrokerError,
     PostgresGitHubCapabilityBroker,
 )
-from jas_si_agent.github_capability_identity import WorkloadIdentity
+from jas_si_agent.github_capability_identity import (
+    CertificateWorkloadIdentityRegistry,
+    WorkloadIdentity,
+)
 from jas_si_agent import api as api_module
+from jas_si_agent.github_capability_runtime import (
+    GitHubCapabilityResolveRequest,
+    create_github_capability_app,
+    require_enabled_authenticated_workload,
+)
 from types import SimpleNamespace
 
 
@@ -213,6 +221,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         self.assertNotIn("postgres://", str(raised.exception))
 
 
+
 class _FakeResolvedCapability:
     def __init__(self, task_id):
         self.task_id = task_id
@@ -234,33 +243,56 @@ class _FakeBroker:
         return _FakeResolvedCapability(kwargs["task_id"])
 
 
-class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
-    def tearDown(self):
-        if hasattr(api_module.app.state, "github_capability_broker"):
-            delattr(api_module.app.state, "github_capability_broker")
+def _broker_settings(*, enabled=True, environment="preview", registry=None):
+    return SimpleNamespace(
+        github_capability_broker_enabled=enabled,
+        environment=environment,
+        github_capability_broker_database_url=(
+            "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+        ),
+        github_capability_workload_identities=registry,
+    )
 
-    def test_route_uses_certificate_registry_identity_and_returns_metadata_only(self):
+
+class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
+    def test_public_api_has_no_broker_route(self):
+        paths = {
+            getattr(route, "path", None)
+            for route in api_module.app.routes
+        }
+        self.assertNotIn("/internal/github/capabilities/resolve", paths)
+
+    def test_dedicated_app_exposes_only_broker_route_and_disables_docs(self):
+        app = create_github_capability_app(_broker_settings())
+        paths = {
+            getattr(route, "path", None)
+            for route in app.routes
+        }
+        self.assertEqual(paths, {"/internal/github/capabilities/resolve"})
+        self.assertIsNone(app.docs_url)
+        self.assertIsNone(app.redoc_url)
+        self.assertIsNone(app.openapi_url)
+
+    def test_route_uses_request_app_state_and_certificate_registry_identity(self):
+        from fastapi.testclient import TestClient
+
         broker = _FakeBroker()
-        api_module.app.state.github_capability_broker = broker
-        task_id = uuid4()
-        payload = api_module.GitHubCapabilityResolveRequest(
-            task_id=task_id,
-            lease_fence=9,
+        app = create_github_capability_app(
+            _broker_settings(),
+            broker_factory=lambda dsn: broker,
         )
         workload = WorkloadIdentity("worker.staging.instance-1", "worker")
-        with patch.object(
-            api_module,
-            "settings",
-            SimpleNamespace(
-                github_capability_broker_enabled=True,
-                environment="preview",
-                github_capability_broker_database_url=(
-                    "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
-                )
-            ),
-        ):
-            result = api_module.resolve_github_task_capability(payload, workload)
+        app.dependency_overrides[require_enabled_authenticated_workload] = (
+            lambda: workload
+        )
+        task_id = uuid4()
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(task_id), "lease_fence": 9},
+            )
 
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             broker.arguments,
             {
@@ -271,40 +303,62 @@ class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
                 "verifier_claim_token": None,
             },
         )
-        self.assertEqual(result["repository"], "owner/private-repo")
-        self.assertNotIn("access_token", result)
-        self.assertNotIn("principal_id", result)
+        self.assertEqual(response.json()["repository"], "owner/private-repo")
+        self.assertNotIn("access_token", response.json())
+        self.assertNotIn("principal_id", response.json())
+
+    def test_disabled_broker_fails_closed_before_certificate_lookup(self):
+        from fastapi.testclient import TestClient
+
+        app = create_github_capability_app(_broker_settings(enabled=False))
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(uuid4()), "lease_fence": 1},
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_production_environment_cannot_enable_broker(self):
+        from fastapi.testclient import TestClient
+
+        app = create_github_capability_app(
+            _broker_settings(enabled=True, environment="production")
+        )
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(uuid4()), "lease_fence": 1},
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_missing_peer_certificate_fails_closed(self):
+        from fastapi.testclient import TestClient
+
+        registry = CertificateWorkloadIdentityRegistry(
+            {"a" * 64: WorkloadIdentity("worker.staging.instance-1", "worker")}
+        )
+        app = create_github_capability_app(
+            _broker_settings(registry=registry)
+        )
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(uuid4()), "lease_fence": 1},
+            )
+        self.assertEqual(response.status_code, 401)
 
     def test_request_model_rejects_client_supplied_identity_fields(self):
         with self.assertRaises(Exception):
-            api_module.GitHubCapabilityResolveRequest(
+            GitHubCapabilityResolveRequest(
                 task_id=uuid4(),
                 lease_fence=1,
                 principal_id="attacker",
                 role="worker",
             )
 
-    def test_route_kill_switch_precedes_certificate_identity(self):
-        from fastapi.testclient import TestClient
-        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=False, environment="preview", github_capability_broker_database_url=None)):
-            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
-        self.assertEqual(response.status_code, 404)
-
-    def test_production_environment_cannot_enable_broker_route(self):
-        from fastapi.testclient import TestClient
-        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=True, environment="production", github_capability_broker_database_url="postgresql://broker:secret@db.example.test/db?sslmode=verify-full")):
-            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
-        self.assertEqual(response.status_code, 404)
-
-    def test_development_environment_cannot_enable_broker_route(self):
-        from fastapi.testclient import TestClient
-        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=True, environment="development", github_capability_broker_database_url="postgresql://broker:secret@db.example.test/db?sslmode=verify-full")):
-            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
-        self.assertEqual(response.status_code, 404)
-
     def test_boolean_lease_fence_is_rejected(self):
         with self.assertRaises(Exception):
-            api_module.GitHubCapabilityResolveRequest(task_id=uuid4(), lease_fence=True)
+            GitHubCapabilityResolveRequest(task_id=uuid4(), lease_fence=True)
 
 
 if __name__ == "__main__":
