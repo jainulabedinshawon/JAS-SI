@@ -100,19 +100,6 @@ from jas_si_agent.github_installation_ownership import (
     GitHubInstallationOwnershipError,
     GitHubUserInstallationAccessVerifier,
 )
-from jas_si_agent.github_capability_asgi_tls import (
-    ASGITLSClientCertificateMiddleware,
-)
-from jas_si_agent.github_capability_identity import (
-    CertificateWorkloadIdentityRegistry,
-    WorkloadIdentity,
-    require_authenticated_workload,
-)
-from jas_si_agent.github_capability_broker import (
-    GitHubCapabilityBrokerError,
-    PostgresGitHubCapabilityBroker,
-)
-
 from jas_si_agent.github_webhook_inbox import (
     GitHubWebhookInboxError,
     PostgresGitHubWebhookInbox,
@@ -131,100 +118,6 @@ app = FastAPI(
         "Versioned API routes have a shared sliding-window rate limit."
     ),
 )
-
-# Workload identities are sourced only from the ASGI TLS extension.
-# Capability deployments must terminate mTLS at a trusted ASGI server.
-app.add_middleware(ASGITLSClientCertificateMiddleware)
-
-if isinstance(
-    settings.github_capability_workload_identities,
-    CertificateWorkloadIdentityRegistry,
-):
-    app.state.github_capability_identity_registry = (
-        settings.github_capability_workload_identities
-    )
-
-def require_enabled_authenticated_workload(request: Request) -> WorkloadIdentity:
-    """Apply the route kill-switch before evaluating certificate identity."""
-    if (
-        not settings.github_capability_broker_enabled
-        or str(settings.environment).casefold() != "preview"
-    ):
-        raise HTTPException(status_code=404, detail="Not found")
-    return require_authenticated_workload(request)
-
-
-class GitHubCapabilityResolveRequest(BaseModel):
-    """Only task selector and role-specific persisted lease proof are accepted."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    task_id: uuid.UUID
-    lease_fence: Optional[int] = Field(default=None, ge=1, strict=True)
-    verifier_claim_token: Optional[uuid.UUID] = None
-
-
-@app.post("/internal/github/capabilities/resolve")
-def resolve_github_task_capability(
-    payload: GitHubCapabilityResolveRequest,
-    workload: WorkloadIdentity = Depends(require_enabled_authenticated_workload),
-) -> dict:
-    """Resolve a capability using mTLS identity plus persisted DB lease/claim.
-
-    The principal and role are derived only from the pinned certificate
-    registry. Request bodies cannot select either identity attribute.
-    """
-    database_url = settings.github_capability_broker_database_url
-    if not database_url:
-        raise HTTPException(
-            status_code=503,
-            detail="GitHub capability Broker database is not configured",
-        )
-    if workload.role == "worker":
-        if payload.lease_fence is None or payload.verifier_claim_token is not None:
-            raise HTTPException(status_code=422, detail="Worker lease fence is required")
-    elif workload.role == "verifier":
-        if payload.verifier_claim_token is None or payload.lease_fence is not None:
-            raise HTTPException(status_code=422, detail="Verifier claim token is required")
-    else:
-        raise HTTPException(status_code=403, detail="Workload role is not authorized")
-
-    broker = getattr(request_app_state := app.state, "github_capability_broker", None)
-    if broker is None:
-        try:
-            broker = PostgresGitHubCapabilityBroker(database_url)
-            request_app_state.github_capability_broker = broker
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=503,
-                detail="GitHub capability Broker is not configured safely",
-            ) from None
-    try:
-        capability = broker.resolve(
-            task_id=payload.task_id,
-            principal_id=workload.principal_id,
-            role=workload.role,
-            lease_fence=payload.lease_fence,
-            verifier_claim_token=payload.verifier_claim_token,
-        )
-    except GitHubCapabilityBrokerError:
-        raise HTTPException(
-            status_code=503,
-            detail="GitHub capability authorization is unavailable",
-        ) from None
-    if capability is None:
-        raise HTTPException(status_code=404, detail="Task capability is not authorized")
-
-    return {
-        "task_id": str(capability.task_id),
-        "tenant_id": str(capability.tenant_id),
-        "installation_id": capability.installation_id,
-        "repository": capability.repository_full_name,
-        "capability_role": capability.capability_role,
-        "expires_at": capability.expires_at.isoformat(),
-        "commit_sha": capability.commit_sha,
-        "repository_paths": capability.repository_paths,
-    }
 
 
 api_key_header = APIKeyHeader(
