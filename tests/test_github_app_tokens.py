@@ -21,6 +21,7 @@ from jas_si_agent.github_app_tokens import (
     GitHubAppTokenSettings,
     IssuedGitHubInstallationToken,
     _READ_ONLY_PERMISSIONS,
+    decode_github_app_private_key_b64,
     GitHubAppTenantCredentialProvider,
     PostgresTenantGitHubInstallationBindingResolver,
     TenantGitHubInstallationBinding,
@@ -140,6 +141,46 @@ class GitHubAppTokenIssuerTests(unittest.TestCase):
             GitHubAppTokenSettings(app_id=1, private_key_path=str(self.key_path), api_base_url="http://example.com")
         with self.assertRaises(ValueError):
             GitHubAppTokenSettings(app_id=1, private_key_path=str(self.key_path), timeout_seconds=60)
+
+    def test_settings_accept_in_memory_pem_without_a_file_path(self):
+        pem = self.key_path.read_bytes()
+        settings = GitHubAppTokenSettings(app_id=5818164, private_key_pem=pem)
+        self.assertIsNone(settings.private_key_path)
+        self.assertEqual(settings.private_key_pem, pem)
+
+    def test_settings_reject_ambiguous_or_invalid_key_sources(self):
+        pem = self.key_path.read_bytes()
+        with self.assertRaises(ValueError):
+            GitHubAppTokenSettings(app_id=5818164)
+        with self.assertRaises(ValueError):
+            GitHubAppTokenSettings(
+                app_id=5818164, private_key_path=str(self.key_path),
+                private_key_pem=pem,
+            )
+        with self.assertRaises(ValueError):
+            GitHubAppTokenSettings(app_id=5818164, private_key_pem=b"not-a-pem")
+
+    def test_base64_private_key_decoder_validates_pem_and_size(self):
+        encoded = base64.b64encode(self.key_path.read_bytes()).decode("ascii")
+        self.assertEqual(decode_github_app_private_key_b64(encoded), self.key_path.read_bytes())
+        for invalid in ("not base64!", base64.b64encode(b"not-a-pem").decode("ascii"), "A" * 24001):
+            with self.subTest(invalid=invalid[:24]):
+                with self.assertRaises(GitHubAppTokenError):
+                    decode_github_app_private_key_b64(invalid)
+
+    def test_issuer_signs_jwt_from_in_memory_pem(self):
+        pem = self.key_path.read_bytes()
+        settings = GitHubAppTokenSettings(app_id=5818164, private_key_pem=pem)
+        issuer = GitHubAppInstallationTokenIssuer(
+            settings, http_client=httpx.Client(transport=httpx.MockTransport(
+                lambda request: httpx.Response(201, json=self._response())
+            )), clock=lambda: self.now,
+        )
+        result = issuer.issue(
+            installation_id=183349938,
+            repository="jainulabedinshawon/JAS-SI",
+        )
+        self.assertEqual(result.access_token, "ghs-short-lived-test-token")
 
     def test_token_model_hides_secret(self):
         token = IssuedGitHubInstallationToken(

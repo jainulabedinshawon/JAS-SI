@@ -91,8 +91,9 @@ class AgentTaskVerifierTests(unittest.TestCase):
             result = self.make_verifier(store).run_once()
 
         store.finalize_success.assert_not_called()
-        # Keep the claim until its 120-second lease expires so the supervisor
-        # cannot hot-loop on permanently inconclusive evidence.
+        store.record_inconclusive.assert_called_once_with(
+            task=make_item()[0], reason_code="test"
+        )
         store.release_claim.assert_not_called()
         self.assertEqual(result.scanned, 1)
         self.assertEqual(result.finalized, 0)

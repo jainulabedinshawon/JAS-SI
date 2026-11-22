@@ -24,9 +24,10 @@ class GitHubWebhookReceipt:
 class PostgresGitHubWebhookInbox:
     """Persist authenticated GitHub deliveries through the DB-owned routine.
 
-    The DSN must identify a dedicated application login allowed to SET ROLE
-    jas_si_runtime. It must not be a superuser, migration owner, Worker, or
-    Verifier connection.
+    The DSN must identify the dedicated webhook login. It receives direct
+    EXECUTE only on the receipt routine; it must not SET ROLE to the broader
+    runtime capability. It must not be a superuser, migration owner, Worker,
+    or Verifier connection.
     """
 
     def __init__(self, database_dsn: str) -> None:
@@ -52,9 +53,17 @@ class PostgresGitHubWebhookInbox:
 
             with psycopg.connect(self._database_dsn, connect_timeout=5) as connection:
                 with connection.cursor() as cursor:
-                    # Runtime login must explicitly assume its restricted
-                    # capability role; membership alone is not inherited.
-                    cursor.execute("SET ROLE jas_si_runtime")
+                    # Fail closed if an operator accidentally supplies a broad
+                    # runtime, worker, verifier, or owner DSN.
+                    cursor.execute("SELECT session_user")
+                    identity = cursor.fetchone()
+                    if not identity or identity[0] != "jas_si_github_webhook_login":
+                        raise GitHubWebhookInboxError(
+                            "Dedicated GitHub webhook database identity is required"
+                        )
+                    # The dedicated webhook login has direct EXECUTE on this
+                    # SECURITY DEFINER routine. Do not SET ROLE: its runtime
+                    # membership is deliberately non-inheriting and non-settable.
                     cursor.execute(
                         """SELECT delivery_id,status,attempt_count,inserted
                              FROM public.jas_si_github_webhook_receive(

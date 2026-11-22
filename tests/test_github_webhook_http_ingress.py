@@ -43,7 +43,12 @@ class GitHubWebhookHTTPIngressTests(unittest.TestCase):
         self.settings_patch = patch.object(
             api,
             "settings",
-            replace(api.settings, github_webhook_secret=SECRET, github_webhook_database_url=None),
+            replace(
+                api.settings,
+                environment="preview",
+                github_webhook_secret=SECRET,
+                github_webhook_database_url=None,
+            ),
         )
         self.settings_patch.start()
         self.addCleanup(self.settings_patch.stop)
@@ -113,6 +118,12 @@ class GitHubWebhookHTTPIngressTests(unittest.TestCase):
         with patch.object(api, "settings", replace(api.settings, github_webhook_secret=None)):
             response = self._send()
         self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.inbox.calls, [])
+
+    def test_production_environment_rejects_webhook_before_signature_or_persistence(self):
+        with patch.object(api, "settings", replace(api.settings, environment="production")):
+            response = self._send()
+        self.assertEqual(response.status_code, 404)
         self.assertEqual(self.inbox.calls, [])
 
 

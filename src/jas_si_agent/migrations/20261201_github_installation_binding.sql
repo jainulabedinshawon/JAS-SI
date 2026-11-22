@@ -222,9 +222,12 @@ BEGIN
                OR pg_catalog.has_table_privilege(target.role_name,target.table_name,'UPDATE')
                OR pg_catalog.has_table_privilege(target.role_name,target.table_name,'DELETE')
                OR pg_catalog.has_table_privilege(target.role_name,target.table_name,'TRUNCATE')
+               OR pg_catalog.has_table_privilege(target.role_name,target.table_name,'REFERENCES')
+               OR pg_catalog.has_table_privilege(target.role_name,target.table_name,'TRIGGER')
                OR pg_catalog.has_any_column_privilege(target.role_name,target.table_name,'SELECT')
                OR pg_catalog.has_any_column_privilege(target.role_name,target.table_name,'INSERT')
                OR pg_catalog.has_any_column_privilege(target.role_name,target.table_name,'UPDATE')
+               OR pg_catalog.has_any_column_privilege(target.role_name,target.table_name,'REFERENCES')
        ) THEN
         RAISE EXCEPTION 'Tenant GitHub installation binding security boundary is invalid';
     END IF;
