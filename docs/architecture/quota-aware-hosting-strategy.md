@@ -31,8 +31,19 @@ Adopt a **quota-aware, deployment-neutral hybrid strategy**, but do not migrate 
 | Vercel | Existing API deployment while quota permits | Account quota reset/usage, deployment limits and runtime fit |
 | Cloudflare Workers Static Assets / Pages | Static docs or a separately built static frontend | Confirm static build output; do not assume it runs FastAPI |
 | Docker-capable managed host (e.g. Render) | FastAPI container | Current plan limits, sleeping behavior, region, persistent logs, health checks, secrets and cost |
+| OCI Always Free Compute (candidate only) | Isolated Staging Broker / future Worker host | Confirm account eligibility, current free limits, capacity, reclaim policy, region, network ingress/egress and billing guardrails; do not enable Pay As You Go |
 | VPS (e.g. Hetzner / DigitalOcean) | Full container control | OS patching, firewall, TLS, backups, monitoring, incident response and total monthly cost |
 | Netlify | Static frontend/docs | Not a direct replacement for the current Python API runtime |
+
+### Conditional free-tier Broker deployment candidate
+
+OCI Always Free Compute is a candidate for a separately isolated **Staging-only** Broker host, not an approved or provisioned dependency. Promotional trial credits are distinct from Always Free entitlements. Before any instance is created, verify the account's current Always Free eligibility, available regional capacity, resource quotas, inactivity/reclamation conditions, public-IP and network costs, and that the account remains on the Free Tier rather than being upgraded to Pay As You Go. Always Free availability is not an uptime SLA; capacity, account eligibility, service terms, and reclaim rules can change. If a free resource is unavailable, stop rather than select a paid substitute.
+
+For the initial Staging design, prefer a self-managed private certificate authority (for example, OpenSSL or step-ca) and a dedicated ASGI TLS listener that requires and validates client certificates. A public domain or Cloudflare mTLS edge is not inherently required for private-network mTLS; the Broker listener must still validate the certificate chain, expiry, revocation status, and pinned workload identity. Do not trust caller-supplied certificate headers. Keep the GitHub App private key exclusively inside the isolated Broker credential boundary.
+
+Tailscale may be evaluated as an additional private-network transport for authorized CI or workload clients, with GitHub Actions OIDC used for short-lived enrollment where supported. Tailnet membership is not a substitute for JAS-SI task/tenant/repository authorization, and it does not replace the Broker's mTLS and application-level checks. Verify current free-plan limits and OIDC integration terms before relying on it. GitHub Actions runners are ephemeral CI clients, not a 24/7 Worker/Verifier runtime.
+
+This candidate remains blocked until the OCI account is actually eligible, a zero-cost Staging host is available, the listener is hardened, and CI plus adversarial Staging E2E prove the full trust chain. No OCI account, instance, certificate, Tailscale node, DNS record, secret, or service is created by this ADR.
 
 No provider is selected by this ADR. Current prices and plan limits must be checked immediately before procurement or migration.
 
@@ -43,6 +54,7 @@ No provider is selected by this ADR. Current prices and plan limits must be chec
 - Prefer one controlled staging deployment over repeated preview deployments.
 - Keep GitHub Actions as the primary code verification path; do not trigger redundant workflows.
 - Measure actual monthly API compute, database, storage, email, logs, bandwidth and support costs before publishing customer plan prices.
+- **JAS-SI Free-only guardrail:** do not switch OCI to Pay As You Go, attach paid resources, or accept a charge to overcome capacity or quota limits. Stop and report the blocker instead.
 
 ## Acceptance criteria for any future migration
 
@@ -54,11 +66,13 @@ No provider is selected by this ADR. Current prices and plan limits must be chec
 - TLS, custom domain, CORS, trusted proxy/IP handling and rate limiting are tested at the new edge.
 - Synthetic customer journey passes from signup through API-key lifecycle and usage display.
 - Rollback to the prior origin is rehearsed and independently verified.
+- For the Broker, positive and negative mTLS tests, certificate rotation/revocation tests, task lease/claim replay tests, pinned-commit/path enforcement tests, and independent evidence capture all pass on Staging.
 
 ## Explicit non-actions
 
 This ADR does not:
 - upgrade Vercel;
+- switch OCI to Pay As You Go or create paid resources;
 - create or deploy a Cloudflare, Netlify, Render or VPS service;
 - change DNS or domains;
 - move PostgreSQL or customer data;
