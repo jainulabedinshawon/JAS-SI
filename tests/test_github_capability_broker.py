@@ -363,3 +363,119 @@ class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ASGITLSClientCertificateTransportTests(unittest.TestCase):
+    """Exercise the ASGI TLS extension boundary; not a real TCP mTLS test."""
+
+    @classmethod
+    def setUpClass(cls):
+        from datetime import timedelta
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+        now = datetime.now(timezone.utc)
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "jas-si-asgi-tls-test")])
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before((now - timedelta(minutes=5)).replace(tzinfo=None))
+            .not_valid_after((now + timedelta(hours=1)).replace(tzinfo=None))
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=True)
+            .sign(key, hashes.SHA256())
+        )
+        cls.pem = cert.public_bytes(serialization.Encoding.PEM).decode("ascii")
+        cls.der = cert.public_bytes(serialization.Encoding.DER)
+
+    def _middleware_scope(self, *, tls=None, headers=None, state=None, scope_type="http"):
+        scope = {
+            "type": scope_type,
+            "asgi": {"version": "3.0"},
+            "headers": headers or [],
+            "state": state if state is not None else {},
+        }
+        if tls is not None:
+            scope["extensions"] = {"tls": tls}
+        return scope
+
+    def _run(self, scope):
+        import asyncio
+        from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
+
+        class Capture:
+            received = None
+            async def __call__(self, forwarded_scope, receive, send):
+                self.received = forwarded_scope
+
+        app = Capture()
+        asyncio.run(ASGITLSClientCertificateMiddleware(app)(scope, lambda: None, lambda msg: None))
+        return app.received
+
+    def test_tls_03_leaf_certificate_is_attached_as_der(self):
+        forwarded = self._run(self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": [self.pem],
+        }))
+        self.assertEqual(forwarded["state"]["verified_client_certificate_der"], self.der)
+
+    def test_tls_02_verified_leaf_certificate_is_attached_as_der(self):
+        forwarded = self._run(self._middleware_scope(tls={
+            "spec_version": "0.2", "client_cert_error": None,
+            "client_cert_chain": [self.pem],
+        }))
+        self.assertEqual(forwarded["state"]["verified_client_certificate_der"], self.der)
+
+    def test_chain_uses_leaf_certificate_only(self):
+        forwarded = self._run(self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": [self.pem, self.pem],
+        }))
+        self.assertEqual(forwarded["state"]["verified_client_certificate_der"], self.der)
+
+    def test_missing_tls_extension_ignores_spoofed_headers_and_clears_stale_state(self):
+        scope = self._middleware_scope(
+            headers=[(b"x-workload-identity", b"worker.staging.instance-1")],
+            state={"verified_client_certificate_der": b"stale-untrusted-value"},
+        )
+        forwarded = self._run(scope)
+        self.assertNotIn("verified_client_certificate_der", forwarded["state"])
+
+    def test_tls_verification_error_fails_closed(self):
+        from jas_si_agent.github_capability_asgi_tls import _client_certificate_der
+        scope = self._middleware_scope(tls={
+            "spec_version": "0.2", "client_cert_error": "certificate verify failed",
+            "client_cert_chain": [self.pem],
+        })
+        self.assertIsNone(_client_certificate_der(scope))
+
+    def test_unsupported_tls_extension_version_fails_closed(self):
+        from jas_si_agent.github_capability_asgi_tls import _client_certificate_der
+        scope = self._middleware_scope(tls={
+            "spec_version": "9.9", "client_cert_chain": [self.pem],
+        })
+        self.assertIsNone(_client_certificate_der(scope))
+
+    def test_malformed_and_oversized_chains_fail_closed(self):
+        from jas_si_agent.github_capability_asgi_tls import _client_certificate_der
+        malformed = self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": ["not PEM"],
+        })
+        oversized = self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": [self.pem] * 9,
+        })
+        self.assertIsNone(_client_certificate_der(malformed))
+        self.assertIsNone(_client_certificate_der(oversized))
+
+    def test_non_http_scope_is_forwarded_without_mutation(self):
+        state = {"preserve": "me"}
+        scope = self._middleware_scope(
+            tls={"spec_version": "0.3", "client_cert_chain": [self.pem]},
+            state=state, scope_type="lifespan",
+        )
+        forwarded = self._run(scope)
+        self.assertIs(forwarded, scope)
+        self.assertEqual(forwarded["state"], {"preserve": "me"})
