@@ -52,6 +52,11 @@ def _certificate_pair(directory: Path, *, client: bool, trusted: bool = True):
         .not_valid_before((now - timedelta(minutes=1)).replace(tzinfo=None))
         .not_valid_after((now + timedelta(hours=1)).replace(tzinfo=None))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, content_commitment=False, key_encipherment=True,
+            data_encipherment=False, key_agreement=False, key_cert_sign=False,
+            crl_sign=False, encipher_only=False, decipher_only=False,
+        ), critical=True)
         .add_extension(
             x509.ExtendedKeyUsage([
                 ExtendedKeyUsageOID.CLIENT_AUTH if client
