@@ -35,10 +35,13 @@ def _certificate_pair(directory: Path, *, client: bool, trusted: bool = True):
         .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
         .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
         .add_extension(x509.KeyUsage(
-            digital_signature=True, content_commitment=False, key_encipherment=True,
+            digital_signature=False, content_commitment=False, key_encipherment=False,
             data_encipherment=False, key_agreement=False, key_cert_sign=True,
             crl_sign=True, encipher_only=False, decipher_only=False,
         ), critical=True)
+        .add_extension(x509.ExtendedKeyUsage([
+            ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH,
+        ]), critical=False)
         .sign(ca_key, hashes.SHA256())
     )
     leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
