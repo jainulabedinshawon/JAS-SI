@@ -151,12 +151,19 @@ class BrokerMTLSSocketIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(peer[0]), 0)
 
     async def test_client_without_certificate_is_rejected_by_cert_required(self):
-        with self.assertRaises((OSError, __import__("ssl").SSLError)):
-            await self._handshake(provide_client_cert=False)
+        response, peer = await self._handshake(provide_client_cert=False)
+        # TLS 1.3 may deliver the fatal alert to the server side while the
+        # client observes an orderly EOF. The application handler must never
+        # run and must never return its success marker.
+        self.assertNotEqual(response, b"broker-listener-ready")
+        self.assertEqual(peer, [])
 
     async def test_client_certificate_from_untrusted_ca_is_rejected(self):
-        with self.assertRaises((OSError, __import__("ssl").SSLError)):
-            await self._handshake(provide_client_cert=True, trusted_client=False)
+        response, peer = await self._handshake(
+            provide_client_cert=True, trusted_client=False
+        )
+        self.assertNotEqual(response, b"broker-listener-ready")
+        self.assertEqual(peer, [])
 
 
 if __name__ == "__main__":
