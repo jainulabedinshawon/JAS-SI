@@ -67,3 +67,20 @@ These are CI checks, not deployment or end-to-end evidence.
 - Adversarial Staging E2E for Worker and Verifier, including cross-principal, stale fence, expired claim, wrong tenant/repository, and request-header/body spoofing.
 - Broker-mediated repository-read proxy, token issuer composition, and independent verification of returned GitHub content.
 - Production remains read-only; no production enablement is authorized by this change.
+
+
+## ASGI TLS extension runtime compatibility gate (2026-11-22)
+
+The middleware contract requires the TLS terminator to place the peer leaf PEM certificate in `scope["extensions"]["tls"]["client_cert_chain"]`. Do not assume that enabling HTTPS or mutual TLS on an arbitrary ASGI server satisfies this contract.
+
+The official ASGI implementation list identifies Anycorn as an implementation supporting the TLS extension. Its upstream 0.20.1 source includes a real mutual-TLS end-to-end test that configures `ca_certs` and `verify_mode = ssl.CERT_REQUIRED`, makes a TLS client request with a client certificate, and asserts that the ASGI scope contains the presented client certificate chain. Anycorn is marked Beta and is maintained by a single maintainer in the current PyPI metadata; therefore it is a candidate to validate, not an automatically approved production dependency.
+
+Runtime selection gate:
+- Uvicorn or Hypercorn must NOT be used as the Broker TLS terminator unless an exact-version JAS-SI integration test proves the required TLS scope extension is present.
+- Anycorn 0.20.1 is the current candidate because its upstream source contains the real mTLS/TLS-extension E2E test. Before adoption, pin its complete transitive dependency graph with hashes in a dedicated runtime lock, review the release provenance and source, and run JAS-SI-owned real-socket tests on Python 3.10.
+- The JAS-SI-owned test must run the actual `create_github_capability_app` behind the candidate server with `CERT_REQUIRED`; assert a valid pinned certificate succeeds, missing certificate fails at TLS handshake, unknown/revoked/expired certificate is rejected, and caller-supplied identity headers are ignored.
+- Test both direct TLS termination and the exact deployed listener topology. Any proxy/load balancer that strips the TLS extension is incompatible unless a separately reviewed authenticated trust adapter is implemented.
+- Configure a dedicated workload CA, server certificate/key, TLS 1.2 minimum, `verify_mode=CERT_REQUIRED`, and no insecure bind. Keep the listener private and do not expose it through the public Vercel app.
+- No Broker runtime is approved for deployment until these tests, dependency-lock verification, certificate rotation/revocation tests, and independent Staging E2E pass.
+
+This compatibility review does not add Anycorn to the JAS-SI dependency set and does not create a runtime service. It records the verified server-selection constraint only.
