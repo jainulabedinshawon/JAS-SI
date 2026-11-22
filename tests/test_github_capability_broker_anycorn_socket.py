@@ -312,7 +312,7 @@ class BrokerAnycornASGISocketIntegrationTests(unittest.TestCase):
     def test_spoofed_certificate_headers_without_mtls_are_rejected(self):
         with self.assertRaises((ssl.SSLError, OSError, http.client.HTTPException)):
             self._request(extra_headers={
-                "X-Client-Cert": self.client_pem,
+                "X-Client-Cert": "forged-certificate",
                 "X-Workload-Principal": "worker.staging.asgi-socket-test",
             })
 
