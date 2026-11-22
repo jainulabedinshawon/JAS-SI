@@ -448,3 +448,40 @@ This dated addendum supersedes earlier statements above that the feature branch 
 - Keep GitHub App installation activation disabled. The Vercel deployment is protected by Deployment Protection; do not disable it. The Cloudflare webhook-only proxy must be deployed/configured separately to forward signed deliveries to the protected Preview. The Render reconciler alone receives the GitHub App private key and dedicated reconciler DSN; neither belongs in Vercel.
 
 This addendum records read-only provider evidence and the existing Preview deployment only. It does not authorize new secrets, GitHub App setting changes, webhook registration, Cloudflare activation, Render provisioning, Neon writes, PR merge, or Production deployment. Keep this PR Draft until the Preview runtime is smoke-tested through an authorized path, credentials are separately provisioned, and a disposable-tenant OAuth → webhook → pending-claim → authoritative reconciliation/revocation lifecycle is independently verified.
+
+
+## Current live-state reconciliation — 2026-11-23
+
+This section supersedes earlier statements in this runbook that conflict with the live provider inventory below. This is an evidence-only documentation update; it does not activate integrations or change infrastructure.
+
+### GitHub / CI
+- PR #100 is Open, Draft, and mergeable; current HEAD at audit time: `59c02754ed47ce68f6b4054fd9ea833ba0deb595`.
+- Exact-HEAD Agent Authorization Tests run `45052028511`: completed / success.
+- Exact-HEAD Clean Migration Chain Replay run `45052028561`: completed / success, including PostgreSQL 16 and 18.
+- PR #110 remains Open / Draft at HEAD `77425c91f04464835d1baa64dfa86cedf4d50461`; Agent Authorization run `45050383179` and Dependency Lock Verification run `45050383173` completed / success.
+- CI results prove the tested commit and disposable CI fixtures only; they do not prove a live customer OAuth or Broker lifecycle.
+
+### Vercel Preview
+- Exact deployment `dpl_6nemPmqDqYSAUFBrhYXk9BPQ1UrZ` is READY at `https://jas-hf2ks7duv-jainulabedinshan-3242.vercel.app`, deployed from application commit `615f8b5862c2b2ceb0e1216b1024aa7a58352dbc`.
+- The current PR #100 HEAD `59c0275...` is a later documentation-only commit and is not the deployed application commit. No deployment was triggered for that documentation-only change.
+- Metadata-only Preview environment inventory for branch `feat/github-oauth-state-pkce-contract-v1` confirms the dedicated webhook DSN key `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` exists, alongside the existing customer API keys/DSNs. It does not show the GitHub App ID/private key, OAuth client ID/secret, OAuth redirect URI, OAuth encryption keyring, webhook signing secret, or other required GitHub integration configuration keys.
+- Secret values were not decrypted or read. A key's presence does not prove its value, connectivity, or runtime use.
+- Direct application HTTP smoke tests and runtime logs remain unverified; deployment READY is not application-health evidence.
+
+### Neon
+- Staging branch `jas-si-staging` (`br-wandering-bonus-b32u1xg2`) is Ready and reports `protected=false`.
+- Live Staging role inventory contains `jas_si_github_webhook_login` and `jas_si_github_reconciler_login`, as well as the NOLOGIN capability roles. Production role inventory currently has no GitHub webhook/reconciler or Agent Worker/Verifier/Broker runtime login roles.
+- The five Staging GitHub lifecycle tables exist: `jas_si_github_oauth_attempts`, `jas_si_github_app_installations`, `jas_si_github_app_installation_repositories`, `jas_si_github_webhook_inbox`, and `jas_si_github_installation_claims`. A read-only count returned zero rows in each table.
+- Production branch `production` (`br-silent-moon-b3mwkv8u`) is Ready and also reports `protected=false`. No Production migration or mutation was performed.
+
+### Render
+- Workspace service inventory returned no services.
+- `render.yaml` defines three intended workers (Agent Worker, Agent Verifier, GitHub Installation Reconciler), but no resources are provisioned. Prior Blueprint planning reported `need_payment_info`; no paid service or payment method was created.
+- The reconciler is intended to be the sole holder of the GitHub App private key and dedicated reconciler DSN. Do not move these secrets to Vercel.
+
+### Broker integration boundary
+- PR #110's Dockerfile default command still starts the public API with Uvicorn. The current isolated Broker ASGI app is not proven to run behind an ASGI TLS listener; the loopback socket test is not an end-to-end ASGI+mTLS integration test.
+- The Broker adapter requires `jas_si_agent_broker_login`, which is absent from the live Staging role inventory. Do not provision it until the listener, identity, DB privilege, and Staging-only deployment design are reviewed together.
+
+### Current gate
+Keep PR #100 and PR #110 Draft. Do not enable customer GitHub App onboarding or claim completion until Preview runtime smoke tests, OAuth → pending claim → webhook → authoritative reconciliation → revocation tests, and the independent persisted-evidence checks pass. No Production change, secret access, paid provisioning, or PR merge is authorized by this documentation update.
