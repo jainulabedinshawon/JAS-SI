@@ -51,6 +51,8 @@ The Render reconciler service alone receives `JAS_SI_GITHUB_APP_PRIVATE_KEY_B64`
 
 The Vercel Preview hostname must be the actual deployment hostname used for the OAuth callback. Do not guess a deployment URL or use the Production hostname. The OAuth callback must be registered in the GitHub App configuration to match the configured redirect URI exactly.
 
+The exact-HEAD Preview deployment for commit `615f8b5862c2b2ceb0e1216b1024aa7a58352dbc` is now READY at `https://jas-hf2ks7duv-jainulabedinshan-3242.vercel.app` (deployment `dpl_6nemPmqDqYSAUFBrhYXk9BPQ1UrZ`). This is the deployment hostname to use if a separately approved Preview OAuth configuration is later performed. The Vercel build/deployment is verified; direct endpoint smoke testing and runtime-log inspection remain unverified (the runtime log API returned 403 and the public URL was inaccessible through the available inspection interface). Do not infer application health from READY status.
+
 The Cloudflare Worker is webhook-ingress-only. It requires the GitHub webhook signing secret and Vercel protection bypass secret, plus the exact `/webhooks/github` Preview endpoint and its hostname allowlist. It has no Cron Trigger or reconciliation endpoint configuration. The Render worker is the sole reconciler and alone receives the GitHub App private key and dedicated reconciler DSN.
 
 Before enabling webhook ingress, verify the deployed Preview reports the expected commit and that all required environment keys exist by name (never decrypt or print values). Run the dedicated database identity smoke tests and the negative authorization checks. Then perform a controlled GitHub App test installation and verify OAuth, webhook receipt, pending claim, authoritative repository snapshot, revocation, and audit evidence. Keep real customer repositories out of initial tests; use a disposable test tenant and test repository. A configured environment is not a verified lifecycle.
@@ -432,3 +434,17 @@ This note supersedes any earlier statements in this runbook about the current Ve
 - The Vercel Preview deployment for the current HEAD being READY is not evidence that OAuth, webhook delivery, or reconciliation is live. End-to-end lifecycle evidence remains outstanding.
 
 This is a documentation correction based on read-only provider metadata. It does not create credentials, change database state, deploy/activate infrastructure, or merge a PR.
+
+
+## Current exact-HEAD deployment and provider recheck — 2026-11-22
+
+This dated addendum supersedes earlier statements above that the feature branch has no Preview deployment or that the latest Preview is commit `588916b943c0fcb10da6f61eca8ed831630ab45a`. Those statements remain as historical snapshots only.
+
+- PR #100 HEAD: `615f8b5862c2b2ceb0e1216b1024aa7a58352dbc`; Agent Authorization Tests run `44760327280` and Clean Migration Chain Replay run `44760327313` remain successful (PostgreSQL 16 and 18).
+- Exact-HEAD Vercel Preview deployment: `dpl_6nemPmqDqYSAUFBrhYXk9BPQ1UrZ`, READY at `https://jas-hf2ks7duv-jainulabedinshan-3242.vercel.app`. Build events confirm the exact Git commit, Python dependency installation, bytecode compilation, and deployment completion. No successful `/health`, `/`, OAuth, or webhook HTTP smoke test has been captured. Vercel runtime-log inspection returned HTTP 403; the URL was inaccessible through the available public inspection interface. Treat runtime health as unknown.
+- Exact-branch Vercel Preview environment inventory was read with `decrypt=false`. `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` is present. OAuth Client ID/Secret, callback URI, encryption keyring/active version, GitHub App ID, and `JAS_SI_GITHUB_WEBHOOK_SECRET` were not present in this branch's inventory. Do not read or print secret values.
+- Neon Staging branch `br-wandering-bonus-b32u1xg2` has dedicated webhook and reconciler LOGIN identities with the expected constrained role attributes. The five GitHub OAuth/Installation/webhook lifecycle tables remain empty; no live customer Installation lifecycle is evidenced. Production has no GitHub webhook/reconciler or Agent Worker/Verifier LOGIN roles. Both Neon branches report `protected=false`.
+- Render workspace service inventory is empty. Blueprint `exs-dc1ik09ksfps7390tr5g` remains `created` with `autoSync=false` and no managed resources; its prior planning attempt returned `need_payment_info`. No payment or service provisioning was performed.
+- Keep GitHub App installation activation disabled. The Vercel deployment is protected by Deployment Protection; do not disable it. The Cloudflare webhook-only proxy must be deployed/configured separately to forward signed deliveries to the protected Preview. The Render reconciler alone receives the GitHub App private key and dedicated reconciler DSN; neither belongs in Vercel.
+
+This addendum records read-only provider evidence and the existing Preview deployment only. It does not authorize new secrets, GitHub App setting changes, webhook registration, Cloudflare activation, Render provisioning, Neon writes, PR merge, or Production deployment. Keep this PR Draft until the Preview runtime is smoke-tested through an authorized path, credentials are separately provisioned, and a disposable-tenant OAuth → webhook → pending-claim → authoritative reconciliation/revocation lifecycle is independently verified.
