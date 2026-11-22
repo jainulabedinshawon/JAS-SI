@@ -20,6 +20,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+try:
+    import anycorn as _anycorn  # noqa: F401
+except ImportError:
+    ANYCORN_AVAILABLE = False
+else:
+    ANYCORN_AVAILABLE = True
+
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -153,6 +160,7 @@ def _write_cert(path: Path, cert) -> None:
     path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
 
+@unittest.skipUnless(ANYCORN_AVAILABLE, "Anycorn is installed only in the dedicated Broker ASGI CI job")
 class BrokerAnycornASGISocketIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -215,17 +223,23 @@ class BrokerAnycornASGISocketIntegrationTests(unittest.TestCase):
             "config.errorlog = None; config.accesslog = None; "
             "anyio.run(serve, app, config)"
         )
+        cls.server_log_path = root / "anycorn-server.log"
+        cls.server_log_handle = cls.server_log_path.open("w+", encoding="utf-8")
         cls.server = subprocess.Popen(
             [sys.executable, "-c", server_script],
             cwd=str(repo_root),
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=cls.server_log_handle,
+            stderr=subprocess.STDOUT,
         )
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             if cls.server.poll() is not None:
-                raise RuntimeError("Anycorn Broker ASGI test server exited during startup")
+                cls.server_log_handle.flush()
+                raise RuntimeError(
+                    "Anycorn Broker ASGI test server exited during startup: "
+                    + cls.server_log_path.read_text(encoding="utf-8")[-8000:]
+                )
             try:
                 with socket.create_connection(("127.0.0.1", cls.port), timeout=0.2):
                     break
@@ -245,6 +259,9 @@ class BrokerAnycornASGISocketIntegrationTests(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 server.kill()
                 server.wait(timeout=5)
+        log_handle = getattr(cls, "server_log_handle", None)
+        if log_handle is not None:
+            log_handle.close()
         temp = getattr(cls, "temp", None)
         if temp is not None:
             temp.cleanup()
