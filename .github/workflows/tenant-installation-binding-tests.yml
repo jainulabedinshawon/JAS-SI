@@ -1,0 +1,61 @@
+name: JAS-SI Tenant Installation Binding Security Tests
+
+on:
+  push:
+    branches:
+      - feat/tenant-github-installation-binding-v1
+    paths:
+      - "src/jas_si_agent/agent_task_worker_supervisor.py"
+      - "src/jas_si_agent/agent_task_verifier_supervisor.py"
+      - "src/jas_si_agent/github_app_tokens.py"
+      - "tests/test_agent_task_worker_supervisor.py"
+      - "tests/test_agent_task_verifier_supervisor.py"
+      - "tests/test_github_app_tokens.py"
+      - "requirements.txt"
+      - ".github/workflows/tenant-installation-binding-tests.yml"
+  pull_request:
+    paths:
+      - "src/jas_si_agent/agent_task_worker_supervisor.py"
+      - "src/jas_si_agent/agent_task_verifier_supervisor.py"
+      - "src/jas_si_agent/github_app_tokens.py"
+      - "tests/test_agent_task_worker_supervisor.py"
+      - "tests/test_agent_task_verifier_supervisor.py"
+      - "tests/test_github_app_tokens.py"
+      - "requirements.txt"
+      - ".github/workflows/tenant-installation-binding-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tenant-installation-binding-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tenant-binding-unit-tests:
+    name: Worker/Verifier tenant binding tests (Python 3.10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install locked runtime dependencies
+        run: python -m pip install --requirement requirements.txt
+      - name: Run Worker supervisor tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover --start-directory tests --pattern "test_agent_task_worker_supervisor.py" --verbose
+      - name: Run Verifier supervisor tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover --start-directory tests --pattern "test_agent_task_verifier_supervisor.py" --verbose
+      - name: Run token issuer security tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover --start-directory tests --pattern "test_github_app_tokens.py" --verbose
