@@ -10,8 +10,17 @@ import ssl
 from pathlib import Path
 from typing import Mapping
 
-import anyio
-from anycorn import Config, serve
+try:
+    import anyio
+    from anycorn import Config, serve
+except ModuleNotFoundError as exc:
+    if exc.name not in {"anycorn", "anyio"}:
+        raise
+    anyio = None
+    Config = None
+    serve = None
+
+ANYCORN_AVAILABLE = Config is not None and serve is not None and anyio is not None
 
 from jas_si_agent.config import Settings
 from jas_si_agent.github_capability_runtime import app
@@ -23,6 +32,8 @@ def build_server_config(
     active_settings: Settings | None = None,
 ) -> Config:
     """Build a fail-closed mTLS server configuration from mounted secret files."""
+    if Config is None:
+        raise RuntimeError("The Broker ASGI runtime dependency is not installed")
     env = os.environ if environ is None else environ
     configured = active_settings or Settings.from_env()
 
@@ -72,6 +83,8 @@ def build_server_config(
 
 def main() -> None:
     """Start the private Broker with mandatory client-certificate validation."""
+    if anyio is None or serve is None:
+        raise RuntimeError("The Broker ASGI runtime dependency is not installed")
     config = build_server_config()
     anyio.run(serve, app, config)
 

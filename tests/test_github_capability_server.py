@@ -6,9 +6,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from jas_si_agent.github_capability_server import build_server_config
+from jas_si_agent.github_capability_server import ANYCORN_AVAILABLE, build_server_config
 
 
+@unittest.skipUnless(ANYCORN_AVAILABLE, "Anycorn is installed in Broker runtime test jobs")
 class BrokerServerConfigurationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
