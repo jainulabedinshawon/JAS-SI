@@ -1,6 +1,6 @@
 # JAS-SI Standalone Billing and Pricing v1.0
 
-**Status (2026-11-15):** Free technical quota and customer portal/API code are merged into `main`. Live customer onboarding and usage are not yet verified because dedicated Production customer credentials and SMTP are absent. Paid billing remains preview-only, with no live checkout, payment verification, financial ledger, or paid entitlement.  
+**Status (historical snapshot, reviewed 2026-11-23):** Free technical quota and customer portal/API code are merged into `main`. This 2026-11-15 environment assessment is historical; consult the current private-pilot activation runbook before relying on credential or SMTP availability. Paid billing remains preview-only until live checkout, payment verification, financial ledger, and paid entitlements are independently verified.  
 **Decision:** JAS-SI is independently sellable. In standalone mode, JAS-SI owns its commerce integration and paid entitlements; for a tenant explicitly linked to JAS Platform, JAS Platform is the sole commerce authority and JAS-SI consumes authenticated entitlement decisions. The authority is mutually exclusive per tenant. See [ADR-002](ADR-002-standalone-first-international-commerce.md).
 
 ## Product strategy
