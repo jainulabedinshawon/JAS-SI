@@ -1,6 +1,6 @@
 # Standalone customer identity and onboarding v1
 
-**Status (2026-11-15):** Customer identity, session, usage-read, and API-key self-service code is merged into `main` and included in the Vercel application. Customer activation is **not ready**: Production has no dedicated customer identity/key DSNs, customer session pepper, or SMTP configuration. Preview has dedicated customer DSNs and a session pepper, but SMTP is not configured. Code presence and deployment readiness do not prove a working customer journey.
+**Status (historical snapshot, reviewed 2026-11-23):** Customer identity, session, usage-read, and API-key self-service code is merged into `main` and included in the Vercel application. The environment-variable inventory below reflects a 2026-11-15 snapshot and must be rechecked against live Vercel configuration before activation. Code presence and deployment readiness do not prove a working customer journey.
 
 ## Customer journey implemented in this phase
 
