@@ -102,6 +102,7 @@ jobs:
               "20261122_customer_rate_limit_owner_boundary.sql",
               "20261123_agent_task_scope_allowlist.sql",
               "20261123_agent_task_store.sql",
+              "20261124_agent_task_worker_lifecycle.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
@@ -199,6 +200,71 @@ jobs:
               """)
               if cur.fetchone()[0]:
                   raise SystemExit("Runtime/provisioner regained direct agent-task table access")
+
+              cur.execute("""
+                  SELECT
+                    NOT EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_roles
+                       WHERE rolname='jas_si_agent_worker'
+                         AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+                         AND NOT rolcreaterole AND NOT rolreplication
+                         AND NOT rolbypassrls AND NOT rolinherit
+                    )
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker','public.jas_si_agent_tasks','SELECT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker','public.jas_si_agent_tasks','INSERT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker','public.jas_si_agent_tasks','UPDATE')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker','public.jas_si_agent_tasks','DELETE')
+                    OR EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_auth_members m
+                       WHERE m.member=(SELECT oid FROM pg_catalog.pg_roles
+                                       WHERE rolname='jas_si_agent_worker')
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.pg_proc p
+                        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                        JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
+                       WHERE n.nspname='public'
+                         AND p.proname IN ('jas_si_agent_task_claim',
+                                           'jas_si_agent_task_renew',
+                                           'jas_si_agent_task_ack_cancel',
+                                           'jas_si_agent_task_report',
+                                           'jas_si_agent_task_fail')
+                         AND (
+                           owner.rolname<>'jas_si_agent_task_owner'
+                           OR NOT p.prosecdef
+                           OR NOT ('search_path=pg_catalog'=ANY(p.proconfig))
+                           OR NOT pg_catalog.has_function_privilege(
+                                'jas_si_agent_worker',p.oid,'EXECUTE')
+                           OR pg_catalog.has_function_privilege(
+                                'jas_si_runtime',p.oid,'EXECUTE')
+                           OR pg_catalog.has_function_privilege(
+                                'jas_si_provisioner',p.oid,'EXECUTE')
+                           OR EXISTS (
+                             SELECT 1 FROM pg_catalog.aclexplode(
+                               COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+                             ) acl
+                             WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                           )
+                         )
+                    )
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("Worker lifecycle role/routine boundary is not least-privilege")
+              cur.execute("""
+                  SELECT count(*),pg_catalog.bool_and(status IN (
+                    'queued','running','cancel_requested','awaiting_verification',
+                    'succeeded','failed','cancelled'
+                  ))
+                    FROM public.jas_si_agent_tasks
+              """)
+              task_rows, task_statuses_valid = cur.fetchone()
+              if task_rows is None or not task_statuses_valid:
+                  raise SystemExit("Task lifecycle status contract is invalid")
 
               cur.execute("""
                   SELECT count(*),
