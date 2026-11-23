@@ -86,6 +86,25 @@ class GitHubCapabilityReadScopeTests(unittest.TestCase):
             path="src/main.py", now=self.now,
         )
 
+    def test_authorizes_exact_commit_metadata_scope(self):
+        self.capability.authorize_commit(
+            repository="OWNER/private-repo", commit_sha="a" * 40, now=self.now,
+        )
+
+    def test_rejects_commit_metadata_for_other_repository_or_commit(self):
+        for repository, commit_sha in (("attacker/private-repo", "a" * 40), ("owner/private-repo", "b" * 40)):
+            with self.subTest(repository=repository, commit_sha=commit_sha), self.assertRaises(GitHubCapabilityBrokerError):
+                self.capability.authorize_commit(
+                    repository=repository, commit_sha=commit_sha, now=self.now,
+                )
+
+    def test_rejects_expired_commit_metadata_capability(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_commit(
+                repository="owner/private-repo", commit_sha="a" * 40,
+                now=datetime(2026, 11, 25, tzinfo=timezone.utc),
+            )
+
     def test_rejects_different_repository(self):
         with self.assertRaises(GitHubCapabilityBrokerError):
             self.capability.authorize_read(
@@ -324,6 +343,7 @@ class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
             {
                 "/internal/github/capabilities/resolve",
                 "/internal/github/capabilities/read",
+                "/internal/github/capabilities/commit",
             },
         )
         self.assertIsNone(app.docs_url)
@@ -363,6 +383,60 @@ class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
         self.assertEqual(response.json()["repository"], "owner/private-repo")
         self.assertNotIn("access_token", response.json())
         self.assertNotIn("principal_id", response.json())
+
+    def test_commit_metadata_route_uses_live_task_capability_and_role_proof(self):
+        from fastapi.testclient import TestClient
+
+        broker = _FakeBroker()
+        proxy = SimpleNamespace(read_commit=lambda **kwargs: {
+            "repository": kwargs["repository"],
+            "commit_sha": kwargs["commit_sha"],
+            "tree_sha": "c" * 40,
+        })
+        app = create_github_capability_app(
+            _broker_settings(),
+            broker_factory=lambda dsn: broker,
+            read_proxy_factory=lambda settings: proxy,
+        )
+        workload = WorkloadIdentity("worker.staging.instance-1", "worker")
+        app.dependency_overrides[require_enabled_authenticated_workload] = lambda: workload
+        task_id = uuid4()
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/commit",
+                json={
+                    "task_id": str(task_id),
+                    "lease_fence": 9,
+                    "repository": "owner/private-repo",
+                    "commit_sha": "b" * 40,
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tree_sha"], "c" * 40)
+        self.assertEqual(broker.arguments, {
+            "task_id": task_id,
+            "principal_id": "worker.staging.instance-1",
+            "role": "worker",
+            "lease_fence": 9,
+            "verifier_claim_token": None,
+        })
+
+    def test_commit_metadata_route_rejects_missing_role_proof(self):
+        from fastapi.testclient import TestClient
+
+        app = create_github_capability_app(_broker_settings())
+        workload = WorkloadIdentity("worker.staging.instance-1", "worker")
+        app.dependency_overrides[require_enabled_authenticated_workload] = lambda: workload
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/commit",
+                json={
+                    "task_id": str(uuid4()),
+                    "repository": "owner/private-repo",
+                    "commit_sha": "b" * 40,
+                },
+            )
+        self.assertEqual(response.status_code, 422)
 
     def test_disabled_broker_fails_closed_before_certificate_lookup(self):
         from fastapi.testclient import TestClient

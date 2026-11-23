@@ -58,6 +58,84 @@ class GitHubCapabilityReadProxy:
         """Close the Broker-owned HTTP connection pool during app shutdown."""
         self._http.close()
 
+    def read_commit(
+        self,
+        *,
+        capability: ResolvedGitHubTaskCapability,
+        repository: str,
+        commit_sha: str,
+    ) -> dict[str, object]:
+        """Return immutable commit/tree identity without exposing credentials."""
+        if not isinstance(capability, ResolvedGitHubTaskCapability):
+            raise GitHubCapabilityBrokerError("Persisted task capability is required")
+        capability.authorize_commit(repository=repository, commit_sha=commit_sha)
+        try:
+            token = self._token_issuer.issue(
+                installation_id=capability.installation_id,
+                repository=capability.repository_full_name,
+            )
+            if (
+                getattr(token, "installation_id", None) != capability.installation_id
+                or getattr(token, "repository", "").casefold()
+                != capability.repository_full_name.casefold()
+                or not isinstance(getattr(token, "access_token", None), str)
+                or not token.access_token
+            ):
+                raise GitHubCapabilityBrokerError("GitHub token scope does not match task capability")
+            url = f"{_GITHUB_API}/repos/{capability.repository_full_name}/commits/{capability.commit_sha}"
+            with self._http.stream(
+                "GET",
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token.access_token}",
+                    "X-GitHub-Api-Version": _API_VERSION,
+                },
+                timeout=10.0,
+            ) as response:
+                if response.status_code != 200:
+                    raise GitHubCapabilityBrokerError("GitHub commit metadata read failed")
+                declared_length = response.headers.get("content-length")
+                if declared_length is not None:
+                    try:
+                        if int(declared_length) > _MAX_API_RESPONSE_BYTES:
+                            raise GitHubCapabilityBrokerError("GitHub API response exceeds the configured read limit")
+                    except ValueError:
+                        raise GitHubCapabilityBrokerError("GitHub API response length is invalid") from None
+                chunks = []
+                size = 0
+                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                    size += len(chunk)
+                    if size > _MAX_API_RESPONSE_BYTES:
+                        raise GitHubCapabilityBrokerError("GitHub API response exceeds the configured read limit")
+                    chunks.append(chunk)
+                try:
+                    payload = json.loads(b"".join(chunks))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    raise GitHubCapabilityBrokerError("GitHub returned invalid commit metadata") from None
+            commit = payload.get("sha") if isinstance(payload, dict) else None
+            commit_data = payload.get("commit") if isinstance(payload, dict) else None
+            tree = commit_data.get("tree") if isinstance(commit_data, dict) else None
+            tree_sha = tree.get("sha") if isinstance(tree, dict) else None
+            if (
+                commit != capability.commit_sha
+                or not isinstance(tree_sha, str)
+                or len(tree_sha) != 40
+                or any(char not in "0123456789abcdef" for char in tree_sha)
+            ):
+                raise GitHubCapabilityBrokerError("GitHub commit metadata does not match the task")
+            return {
+                "repository": capability.repository_full_name,
+                "commit_sha": capability.commit_sha,
+                "tree_sha": tree_sha,
+            }
+        except GitHubCapabilityBrokerError:
+            raise
+        except GitHubAppTokenError:
+            raise GitHubCapabilityBrokerError("GitHub token issuance failed") from None
+        except Exception:
+            raise GitHubCapabilityBrokerError("GitHub commit metadata read failed") from None
+
     def read_file(
         self,
         *,
