@@ -20,11 +20,16 @@ on:
       - feat/task-scoped-github-capability-broker-db-v1
       - feat/github-capability-broker-runtime-v1
       - feat/github-capability-broker-isolated-asgi-v1
+      - feat/github-capability-broker-isolated-asgi-v1
       - feat/github-capability-broker-commit-metadata-v1
+      - feat/github-capability-worker-verifier-adapters-v1
       - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
+      - "requirements-broker-asgi.in"
+      - "requirements-broker-asgi.lock.txt"
       - "docs/security/**"
       - "cloudflare/github-reconciler-cron/**"
       - ".github/workflows/jas-si-agent-tests.yml"
@@ -101,6 +106,7 @@ jobs:
       - name: Install locked dependencies
         run: |
           python -m pip install --require-hashes -r requirements.lock.txt
+          python -m pip install --require-hashes -r requirements-broker-asgi.lock.txt
 
       - name: Verify Python version
         run: python --version
@@ -117,21 +123,7 @@ jobs:
             -v
 
       - name: Verify real Broker ASGI mTLS socket integration
-        run: |
-          python -m pip install "pip-tools==7.7.0"
-          printf '%s\n' 'anycorn==0.20.1' > "$RUNNER_TEMP/requirements-broker-asgi.in"
-          pip-compile --resolver=backtracking --generate-hashes --output-file="$RUNNER_TEMP/requirements-broker-asgi.lock" "$RUNNER_TEMP/requirements-broker-asgi.in"
-          python -m pip install --require-hashes -r "$RUNNER_TEMP/requirements-broker-asgi.lock"
-          PYTHONPATH=src:tests python -m unittest test_github_capability_broker_anycorn_socket -v
-
-      - name: Upload generated Broker ASGI test lock
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: jas-si-broker-asgi-test-lock
-          path: ${{ runner.temp }}/requirements-broker-asgi.lock
-          if-no-files-found: warn
-          retention-days: 30
+        run: PYTHONPATH=src:tests python -m unittest test_github_capability_broker_anycorn_socket -v
 
       - name: Test Cloudflare webhook ingress proxy
         run: node --test cloudflare/github-reconciler-cron/worker.test.mjs
