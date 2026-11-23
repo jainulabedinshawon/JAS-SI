@@ -71,8 +71,8 @@ class _Broker:
 
 
 class GitHubCapabilityASGIIntegrationTests(unittest.IsolatedAsyncioTestCase):
-    async def _request(self, app, *, tls=None, headers=None):
-        body = json.dumps({
+    async def _request(self, app, *, tls=None, headers=None, path="/internal/github/capabilities/resolve", payload=None):
+        body = json.dumps(payload or {
             "task_id": str(self.task_id),
             "lease_fence": 7,
         }).encode("utf-8")
@@ -93,8 +93,8 @@ class GitHubCapabilityASGIIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "http_version": "1.1",
             "method": "POST",
             "scheme": "https",
-            "path": "/internal/github/capabilities/resolve",
-            "raw_path": b"/internal/github/capabilities/resolve",
+            "path": path,
+            "raw_path": path.encode("ascii"),
             "query_string": b"",
             "root_path": "",
             "headers": headers or [(b"content-type", b"application/json")],
@@ -154,6 +154,67 @@ class GitHubCapabilityASGIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("principal_id", payload)
         self.assertNotIn("access_token", payload)
+
+    async def test_task_authenticated_read_route_uses_injected_broker_proxy(self):
+        class _ReadProxy:
+            def __init__(self):
+                self.calls = []
+
+            def read_file(self, **kwargs):
+                self.calls.append(kwargs)
+                return {
+                    "repository": "owner/private-repo",
+                    "commit_sha": "a" * 40,
+                    "path": "src/allowed.py",
+                    "content_base64": "b2s=",
+                }
+
+        proxy = _ReadProxy()
+        app = create_github_capability_app(
+            self.app.state.github_capability_settings,
+            broker_factory=lambda _dsn: self.broker,
+            read_proxy_factory=lambda _settings: proxy,
+        )
+        status, body = await self._request(
+            app,
+            path="/internal/github/capabilities/read",
+            payload={
+                "task_id": str(self.task_id),
+                "lease_fence": 7,
+                "repository": "owner/private-repo",
+                "commit_sha": "a" * 40,
+                "path": "src/allowed.py",
+            },
+            tls={
+                "spec_version": "0.3",
+                "client_cert_chain": [self.pem.decode("ascii")],
+            },
+        )
+        self.assertEqual(status, 200, body.decode("utf-8"))
+        self.assertEqual(len(self.broker.calls), 1)
+        self.assertEqual(len(proxy.calls), 1)
+        self.assertEqual(proxy.calls[0]["path"], "src/allowed.py")
+        self.assertNotIn("access_token", body.decode("utf-8"))
+
+    async def test_read_route_rejects_untrusted_or_extra_request_fields(self):
+        status, _ = await self._request(
+            self.app,
+            path="/internal/github/capabilities/read",
+            payload={
+                "task_id": str(self.task_id),
+                "lease_fence": 7,
+                "repository": "owner/private-repo",
+                "commit_sha": "a" * 40,
+                "path": "src/allowed.py",
+                "installation_id": 123456,
+            },
+            tls={
+                "spec_version": "0.3",
+                "client_cert_chain": [self.pem.decode("ascii")],
+            },
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(self.broker.calls, [])
 
     async def test_missing_tls_extension_and_spoofed_header_fail_closed(self):
         status, body = await self._request(
