@@ -70,6 +70,10 @@ class GitHubCapabilityReadProxyTests(unittest.TestCase):
         self.http.stream.return_value = self.response
         self.proxy = GitHubCapabilityReadProxy(self.issuer, http_client=self.http)
 
+    def test_close_releases_broker_http_client(self):
+        self.proxy.close()
+        self.http.close.assert_called_once_with()
+
     def test_reads_only_exact_capability_and_returns_no_token(self):
         result = self.proxy.read_file(
             capability=self.capability,
