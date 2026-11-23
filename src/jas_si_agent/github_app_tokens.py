@@ -31,12 +31,11 @@ _GITHUB_API = "https://api.github.com"
 _API_VERSION = "2022-11-28"
 _REPOSITORY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _TOKEN_TTL_LIMIT = timedelta(hours=1, minutes=5)
+# The immutable commit/file reader uses only the GitHub Contents API.
+# GitHub supplies metadata:read implicitly for repository-scoped installation
+# tokens, so do not request unrelated Actions, Checks, PR, or Status scopes.
 _READ_ONLY_PERMISSIONS = {
-    "actions": "read",
-    "checks": "read",
     "contents": "read",
-    "pull_requests": "read",
-    "statuses": "read",
 }
 
 
