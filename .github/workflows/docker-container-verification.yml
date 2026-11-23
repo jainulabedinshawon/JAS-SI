@@ -14,6 +14,7 @@ on:
       - ".dockerignore"
       - "requirements.lock.txt"
       - "requirements-broker-asgi.lock.txt"
+      - "requirements-broker-asgi.lock.txt"
       - "src/jas_si_agent/**"
       - ".github/workflows/docker-container-verification.yml"
 
@@ -29,6 +30,7 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - "requirements.lock.txt"
+      - "requirements-broker-asgi.lock.txt"
       - "src/jas_si_agent/**"
       - ".github/workflows/docker-container-verification.yml"
 
