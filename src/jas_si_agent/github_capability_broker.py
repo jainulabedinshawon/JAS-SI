@@ -68,8 +68,8 @@ class ResolvedGitHubTaskCapability:
             or not path
             or len(path) > 500
             or path.startswith("/")
-            or "\\\\" in path
-            or "\\x00" in path
+            or "\\" in path
+            or "\x00" in path
             or any(part in {"", ".", ".."} for part in path.split("/"))
             or path not in self.repository_paths
         ):
