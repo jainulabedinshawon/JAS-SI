@@ -11,7 +11,7 @@ from jas_si_agent.github_capability_evidence import (
     BrokerGitHubEvidenceCollector,
     build_broker_github_repository_read_handler,
 )
-from jas_si_agent.github_task_verifier import PersistedTask
+from jas_si_agent.github_task_verifier import PersistedTask, WorkerTaskReport, verify_github_repository_task
 
 
 class FakeBrokerClient:
@@ -92,6 +92,38 @@ class BrokerEvidenceAdapterTests(unittest.TestCase):
         self.assertEqual(self.client.calls[0][1]["role"], "verifier")
         self.assertEqual(self.client.calls[0][1]["verifier_claim_token"], self.claim_token)
         self.assertNotIn("lease_fence", self.client.calls[0][1])
+
+    def test_task_verifier_dispatches_to_claim_bound_broker_collector(self):
+        handler = build_broker_github_repository_read_handler(self.client)
+        worker_report = handler.execute(self.lease, Event())
+        task = PersistedTask(
+            task_id=self.task_id,
+            tenant_id=self.tenant_id,
+            task_type="github.read_repository",
+            input_payload=self.lease.input_payload,
+            verifier_claim_token=self.claim_token,
+        )
+        collector = BrokerGitHubEvidenceCollector(
+            collector_id="staging-verifier",
+            broker_client=self.client,
+        )
+        decision = verify_github_repository_task(
+            task,
+            WorkerTaskReport(
+                task_id=self.task_id,
+                claimed_success=True,
+                result_payload=worker_report,
+            ),
+            collector=collector,
+        )
+        self.assertEqual(decision.status.value, "VERIFIED_SUCCESS")
+        self.assertEqual(decision.reason, "INDEPENDENT_GITHUB_COMMIT_AND_FILE_INTEGRITY_VERIFIED")
+        verifier_calls = [
+            call for call in self.client.calls
+            if call[1].get("role") == "verifier"
+        ]
+        self.assertEqual(len(verifier_calls), 2)
+        self.assertTrue(all(call[1].get("verifier_claim_token") == self.claim_token for call in verifier_calls))
 
     def test_verifier_collector_rejects_missing_persisted_claim(self):
         collector = BrokerGitHubEvidenceCollector(
