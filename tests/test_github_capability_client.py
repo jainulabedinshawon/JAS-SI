@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import unittest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 
 from jas_si_agent.github_capability_client import (
@@ -26,10 +26,13 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
         self.commit_sha = "a" * 40
 
     def _response(self, payload, status=200):
-        response = Mock()
         import json
+        response = MagicMock()
         response.status_code = status
+        response.headers = {"content-length": str(len(json.dumps(payload).encode()))}
         response.content = json.dumps(payload).encode()
+        response.iter_bytes.return_value = [response.content]
+        response.__enter__.return_value = response
         return response
 
     def test_worker_read_uses_persisted_lease_fence_and_recomputes_git_blob(self):
@@ -37,7 +40,7 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
         blob_sha = hashlib.sha1(
             b"blob " + str(len(content)).encode() + b"\0" + content
         ).hexdigest()
-        self.http.post.return_value = self._response({
+        self.http.stream.return_value = self._response({
             "repository": "owner/private",
             "commit_sha": self.commit_sha,
             "path": "src/app.py",
