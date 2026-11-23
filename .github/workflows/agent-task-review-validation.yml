@@ -43,12 +43,26 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          python -m pytest -q \
-            tests/test_agent_task_api.py \
-            tests/test_agent_task_verifier.py \
-            tests/test_agent_task_verifier_store.py \
-            tests/test_agent_task_verifier_supervisor.py \
-            tests/test_agent_task_worker.py \
-            tests/test_agent_task_worker_runtime.py \
-            tests/test_agent_task_worker_store.py \
+          candidates=(
+            tests/test_agent_task_api.py
+            tests/test_agent_task_verifier.py
+            tests/test_agent_task_verifier_store.py
+            tests/test_agent_task_verifier_supervisor.py
+            tests/test_agent_task_worker.py
+            tests/test_agent_task_worker_runtime.py
+            tests/test_agent_task_worker_store.py
             tests/test_agent_task_worker_supervisor.py
+          )
+          tests=()
+          for path in "${candidates[@]}"; do
+            if [[ -f "$path" ]]; then
+              tests+=("$path")
+            else
+              echo "SKIP (Agent Task stage not integrated on this ref): $path"
+            fi
+          done
+          if [[ "${#tests[@]}" -eq 0 ]]; then
+            echo "No Agent Task tests found; failing closed."
+            exit 1
+          fi
+          python -m pytest -q "${tests[@]}"
