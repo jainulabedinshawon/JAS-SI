@@ -134,3 +134,5 @@ jobs:
 
       - name: Test Cloudflare webhook ingress proxy
         run: node --test cloudflare/github-reconciler-cron/worker.test.mjs
+
+# Broker stack CI trigger coverage: 2026-11-23
