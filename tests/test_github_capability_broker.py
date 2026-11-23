@@ -15,9 +15,18 @@ if str(SRC) not in sys.path:
 from jas_si_agent.github_capability_broker import (
     GitHubCapabilityBrokerError,
     PostgresGitHubCapabilityBroker,
+    ResolvedGitHubTaskCapability,
 )
-from jas_si_agent.github_capability_identity import WorkloadIdentity
+from jas_si_agent.github_capability_identity import (
+    CertificateWorkloadIdentityRegistry,
+    WorkloadIdentity,
+)
 from jas_si_agent import api as api_module
+from jas_si_agent.github_capability_runtime import (
+    GitHubCapabilityResolveRequest,
+    create_github_capability_app,
+    require_enabled_authenticated_workload,
+)
 from types import SimpleNamespace
 
 
@@ -55,6 +64,56 @@ class _Connection:
 
     def cursor(self):
         return self.cursor_value
+
+
+class GitHubCapabilityReadScopeTests(unittest.TestCase):
+    def setUp(self):
+        self.capability = ResolvedGitHubTaskCapability(
+            task_id=uuid4(),
+            tenant_id=uuid4(),
+            installation_id=123456,
+            repository_full_name="owner/private-repo",
+            capability_role="worker",
+            expires_at=datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc),
+            commit_sha="a" * 40,
+            repository_paths=["src/main.py", "tests/test_main.py"],
+        )
+        self.now = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+
+    def test_accepts_exact_repository_commit_and_allowlisted_file(self):
+        self.capability.authorize_read(
+            repository="OWNER/private-repo", commit_sha="a" * 40,
+            path="src/main.py", now=self.now,
+        )
+
+    def test_rejects_different_repository(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_read(
+                repository="attacker/private-repo", commit_sha="a" * 40,
+                path="src/main.py", now=self.now,
+            )
+
+    def test_rejects_different_commit_even_when_path_is_allowed(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_read(
+                repository="owner/private-repo", commit_sha="b" * 40,
+                path="src/main.py", now=self.now,
+            )
+
+    def test_rejects_unlisted_path_and_directory_prefix(self):
+        for path in ("src/secret.py", "src", "src/../secret.py", "/src/main.py", "src\\main.py"):
+            with self.subTest(path=path), self.assertRaises(GitHubCapabilityBrokerError):
+                self.capability.authorize_read(
+                    repository="owner/private-repo", commit_sha="a" * 40,
+                    path=path, now=self.now,
+                )
+
+    def test_rejects_expired_capability(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_read(
+                repository="owner/private-repo", commit_sha="a" * 40,
+                path="src/main.py", now=datetime(2026, 11, 25, tzinfo=timezone.utc),
+            )
 
 
 class GitHubCapabilityBrokerTests(unittest.TestCase):
@@ -213,6 +272,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         self.assertNotIn("postgres://", str(raised.exception))
 
 
+
 class _FakeResolvedCapability:
     def __init__(self, task_id):
         self.task_id = task_id
@@ -234,33 +294,62 @@ class _FakeBroker:
         return _FakeResolvedCapability(kwargs["task_id"])
 
 
-class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
-    def tearDown(self):
-        if hasattr(api_module.app.state, "github_capability_broker"):
-            delattr(api_module.app.state, "github_capability_broker")
+def _broker_settings(*, enabled=True, environment="preview", registry=None):
+    return SimpleNamespace(
+        github_capability_broker_enabled=enabled,
+        environment=environment,
+        github_capability_broker_database_url=(
+            "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+        ),
+        github_capability_workload_identities=registry,
+    )
 
-    def test_route_uses_certificate_registry_identity_and_returns_metadata_only(self):
+
+class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
+    def test_public_api_has_no_broker_route(self):
+        paths = {
+            getattr(route, "path", None)
+            for route in api_module.app.routes
+        }
+        self.assertNotIn("/internal/github/capabilities/resolve", paths)
+
+    def test_dedicated_app_exposes_only_broker_route_and_disables_docs(self):
+        app = create_github_capability_app(_broker_settings())
+        paths = {
+            getattr(route, "path", None)
+            for route in app.routes
+        }
+        self.assertEqual(
+            paths,
+            {
+                "/internal/github/capabilities/resolve",
+                "/internal/github/capabilities/read",
+            },
+        )
+        self.assertIsNone(app.docs_url)
+        self.assertIsNone(app.redoc_url)
+        self.assertIsNone(app.openapi_url)
+
+    def test_route_uses_request_app_state_and_certificate_registry_identity(self):
+        from fastapi.testclient import TestClient
+
         broker = _FakeBroker()
-        api_module.app.state.github_capability_broker = broker
-        task_id = uuid4()
-        payload = api_module.GitHubCapabilityResolveRequest(
-            task_id=task_id,
-            lease_fence=9,
+        app = create_github_capability_app(
+            _broker_settings(),
+            broker_factory=lambda dsn: broker,
         )
         workload = WorkloadIdentity("worker.staging.instance-1", "worker")
-        with patch.object(
-            api_module,
-            "settings",
-            SimpleNamespace(
-                github_capability_broker_enabled=True,
-                environment="preview",
-                github_capability_broker_database_url=(
-                    "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
-                )
-            ),
-        ):
-            result = api_module.resolve_github_task_capability(payload, workload)
+        app.dependency_overrides[require_enabled_authenticated_workload] = (
+            lambda: workload
+        )
+        task_id = uuid4()
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(task_id), "lease_fence": 9},
+            )
 
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             broker.arguments,
             {
@@ -271,40 +360,179 @@ class GitHubCapabilityBrokerRouteTests(unittest.TestCase):
                 "verifier_claim_token": None,
             },
         )
-        self.assertEqual(result["repository"], "owner/private-repo")
-        self.assertNotIn("access_token", result)
-        self.assertNotIn("principal_id", result)
+        self.assertEqual(response.json()["repository"], "owner/private-repo")
+        self.assertNotIn("access_token", response.json())
+        self.assertNotIn("principal_id", response.json())
+
+    def test_disabled_broker_fails_closed_before_certificate_lookup(self):
+        from fastapi.testclient import TestClient
+
+        app = create_github_capability_app(_broker_settings(enabled=False))
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(uuid4()), "lease_fence": 1},
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_production_environment_cannot_enable_broker(self):
+        from fastapi.testclient import TestClient
+
+        app = create_github_capability_app(
+            _broker_settings(enabled=True, environment="production")
+        )
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(uuid4()), "lease_fence": 1},
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_missing_peer_certificate_fails_closed(self):
+        from fastapi.testclient import TestClient
+
+        registry = CertificateWorkloadIdentityRegistry(
+            {"a" * 64: WorkloadIdentity("worker.staging.instance-1", "worker")}
+        )
+        app = create_github_capability_app(
+            _broker_settings(registry=registry)
+        )
+        with TestClient(app) as client:
+            response = client.post(
+                "/internal/github/capabilities/resolve",
+                json={"task_id": str(uuid4()), "lease_fence": 1},
+            )
+        self.assertEqual(response.status_code, 401)
 
     def test_request_model_rejects_client_supplied_identity_fields(self):
         with self.assertRaises(Exception):
-            api_module.GitHubCapabilityResolveRequest(
+            GitHubCapabilityResolveRequest(
                 task_id=uuid4(),
                 lease_fence=1,
                 principal_id="attacker",
                 role="worker",
             )
 
-    def test_route_kill_switch_precedes_certificate_identity(self):
-        from fastapi.testclient import TestClient
-        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=False, environment="preview", github_capability_broker_database_url=None)):
-            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
-        self.assertEqual(response.status_code, 404)
-
-    def test_production_environment_cannot_enable_broker_route(self):
-        from fastapi.testclient import TestClient
-        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=True, environment="production", github_capability_broker_database_url="postgresql://broker:secret@db.example.test/db?sslmode=verify-full")):
-            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
-        self.assertEqual(response.status_code, 404)
-
-    def test_development_environment_cannot_enable_broker_route(self):
-        from fastapi.testclient import TestClient
-        with patch.object(api_module, "settings", SimpleNamespace(github_capability_broker_enabled=True, environment="development", github_capability_broker_database_url="postgresql://broker:secret@db.example.test/db?sslmode=verify-full")):
-            response = TestClient(api_module.app).post("/internal/github/capabilities/resolve", json={"task_id": str(uuid4()), "lease_fence": 1})
-        self.assertEqual(response.status_code, 404)
-
     def test_boolean_lease_fence_is_rejected(self):
         with self.assertRaises(Exception):
-            api_module.GitHubCapabilityResolveRequest(task_id=uuid4(), lease_fence=True)
+            GitHubCapabilityResolveRequest(task_id=uuid4(), lease_fence=True)
+
+
+class ASGITLSClientCertificateTransportTests(unittest.TestCase):
+    """Exercise the ASGI TLS extension boundary; not a real TCP mTLS test."""
+
+    @classmethod
+    def setUpClass(cls):
+        from datetime import timedelta
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+        now = datetime.now(timezone.utc)
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "jas-si-asgi-tls-test")])
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before((now - timedelta(minutes=5)).replace(tzinfo=None))
+            .not_valid_after((now + timedelta(hours=1)).replace(tzinfo=None))
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=True)
+            .sign(key, hashes.SHA256())
+        )
+        cls.pem = cert.public_bytes(serialization.Encoding.PEM).decode("ascii")
+        cls.der = cert.public_bytes(serialization.Encoding.DER)
+
+    def _middleware_scope(self, *, tls=None, headers=None, state=None, scope_type="http"):
+        scope = {
+            "type": scope_type,
+            "asgi": {"version": "3.0"},
+            "headers": headers or [],
+            "state": state if state is not None else {},
+        }
+        if tls is not None:
+            scope["extensions"] = {"tls": tls}
+        return scope
+
+    def _run(self, scope):
+        import asyncio
+        from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
+
+        class Capture:
+            received = None
+            async def __call__(self, forwarded_scope, receive, send):
+                self.received = forwarded_scope
+
+        app = Capture()
+        asyncio.run(ASGITLSClientCertificateMiddleware(app)(scope, lambda: None, lambda msg: None))
+        return app.received
+
+    def test_tls_03_leaf_certificate_is_attached_as_der(self):
+        forwarded = self._run(self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": [self.pem],
+        }))
+        self.assertEqual(forwarded["state"]["verified_client_certificate_der"], self.der)
+
+    def test_tls_02_verified_leaf_certificate_is_attached_as_der(self):
+        forwarded = self._run(self._middleware_scope(tls={
+            "spec_version": "0.2", "client_cert_error": None,
+            "client_cert_chain": [self.pem],
+        }))
+        self.assertEqual(forwarded["state"]["verified_client_certificate_der"], self.der)
+
+    def test_chain_uses_leaf_certificate_only(self):
+        forwarded = self._run(self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": [self.pem, self.pem],
+        }))
+        self.assertEqual(forwarded["state"]["verified_client_certificate_der"], self.der)
+
+    def test_missing_tls_extension_ignores_spoofed_headers_and_clears_stale_state(self):
+        scope = self._middleware_scope(
+            headers=[(b"x-workload-identity", b"worker.staging.instance-1")],
+            state={"verified_client_certificate_der": b"stale-untrusted-value"},
+        )
+        forwarded = self._run(scope)
+        self.assertNotIn("verified_client_certificate_der", forwarded["state"])
+
+    def test_tls_verification_error_fails_closed(self):
+        from jas_si_agent.github_capability_asgi_tls import _client_certificate_der
+        scope = self._middleware_scope(tls={
+            "spec_version": "0.2", "client_cert_error": "certificate verify failed",
+            "client_cert_chain": [self.pem],
+        })
+        self.assertIsNone(_client_certificate_der(scope))
+
+    def test_unsupported_tls_extension_version_fails_closed(self):
+        from jas_si_agent.github_capability_asgi_tls import _client_certificate_der
+        scope = self._middleware_scope(tls={
+            "spec_version": "9.9", "client_cert_chain": [self.pem],
+        })
+        self.assertIsNone(_client_certificate_der(scope))
+
+    def test_malformed_and_oversized_chains_fail_closed(self):
+        from jas_si_agent.github_capability_asgi_tls import _client_certificate_der
+        malformed = self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": ["not PEM"],
+        })
+        oversized = self._middleware_scope(tls={
+            "spec_version": "0.3", "client_cert_chain": [self.pem] * 9,
+        })
+        self.assertIsNone(_client_certificate_der(malformed))
+        self.assertIsNone(_client_certificate_der(oversized))
+
+    def test_non_http_scope_is_forwarded_without_mutation(self):
+        state = {"preserve": "me"}
+        scope = self._middleware_scope(
+            tls={"spec_version": "0.3", "client_cert_chain": [self.pem]},
+            state=state, scope_type="lifespan",
+        )
+        forwarded = self._run(scope)
+        self.assertIs(forwarded, scope)
+        self.assertEqual(forwarded["state"], {"preserve": "me"})
+
 
 
 if __name__ == "__main__":

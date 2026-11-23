@@ -7,7 +7,7 @@ request-controlled fields.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -29,6 +29,51 @@ class ResolvedGitHubTaskCapability:
     expires_at: datetime
     commit_sha: str
     repository_paths: list[str]
+
+    def authorize_read(
+        self,
+        *,
+        repository: str,
+        commit_sha: str,
+        path: str,
+        now: datetime | None = None,
+    ) -> None:
+        """Fail closed unless a read exactly matches this persisted capability.
+
+        This is an exact-file allowlist, not a directory-prefix matcher. Call it
+        for every GitHub content request before constructing the API URL.
+        """
+        current = now or datetime.now(timezone.utc)
+        if (
+            not isinstance(current, datetime)
+            or current.tzinfo is None
+            or current.utcoffset() is None
+            or not isinstance(self.expires_at, datetime)
+            or self.expires_at.tzinfo is None
+            or self.expires_at.utcoffset() is None
+            or self.expires_at <= current
+        ):
+            raise GitHubCapabilityBrokerError("Task capability is expired or has invalid time bounds")
+        if (
+            not isinstance(repository, str)
+            or repository.casefold() != self.repository_full_name.casefold()
+            or not isinstance(commit_sha, str)
+            or commit_sha != self.commit_sha
+            or len(commit_sha) != 40
+            or any(char not in "0123456789abcdef" for char in commit_sha)
+        ):
+            raise GitHubCapabilityBrokerError("Repository or commit is outside the task capability")
+        if (
+            not isinstance(path, str)
+            or not path
+            or len(path) > 500
+            or path.startswith("/")
+            or "\\" in path
+            or "\x00" in path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or path not in self.repository_paths
+        ):
+            raise GitHubCapabilityBrokerError("Repository path is outside the task capability")
 
 
 class PostgresGitHubCapabilityBroker:

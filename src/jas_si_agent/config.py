@@ -266,6 +266,8 @@ class Settings:
     github_capability_workload_identities: Optional[CertificateWorkloadIdentityRegistry] = field(default=None, repr=False)
     github_capability_broker_database_url: Optional[str] = field(default=None, repr=False)
     github_capability_broker_enabled: bool = False
+    github_capability_app_id: Optional[int] = None
+    github_capability_app_private_key_path: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -298,6 +300,14 @@ class Settings:
         github_capability_workload_identities = _read_github_capability_workload_identities()
         github_capability_broker_database_url = os.getenv("JAS_SI_GITHUB_CAPABILITY_BROKER_DATABASE_URL") or None
         github_capability_broker_enabled = _read_bool("JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED", False)
+        raw_capability_app_id = os.getenv("JAS_SI_GITHUB_CAPABILITY_APP_ID")
+        github_capability_app_id = (
+            _read_positive_int("JAS_SI_GITHUB_CAPABILITY_APP_ID", 1)
+            if raw_capability_app_id else None
+        )
+        github_capability_app_private_key_path = (
+            os.getenv("JAS_SI_GITHUB_CAPABILITY_APP_PRIVATE_KEY_PATH") or None
+        )
         raw_webhook_secret = os.getenv("JAS_SI_GITHUB_WEBHOOK_SECRET")
         github_webhook_secret = raw_webhook_secret.encode("utf-8") if raw_webhook_secret else None
         if github_webhook_secret is not None and len(github_webhook_secret) < 32:
@@ -364,4 +374,6 @@ class Settings:
             github_capability_workload_identities=github_capability_workload_identities,
             github_capability_broker_database_url=github_capability_broker_database_url,
             github_capability_broker_enabled=github_capability_broker_enabled,
+            github_capability_app_id=github_capability_app_id,
+            github_capability_app_private_key_path=github_capability_app_private_key_path,
         )

@@ -95,6 +95,13 @@ class GitHubAppTokenIssuerTests(unittest.TestCase):
         with self.assertRaises(GitHubAppTokenError):
             issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
 
+    def test_rejects_additional_read_permission(self):
+        permissions = dict(_READ_ONLY_PERMISSIONS)
+        permissions["checks"] = "read"
+        issuer = self._issuer(self._response(permissions=permissions))
+        with self.assertRaises(GitHubAppTokenError):
+            issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
+
     def test_rejects_additional_repository_even_when_requested_repo_is_present(self):
         response = self._response()
         response["repositories"].append({"full_name": "someone/other"})

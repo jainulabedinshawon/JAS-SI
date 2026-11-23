@@ -4,20 +4,33 @@ on:
   workflow_dispatch:
 
   push:
+    branches:
+      - feat/github-capability-broker-isolated-asgi-v1
+      - feat/github-capability-broker-commit-metadata-v1
+      - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "Dockerfile"
       - ".dockerignore"
       - "requirements.lock.txt"
+      - "requirements-broker-asgi.lock.txt"
+      - "requirements-broker-asgi.lock.txt"
       - "src/jas_si_agent/**"
       - ".github/workflows/docker-container-verification.yml"
 
   pull_request:
     branches:
       - main
+      - feat/github-capability-broker-runtime-v1
+      - feat/github-capability-broker-isolated-asgi-v1
+      - feat/github-capability-broker-commit-metadata-v1
+      - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "Dockerfile"
       - ".dockerignore"
       - "requirements.lock.txt"
+      - "requirements-broker-asgi.lock.txt"
       - "src/jas_si_agent/**"
       - ".github/workflows/docker-container-verification.yml"
 
