@@ -101,6 +101,18 @@ class GitHubAppTokenIssuerTests(unittest.TestCase):
         with self.assertRaises(GitHubAppTokenError):
             issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
 
+    def test_rejects_unrequested_read_permission(self):
+        permissions = dict(_READ_ONLY_PERMISSIONS)
+        permissions["checks"] = "read"
+        issuer = self._issuer(self._response(permissions=permissions))
+        with self.assertRaises(GitHubAppTokenError):
+            issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
+
+    def test_rejects_missing_contents_permission(self):
+        issuer = self._issuer(self._response(permissions={"metadata": "read"}))
+        with self.assertRaises(GitHubAppTokenError):
+            issuer.issue(installation_id=183349938, repository="jainulabedinshawon/JAS-SI")
+
     def test_accepts_implicit_metadata_read_permission(self):
         permissions = dict(_READ_ONLY_PERMISSIONS)
         permissions["metadata"] = "read"
