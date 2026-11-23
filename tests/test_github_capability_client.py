@@ -87,7 +87,7 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
                 commit_sha=self.commit_sha, role="verifier",
                 verifier_claim_token=uuid4(), lease_fence=4,
             )
-        self.http.post.assert_not_called()
+        self.http.stream.assert_not_called()
 
     def test_rejects_tampered_blob_content(self):
         content = b"actual bytes"
@@ -119,6 +119,19 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
             self.client.read_commit(
                 task_id=self.task_id, repository="owner/private",
                 commit_sha=self.commit_sha, role="worker", lease_fence=2,
+            )
+
+    def test_rejects_oversized_streamed_broker_response(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {}
+        response.iter_bytes.return_value = [b"x" * (2 * 1024 * 1024 + 1)]
+        response.__enter__.return_value = response
+        self.http.stream.return_value = response
+        with self.assertRaises(GitHubCapabilityClientError):
+            self.client.read_commit(
+                task_id=self.task_id, repository="owner/private",
+                commit_sha=self.commit_sha, role="worker", lease_fence=3,
             )
 
     def test_requires_https_origin(self):
