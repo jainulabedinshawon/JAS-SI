@@ -33,6 +33,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+broker = [
+    "anycorn==0.20.1",
+]
 dev = [
     "pytest>=8.0",
     "build>=1.0",
