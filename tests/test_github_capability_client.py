@@ -55,13 +55,13 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
         )
         self.assertEqual(result["content"], content)
         self.assertEqual(result["blob_sha"], blob_sha)
-        payload = self.http.post.call_args.kwargs["json"]
+        payload = self.http.stream.call_args.kwargs["json"]
         self.assertEqual(payload["lease_fence"], 17)
         self.assertNotIn("verifier_claim_token", payload)
 
     def test_verifier_read_uses_claim_token_not_worker_fence(self):
         claim = uuid4()
-        self.http.post.return_value = self._response({
+        self.http.stream.return_value = self._response({
             "repository": "owner/private", "commit_sha": self.commit_sha,
             "tree_sha": "b" * 40,
         })
@@ -71,7 +71,7 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
             verifier_claim_token=claim,
         )
         self.assertEqual(result["tree_sha"], "b" * 40)
-        payload = self.http.post.call_args.kwargs["json"]
+        payload = self.http.stream.call_args.kwargs["json"]
         self.assertEqual(payload["verifier_claim_token"], str(claim))
         self.assertNotIn("lease_fence", payload)
 
@@ -91,7 +91,7 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
 
     def test_rejects_tampered_blob_content(self):
         content = b"actual bytes"
-        self.http.post.return_value = self._response({
+        self.http.stream.return_value = self._response({
             "repository": "owner/private", "commit_sha": self.commit_sha,
             "path": "src/app.py", "blob_sha": "c" * 40,
             "content_base64": base64.b64encode(content).decode(),
@@ -111,7 +111,7 @@ class GitHubCapabilityBrokerClientTests(unittest.TestCase):
                 commit_sha=self.commit_sha, path="../secrets",
                 role="worker", lease_fence=2,
             )
-        self.http.post.return_value = self._response({
+        self.http.stream.return_value = self._response({
             "repository": "owner/other", "commit_sha": self.commit_sha,
             "tree_sha": "b" * 40,
         })
