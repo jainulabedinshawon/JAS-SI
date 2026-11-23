@@ -30,11 +30,9 @@ _API_VERSION = "2022-11-28"
 _REPOSITORY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _TOKEN_TTL_LIMIT = timedelta(hours=1, minutes=5)
 _READ_ONLY_PERMISSIONS = {
-    "actions": "read",
-    "checks": "read",
+    # Repository content integrity reads require no Actions, Checks, PR, or
+    # Status API access. GitHub may additionally return implicit metadata:read.
     "contents": "read",
-    "pull_requests": "read",
-    "statuses": "read",
 }
 
 
