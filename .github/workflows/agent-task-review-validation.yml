@@ -1,4 +1,5 @@
 name: JAS-SI Agent Task Review Validation
+# Main-targeted validation: this workflow must exist on the base branch before PR checks can trigger.
 
 on:
   pull_request:
