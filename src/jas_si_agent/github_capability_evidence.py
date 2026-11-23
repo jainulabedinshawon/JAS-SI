@@ -11,8 +11,10 @@ from threading import Event
 from typing import Mapping
 from uuid import UUID
 
-from jas_si_agent.agent_task_worker import TaskHandler, TenantScopedResource
-from jas_si_agent.agent_task_worker_store import AgentTaskLease
+from jas_si_agent.agent_task_worker import AgentTaskWorker, TaskHandler, TenantScopedResource
+from jas_si_agent.agent_task_worker_store import AgentTaskLease, PostgresAgentTaskWorkerStore
+from jas_si_agent.agent_task_verifier import AgentTaskVerifier
+from jas_si_agent.agent_task_verifier_store import PostgresAgentTaskVerifierStore
 from jas_si_agent.github_capability_client import GitHubCapabilityBrokerClient
 from jas_si_agent.github_task_verifier import (
     CollectedGitHubEvidence,
@@ -208,7 +210,50 @@ class BrokerGitHubEvidenceCollector:
         )
 
 
+
+def build_broker_github_repository_worker(
+    *,
+    worker_dsn: str,
+    worker_id: UUID,
+    broker_client: GitHubCapabilityBrokerClient,
+    lease_seconds: int = 60,
+) -> AgentTaskWorker:
+    """Compose the Worker with a dedicated DB identity and lease-bound Broker."""
+    if not isinstance(worker_dsn, str) or not worker_dsn.strip():
+        raise ValueError("A dedicated worker PostgreSQL DSN is required")
+    if not isinstance(worker_id, UUID):
+        raise ValueError("worker_id must be a UUID")
+    handler = build_broker_github_repository_read_handler(broker_client)
+    return AgentTaskWorker(
+        store=PostgresAgentTaskWorkerStore(worker_dsn, worker_id),
+        handlers={handler.task_type: handler},
+        lease_seconds=lease_seconds,
+    )
+
+
+def build_broker_github_repository_verifier(
+    *,
+    verifier_dsn: str,
+    collector_id: str,
+    broker_client: GitHubCapabilityBrokerClient,
+    batch_size: int = 10,
+) -> AgentTaskVerifier:
+    """Compose the Verifier with a dedicated DB identity and claim-bound Broker."""
+    if not isinstance(verifier_dsn, str) or not verifier_dsn.strip():
+        raise ValueError("A dedicated verifier PostgreSQL DSN is required")
+    collector = BrokerGitHubEvidenceCollector(
+        collector_id=collector_id,
+        broker_client=broker_client,
+    )
+    return AgentTaskVerifier(
+        store=PostgresAgentTaskVerifierStore(verifier_dsn),
+        collector=collector,
+        batch_size=batch_size,
+    )
+
 __all__ = [
     "BrokerGitHubEvidenceCollector",
+    "build_broker_github_repository_worker",
+    "build_broker_github_repository_verifier",
     "build_broker_github_repository_read_handler",
 ]
