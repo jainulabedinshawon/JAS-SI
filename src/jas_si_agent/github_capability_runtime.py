@@ -193,7 +193,7 @@ def create_github_capability_app(
             )
             if capability is None:
                 raise HTTPException(status_code=404, detail="Task capability is not authorized")
-            proxy = request.app.state.github_capability_read_proxy
+            proxy = getattr(request.app.state, "github_capability_read_proxy", None)
             if proxy is None:
                 proxy = proxy_factory(configured)
                 request.app.state.github_capability_read_proxy = proxy
