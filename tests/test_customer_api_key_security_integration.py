@@ -49,6 +49,7 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
                 "20261112_customer_identity_routines.sql",
                 "20261113_customer_api_key_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
+                "20261115z_api_key_auth_tenant_lock_reassert.sql",
             ]
             for name in migrations:
                 path = ROOT / "src" / "jas_si_agent" / "migrations" / name
@@ -268,6 +269,26 @@ class TestCustomerApiKeySecurityBoundary(unittest.TestCase):
         ))
 
     def test_api_key_auth_boundary_readiness_verifies_routine_and_runtime_isolation(self):
+        self.assertTrue(self.auth_registry.verify_api_key_auth_boundary())
+
+    def test_api_key_auth_boundary_readiness_verifies_tenant_suspension_lock(self):
+        with psycopg.connect(self.admin_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                     pg_catalog.has_column_privilege(
+                         'jas_si_api_key_auth_owner',
+                         'public.jas_si_tenants',
+                         'provisioning_lock_version',
+                         'UPDATE'
+                     ),
+                     pg_catalog.strpos(
+                         pg_catalog.pg_get_functiondef(
+                             'public.jas_si_api_key_authenticate(uuid,bytea)'::regprocedure
+                         ),
+                         'FOR SHARE OF t'
+                     ) > 0"""
+            )
+            self.assertEqual(cur.fetchone(), (True, True))
         self.assertTrue(self.auth_registry.verify_api_key_auth_boundary())
 
     def test_api_key_auth_boundary_readiness_rejects_unsafe_owner_role(self):
