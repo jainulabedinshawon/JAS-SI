@@ -1,82 +1,73 @@
 # JAS-SI Hosting Strategy — Quota-Aware, No-Cutover Decision
 
-**Status:** Proposed architecture decision; no infrastructure change authorized or performed  
-**Baseline:** `main` at `b4d42eea898e5829b5c6d540841871da90e8cb91`  
+**Status:** Architecture decision; no infrastructure change authorized or performed  
+**Baseline:** `main` at `62161081499097b1e8dded97ae09ae3d15b5c344`  
+**Assessment date:** 2026-11-23  
 **Decision owner:** JAS-SI project owner
 
-## Context verified from the repository
+## Current verified deployment posture
 
-- The repository's production entrypoint is `main.py`, which imports the FastAPI application from `src/jas_si_agent/api.py`.
-- The root `Dockerfile` builds a Python 3.10 container, installs hash-locked dependencies, runs as an unprivileged user, and starts Uvicorn on port 8000.
-- The root contains Python packaging and PHP SDK material; it does not contain a separate conventional React/Next.js frontend build manifest at this baseline.
-- Therefore, treating the current application as a static-only site and moving it directly to Cloudflare Pages would not host the FastAPI runtime.
-- The customer portal and identity work in PR #36 is not part of `main`; its routes and dependencies must not be assumed to exist in the current production application.
+- Vercel Production is READY for the current `main` commit `62161081499097b1e8dded97ae09ae3d15b5c344`. This proves the web deployment completed; it does not prove Worker/Verifier runtime readiness or customer SaaS readiness.
+- Render currently has no services in the connected workspace. Earlier service provisioning returned `need_payment_info`; no paid service or payment method was created.
+- Neon has separate Production and Staging branches. Both are reported ready but `protected=false`.
+- The latest catalog inspection found 9 of 18 Staging public tables with RLS disabled and 9 of 11 Production public tables with RLS disabled. These include customer identity, audit, rate-limit and usage tables. Do not treat database security as production-ready until each table's access policy and effective role privileges are reviewed and tested.
+- The repository includes a Python FastAPI application, Dockerfile and container entrypoint. A static hosting product alone is not a replacement for the API runtime.
+- GitHub Actions is the primary code-validation path. The durable task-store PR is not yet integrated into current Main; its Worker/Verifier deployment and authenticated end-to-end customer journey remain unverified.
 
 ## Decision
 
-Adopt a **quota-aware, deployment-neutral hybrid strategy**, but do not migrate or upgrade hosting yet.
+Adopt a **quota-aware, deployment-neutral hybrid strategy**, but do not migrate, upgrade, or create infrastructure until the relevant staging and cost gates pass.
 
-1. **Preserve current Vercel production and domain configuration.** Avoid preview builds and redeployments while the account daily deployment limit is exhausted. Do not change DNS.
-2. **Keep the Python FastAPI API as a container workload.** The existing Dockerfile is the portable deployment artifact. Candidate hosts may include a Docker-capable managed container service or a small VPS, subject to current pricing, regional latency, persistent storage, secrets, health checks, backups, and operational burden.
-3. **Use Cloudflare only where its role is technically appropriate.** Cloudflare DNS/CDN/WAF can sit in front of a separately hosted origin if configured and tested. Cloudflare Workers Static Assets or Pages may serve a future genuinely static frontend/documentation bundle. They are not a drop-in runtime for this Python FastAPI container.
-4. **Do not select a replacement provider based on headline free bandwidth alone.** Verify build limits, sleeping/cold starts, CPU/RAM, outbound transfer, database connection limits, logs, backups, support, and production terms.
-5. **Keep PostgreSQL external and authoritative.** Do not move customer identity, usage, idempotency, payment or audit records into edge KV or static hosting. Any database connectivity proxy must preserve transaction, locking, TLS and connection-pool semantics.
-6. **Separate public static assets from authenticated API traffic.** Never cache customer sessions, API-key responses, usage, billing, authorization or verification endpoints at a shared CDN. Use explicit no-store/private cache policies.
-7. **Retain a reversible cutover plan.** A future migration requires a staging deployment, secret inventory, database connectivity and migration checks, health/readiness probes, API contract tests, synthetic customer journey, rollback rehearsal, DNS TTL plan, and owner approval before production DNS or traffic changes.
+1. **Preserve current Vercel Production and domain configuration.** Keep it as the current web/API deployment while its runtime and account quotas remain suitable. Do not change DNS or production traffic as part of this decision.
+2. **Keep the Python FastAPI API as a container workload.** The existing Dockerfile is the portable deployment artifact. A Docker-capable managed host or VPS may be evaluated only after current pricing, region, sleep/cold-start behavior, persistent logs, health checks, secrets, backups and operational burden are verified.
+3. **Use Cloudflare only where its role is technically appropriate.** DNS/CDN/WAF can front a separately hosted origin when configured and tested. Workers Static Assets or Pages may serve a future genuinely static frontend/docs bundle; they are not a drop-in runtime for the Python FastAPI container.
+4. **Keep PostgreSQL authoritative.** Do not move customer identity, usage, idempotency, payment or audit records into edge KV or static hosting. Any database proxy must preserve transaction, locking, TLS and connection-pool semantics.
+5. **Separate public static assets from authenticated API traffic.** Never shared-cache customer sessions, API-key responses, usage, billing, authorization or verification endpoints. Use explicit private/no-store cache policies.
+6. **Retain a reversible cutover plan.** Any future migration requires staging deployment, secret inventory, DB connectivity and migration checks, liveness/readiness probes, API contract tests, synthetic customer journey, rollback rehearsal, DNS TTL plan and explicit owner approval before production DNS or traffic changes.
 
 ## Provider evaluation gates
 
 | Candidate | Appropriate role | Gate before selection |
 |---|---|---|
-| Vercel | Existing API deployment while quota permits | Account quota reset/usage, deployment limits and runtime fit |
-| Cloudflare Workers Static Assets / Pages | Static docs or a separately built static frontend | Confirm static build output; do not assume it runs FastAPI |
-| Docker-capable managed host (e.g. Render) | FastAPI container | Current plan limits, sleeping behavior, region, persistent logs, health checks, secrets and cost |
-| OCI Always Free Compute (candidate only) | Isolated Staging Broker / future Worker host | Confirm account eligibility, current free limits, capacity, reclaim policy, region, network ingress/egress and billing guardrails; do not enable Pay As You Go |
-| VPS (e.g. Hetzner / DigitalOcean) | Full container control | OS patching, firewall, TLS, backups, monitoring, incident response and total monthly cost |
-| Netlify | Static frontend/docs | Not a direct replacement for the current Python API runtime |
+| Vercel | Current Production deployment | Confirm current quota, runtime fit, logs and deployment limits |
+| Cloudflare Workers Static Assets / Pages | Static docs or separately built static frontend | Confirm static build output; do not assume it runs FastAPI |
+| Render or another Docker host | FastAPI, Broker, Worker or Verifier containers | Verify actual plan, cost, sleep behavior, region, health checks, secrets and persistent operations |
+| OCI Always Free Compute (candidate only) | Isolated Staging Broker / future Worker host | Verify eligibility, free quotas, regional capacity, reclaim policy, ingress/egress and billing guardrails; never enable Pay As You Go without explicit approval |
+| VPS | Full container control | Include OS patching, firewall, TLS, backups, monitoring, incident response and total monthly cost |
+| Netlify | Static frontend/docs | Not a direct replacement for the Python API runtime |
 
-### Conditional free-tier Broker deployment candidate
+## Conditional free-tier Broker candidate
 
-OCI Always Free Compute is a candidate for a separately isolated **Staging-only** Broker host, not an approved or provisioned dependency. Promotional trial credits are distinct from Always Free entitlements. Before any instance is created, verify the account's current Always Free eligibility, available regional capacity, resource quotas, inactivity/reclamation conditions, public-IP and network costs, and that the account remains on the Free Tier rather than being upgraded to Pay As You Go. Always Free availability is not an uptime SLA; capacity, account eligibility, service terms, and reclaim rules can change. If a free resource is unavailable, stop rather than select a paid substitute.
+OCI Always Free Compute remains a **candidate only**, not an approved or provisioned dependency. Promotional trial credits are distinct from Always Free entitlements. Before creating an instance, verify current eligibility, regional capacity, resource quotas, inactivity/reclamation conditions, public-IP/network costs and that the account remains on Free Tier. If a genuinely free resource is unavailable, stop rather than selecting a paid substitute.
 
-For the initial Staging design, prefer a self-managed private certificate authority (for example, OpenSSL or step-ca) and a dedicated ASGI TLS listener that requires and validates client certificates. A public domain or Cloudflare mTLS edge is not inherently required for private-network mTLS; the Broker listener must still validate the certificate chain, expiry, revocation status, and pinned workload identity. Do not trust caller-supplied certificate headers. Keep the GitHub App private key exclusively inside the isolated Broker credential boundary.
+For an isolated Staging Broker, prefer a private CA and dedicated ASGI TLS listener requiring client certificates. The Broker must validate certificate chain, expiry, revocation and pinned workload identity. Do not trust caller-supplied certificate headers. Keep the GitHub App private key exclusively inside the isolated Broker credential boundary.
 
-Tailscale may be evaluated as an additional private-network transport for authorized CI or workload clients, with GitHub Actions OIDC used for short-lived enrollment where supported. Tailnet membership is not a substitute for JAS-SI task/tenant/repository authorization, and it does not replace the Broker's mTLS and application-level checks. Verify current free-plan limits and OIDC integration terms before relying on it. GitHub Actions runners are ephemeral CI clients, not a 24/7 Worker/Verifier runtime.
+Tailscale may be evaluated as private transport for authorized CI/workload clients, with short-lived enrollment where supported. Tailnet membership does not replace task, tenant or repository authorization, mTLS, or Broker policy. GitHub Actions runners are ephemeral CI clients, not a 24/7 Worker/Verifier runtime.
 
-This candidate remains blocked until the OCI account is actually eligible, a zero-cost Staging host is available, the listener is hardened, and CI plus adversarial Staging E2E prove the full trust chain. No OCI account, instance, certificate, Tailscale node, DNS record, secret, or service is created by this ADR.
-
-No provider is selected by this ADR. Current prices and plan limits must be checked immediately before procurement or migration.
+This candidate remains blocked until a zero-cost Staging host is available, the listener is hardened, and CI plus adversarial Staging E2E prove the full trust chain. No OCI instance, certificate, Tailscale node, DNS record, secret or service is created by this ADR.
 
 ## Cost and quota policy
 
-- No paid upgrade, subscription, provider purchase, domain purchase, or payment commitment without explicit owner approval.
-- No deployment merely to test a provider; first validate locally/CI and use a non-production staging environment only when credentials and budget are approved.
+- No paid upgrade, subscription, provider purchase, domain purchase or payment commitment without explicit owner approval.
+- No deployment merely to test a provider; validate locally/CI first and use staging only when credentials and budget are approved.
 - Prefer one controlled staging deployment over repeated preview deployments.
-- Keep GitHub Actions as the primary code verification path; do not trigger redundant workflows.
-- Measure actual monthly API compute, database, storage, email, logs, bandwidth and support costs before publishing customer plan prices.
-- **JAS-SI Free-only guardrail:** do not switch OCI to Pay As You Go, attach paid resources, or accept a charge to overcome capacity or quota limits. Stop and report the blocker instead.
+- Keep GitHub Actions as the primary code verification path; avoid redundant workflow runs.
+- Measure actual compute, database, storage, email, logs, bandwidth and support costs before publishing customer plan prices.
+- **Free-only guardrail:** do not switch OCI to Pay As You Go, attach paid resources or accept charges to overcome capacity/quota limits. Stop and report the blocker.
 
 ## Acceptance criteria for any future migration
 
 - Identical OpenAPI contract and API behavior.
-- PostgreSQL 16 integration tests pass, including row-level security, transaction locks, idempotency and tenant isolation.
+- PostgreSQL 16 integration tests pass, including RLS, transaction locks, idempotency and tenant isolation.
+- Every customer/audit/usage table has reviewed RLS and effective role grants; production and staging branch protection and recovery posture are documented.
 - Secrets are configured out-of-band and never appear in logs or build artifacts.
-- Health and readiness checks distinguish process liveness from database readiness.
+- Health and readiness distinguish process liveness from database readiness.
 - Authenticated responses are not publicly cached.
 - TLS, custom domain, CORS, trusted proxy/IP handling and rate limiting are tested at the new edge.
-- Synthetic customer journey passes from signup through API-key lifecycle and usage display.
+- Synthetic customer journey passes from onboarding through API-key lifecycle and usage display.
 - Rollback to the prior origin is rehearsed and independently verified.
-- For the Broker, positive and negative mTLS tests, certificate rotation/revocation tests, task lease/claim replay tests, pinned-commit/path enforcement tests, and independent evidence capture all pass on Staging.
+- Broker tests cover positive/negative mTLS, certificate rotation/revocation, task lease/claim replay, pinned commit/path enforcement and independent evidence capture on Staging.
 
 ## Explicit non-actions
 
-This ADR does not:
-- upgrade Vercel;
-- switch OCI to Pay As You Go or create paid resources;
-- create or deploy a Cloudflare, Netlify, Render or VPS service;
-- change DNS or domains;
-- move PostgreSQL or customer data;
-- configure secrets;
-- apply migrations;
-- enable customer signup, billing or payment;
-- claim a migration or customer-ready release is complete.
+This ADR does not upgrade Vercel; switch OCI to Pay As You Go; create or deploy Cloudflare, Netlify, Render or VPS services; change DNS/domains; move PostgreSQL/customer data; configure secrets; apply migrations; enable paid plans/payment; or claim a customer-ready release.
