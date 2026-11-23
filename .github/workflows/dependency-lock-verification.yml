@@ -95,7 +95,7 @@ jobs:
           def pins(path):
               result = {}
               for line in Path(path).read_text().splitlines():
-                  match = re.match(r"^([A-Za-z0-9_.-]+)==([^\\s]+)", line.strip())
+                  match = re.match(r"^([A-Za-z0-9_.-]+)==([^ ]+)", line.strip())
                   if match:
                       result[re.sub(r"[-_.]+", "-", match.group(1)).lower()] = match.group(2)
               return result
