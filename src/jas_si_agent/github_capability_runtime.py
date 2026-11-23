@@ -91,6 +91,14 @@ def create_github_capability_app(
             configured.github_capability_workload_identities
         )
 
+    @application.on_event("shutdown")
+    def close_broker_resources() -> None:
+        """Release Broker-owned HTTP resources when the isolated app stops."""
+        proxy = getattr(application.state, "github_capability_read_proxy", None)
+        close = getattr(proxy, "close", None)
+        if callable(close):
+            close()
+
     @application.post("/internal/github/capabilities/resolve")
     def resolve_github_task_capability(
         payload: GitHubCapabilityResolveRequest,
