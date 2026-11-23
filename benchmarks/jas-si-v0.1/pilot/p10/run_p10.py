@@ -105,6 +105,49 @@ def empirical_release_gate_passed(result: dict[str, Any]) -> bool:
     )
 
 
+def validate_seed_collection(seeds: Any) -> int:
+    """Validate seed identity and evidence separation across the full cohort.
+
+    Evidence IDs must be unique within each partition and disjoint between
+    training and held-out partitions. This prevents repeated evidence from
+    masquerading as ten independent seed records.
+    """
+    if not isinstance(seeds, list):
+        raise ValueError("P10 seeds must be a list.")
+
+    if len(seeds) != REQUIRED_SEEDS:
+        raise ValueError(f"P10 requires exactly {REQUIRED_SEEDS} seeds.")
+
+    seed_ids = [item.get("seed") if isinstance(item, dict) else None for item in seeds]
+    if len(set(seed_ids)) != REQUIRED_SEEDS:
+        raise ValueError("P10 seed IDs must be unique.")
+
+    if set(seed_ids) != set(range(1, REQUIRED_SEEDS + 1)):
+        raise ValueError("Expected seed IDs 1 through 10.")
+
+    training_ids = []
+    heldout_ids = []
+
+    for item in seeds:
+        validate_seed(item)
+        training_ids.append(item["training_evidence_id"])
+        heldout_ids.append(item["heldout_evidence_id"])
+
+    if len(set(training_ids)) != REQUIRED_SEEDS:
+        raise ValueError("Training evidence IDs must be unique across seeds.")
+
+    if len(set(heldout_ids)) != REQUIRED_SEEDS:
+        raise ValueError("Held-out evidence IDs must be unique across seeds.")
+
+    overlap = set(training_ids) & set(heldout_ids)
+    if overlap:
+        raise ValueError(
+            f"Training/held-out evidence leakage detected: {sorted(overlap)}"
+        )
+
+    return len(overlap)
+
+
 def main() -> int:
     with FIXTURE.open("r", encoding="utf-8") as handle:
         fixture = json.load(handle)
@@ -116,30 +159,7 @@ def main() -> int:
         )
 
     seeds = fixture["seeds"]
-    seed_ids = [item["seed"] for item in seeds]
-
-    if len(seeds) != REQUIRED_SEEDS:
-        raise ValueError(f"P10 requires exactly {REQUIRED_SEEDS} seeds.")
-
-    if len(set(seed_ids)) != REQUIRED_SEEDS:
-        raise ValueError("P10 seed IDs must be unique.")
-
-    if set(seed_ids) != set(range(1, REQUIRED_SEEDS + 1)):
-        raise ValueError("Expected seed IDs 1 through 10.")
-
-    training_ids = set()
-    heldout_ids = set()
-
-    for item in seeds:
-        validate_seed(item)
-        training_ids.add(item["training_evidence_id"])
-        heldout_ids.add(item["heldout_evidence_id"])
-
-    overlap = training_ids & heldout_ids
-    if overlap:
-        raise ValueError(
-            f"Training/held-out evidence leakage detected: {sorted(overlap)}"
-        )
+    overlap_count = validate_seed_collection(seeds)
 
     per_seed = [calculate_seed(item) for item in seeds]
     improvements = [
@@ -186,7 +206,7 @@ def main() -> int:
         "distinct_seed_outcome_count": len(outcome_signatures),
         "independent_empirical_replications_established": False,
         "empirical_release_gate_passed": False,
-        "training_heldout_evidence_overlap_count": len(overlap),
+        "training_heldout_evidence_overlap_count": overlap_count,
         "all_feedback_verified": all(
             item["verified_failure_feedback"] is True for item in seeds
         ),
