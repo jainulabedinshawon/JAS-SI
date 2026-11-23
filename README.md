@@ -17,6 +17,8 @@
 
 ---
 
+> **Engineering execution authority:** [Master Engineering, Product & SaaS Execution Directive](MASTER-ENGINEERING-DIRECTIVE.md) — binding delivery, audit, security, standalone SaaS, quota and evidence-based completion requirements.
+
 ## 📑 Table of Contents
 
 - [1. Overview](#1--overview)
