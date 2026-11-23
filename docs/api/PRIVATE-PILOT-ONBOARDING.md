@@ -1,6 +1,6 @@
 # JAS-SI Private Pilot API Onboarding (Draft)
 
-Status (2026-11-15): internal operator runbook, not a public signup flow. The tenant-scoped key registry and API-key authentication are implemented in `main`; however, staging still has a tenant-suspension row-lock drift tracked by draft PR #71, and database audit/rate-limit mutation boundaries are being hardened in draft PRs #72–#73. Do not issue an external pilot key until these changes are reviewed, staging is migrated safely, and the live API/customer journey passes independent smoke tests.
+Status (2026-11-23): internal operator runbook, not a public signup flow. The tenant-scoped key registry and API-key authentication are implemented in `main`; PR #71's tenant-suspension lock-boundary fix has since been merged (commit `48de32fe30c04e92dcbb537d3715006e355d290b`). Draft PRs #72–#73 and the subsequent database/runtime security stack remain subject to review and integration. Live Neon staging still has no `public.schema_migrations` ledger and contains zero agent task/evidence rows; production still lacks the agent task/evidence tables. Render has no provisioned runtime services. Do not issue an external pilot key until the current migration chain, least-privilege database identities, runtime configuration, and customer journey pass independent staging verification.
 
 ## Pilot access sequence
 
