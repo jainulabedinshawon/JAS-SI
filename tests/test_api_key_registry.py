@@ -20,6 +20,11 @@ from jas_si_agent.api_key_registry import (
 
 
 class TestApiKeyPrimitives(unittest.TestCase):
+    def test_agent_task_scopes_are_allowed_for_customer_keys(self):
+        from jas_si_agent.api_key_registry import ALLOWED_SCOPES
+        self.assertIn("agent:tasks:read", ALLOWED_SCOPES)
+        self.assertIn("agent:tasks:write", ALLOWED_SCOPES)
+
     def test_token_round_trip(self):
         secret = bytes(range(32))
         import uuid
