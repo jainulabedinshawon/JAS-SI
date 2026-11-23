@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 from typing import Any, Protocol
 from urllib.parse import quote
 
@@ -19,6 +20,8 @@ from jas_si_agent.github_capability_broker import (
 from jas_si_agent.github_app_tokens import GitHubAppTokenError
 
 _MAX_CONTENT_BYTES = 1024 * 1024
+# Base64 expands a 1 MiB file to ~1.34 MiB; allow bounded JSON metadata.
+_MAX_API_RESPONSE_BYTES = 2 * 1024 * 1024
 _GITHUB_API = "https://api.github.com"
 _API_VERSION = "2022-11-28"
 
@@ -84,7 +87,8 @@ class GitHubCapabilityReadProxy:
                 f"{_GITHUB_API}/repos/{capability.repository_full_name}"
                 f"/contents/{encoded_path}"
             )
-            response = self._http.get(
+            with self._http.stream(
+                "GET",
                 url,
                 params={"ref": capability.commit_sha},
                 headers={
@@ -93,10 +97,35 @@ class GitHubCapabilityReadProxy:
                     "X-GitHub-Api-Version": _API_VERSION,
                 },
                 timeout=10.0,
-            )
-            if response.status_code != 200:
-                raise GitHubCapabilityBrokerError("GitHub repository content read failed")
-            payload = response.json()
+            ) as response:
+                if response.status_code != 200:
+                    raise GitHubCapabilityBrokerError("GitHub repository content read failed")
+                declared_length = response.headers.get("content-length")
+                if declared_length is not None:
+                    try:
+                        if int(declared_length) > _MAX_API_RESPONSE_BYTES:
+                            raise GitHubCapabilityBrokerError(
+                                "GitHub API response exceeds the configured read limit"
+                            )
+                    except ValueError:
+                        raise GitHubCapabilityBrokerError(
+                            "GitHub API response length is invalid"
+                        ) from None
+                response_chunks = []
+                response_size = 0
+                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                    response_size += len(chunk)
+                    if response_size > _MAX_API_RESPONSE_BYTES:
+                        raise GitHubCapabilityBrokerError(
+                            "GitHub API response exceeds the configured read limit"
+                        )
+                    response_chunks.append(chunk)
+                try:
+                    payload = json.loads(b"".join(response_chunks))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    raise GitHubCapabilityBrokerError(
+                        "GitHub returned an invalid content response"
+                    ) from None
             if (
                 not isinstance(payload, dict)
                 or payload.get("type") != "file"
