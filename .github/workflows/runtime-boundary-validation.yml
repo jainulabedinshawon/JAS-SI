@@ -45,19 +45,36 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -e . pytest==8.3.5
-      - name: Run audit writer, rate limiter, and API-key registry tests
+      - name: Run available runtime boundary tests
         env:
           PYTHONPATH: src
         run: |
-          python -m pytest -q \
-            tests/test_postgres_security_event_store.py \
-            tests/test_customer_rate_limit.py \
-            tests/test_api_key_registry.py \
-            tests/test_agent_task_api.py \
-            tests/test_agent_task_verifier.py \
-            tests/test_agent_task_verifier_store.py \
-            tests/test_agent_task_verifier_supervisor.py \
-            tests/test_agent_task_worker.py \
-            tests/test_agent_task_worker_runtime.py \
-            tests/test_agent_task_worker_store.py \
+          # This workflow spans Main's security-boundary tests and Agent Task
+          # tests introduced by staged PRs. Run only paths present at this ref;
+          # missing future-stage tests must not make unrelated PRs fail.
+          candidates=(
+            tests/test_postgres_security_event_store.py
+            tests/test_customer_rate_limit.py
+            tests/test_api_key_registry.py
+            tests/test_agent_task_api.py
+            tests/test_agent_task_verifier.py
+            tests/test_agent_task_verifier_store.py
+            tests/test_agent_task_verifier_supervisor.py
+            tests/test_agent_task_worker.py
+            tests/test_agent_task_worker_runtime.py
+            tests/test_agent_task_worker_store.py
             tests/test_agent_task_worker_supervisor.py
+          )
+          tests=()
+          for path in "${candidates[@]}"; do
+            if [[ -f "$path" ]]; then
+              tests+=("$path")
+            else
+              echo "SKIP (not present at this ref): $path"
+            fi
+          done
+          if [[ "${#tests[@]}" -eq 0 ]]; then
+            echo "No runtime-boundary test files found; failing closed."
+            exit 1
+          fi
+          python -m pytest -q "${tests[@]}"
