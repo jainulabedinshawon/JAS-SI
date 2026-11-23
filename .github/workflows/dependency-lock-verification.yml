@@ -10,9 +10,12 @@ on:
       - "requirements.lock.txt"
       - "requirements-broker-asgi.in"
       - "requirements-broker-asgi.lock.txt"
+      - "requirements-broker-asgi.in"
+      - "requirements-broker-asgi.lock.txt"
       - "src/**"
       - "tests/**"
       - ".github/workflows/dependency-lock-verification.yml"
+      - "Dockerfile"
       - "Dockerfile"
 
   pull_request:
@@ -32,9 +35,12 @@ on:
       - "requirements.in"
       - "requirements.txt"
       - "requirements.lock.txt"
+      - "requirements-broker-asgi.in"
+      - "requirements-broker-asgi.lock.txt"
       - "src/**"
       - "tests/**"
       - ".github/workflows/dependency-lock-verification.yml"
+      - "Dockerfile"
 
 permissions:
   contents: read
@@ -74,6 +80,32 @@ jobs:
             --output-file=requirements.lock.txt \
             requirements.in
           git diff --exit-code -- requirements.lock.txt
+
+      - name: Verify Broker ASGI lock versions match the pinned input
+        run: |
+          pip-compile \
+            --resolver=backtracking \
+            --generate-hashes \
+            --output-file="$RUNNER_TEMP/requirements-broker-asgi.generated.lock" \
+            requirements-broker-asgi.in
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          def pins(path):
+              result = {}
+              for line in Path(path).read_text().splitlines():
+                  match = re.match(r"^([A-Za-z0-9_.-]+)==([^\\s]+)", line.strip())
+                  if match:
+                      result[re.sub(r"[-_.]+", "-", match.group(1)).lower()] = match.group(2)
+              return result
+
+          committed = pins("requirements-broker-asgi.lock.txt")
+          generated = pins(Path(__import__("os").environ["RUNNER_TEMP"]) / "requirements-broker-asgi.generated.lock")
+          if committed != generated:
+              raise SystemExit(f"Broker lock mismatch: committed={committed}, generated={generated}")
+          print(f"Broker ASGI lock versions verified for {len(committed)} packages.")
+          PY
 
       - name: Verify runtime pins match the committed lock
         run: |
