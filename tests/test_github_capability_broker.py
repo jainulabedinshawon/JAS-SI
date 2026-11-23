@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 from jas_si_agent.github_capability_broker import (
     GitHubCapabilityBrokerError,
     PostgresGitHubCapabilityBroker,
+    ResolvedGitHubTaskCapability,
 )
 from jas_si_agent.github_capability_identity import (
     CertificateWorkloadIdentityRegistry,
@@ -63,6 +64,56 @@ class _Connection:
 
     def cursor(self):
         return self.cursor_value
+
+
+class GitHubCapabilityReadScopeTests(unittest.TestCase):
+    def setUp(self):
+        self.capability = ResolvedGitHubTaskCapability(
+            task_id=uuid4(),
+            tenant_id=uuid4(),
+            installation_id=123456,
+            repository_full_name="owner/private-repo",
+            capability_role="worker",
+            expires_at=datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc),
+            commit_sha="a" * 40,
+            repository_paths=["src/main.py", "tests/test_main.py"],
+        )
+        self.now = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+
+    def test_accepts_exact_repository_commit_and_allowlisted_file(self):
+        self.capability.authorize_read(
+            repository="OWNER/private-repo", commit_sha="a" * 40,
+            path="src/main.py", now=self.now,
+        )
+
+    def test_rejects_different_repository(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_read(
+                repository="attacker/private-repo", commit_sha="a" * 40,
+                path="src/main.py", now=self.now,
+            )
+
+    def test_rejects_different_commit_even_when_path_is_allowed(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_read(
+                repository="owner/private-repo", commit_sha="b" * 40,
+                path="src/main.py", now=self.now,
+            )
+
+    def test_rejects_unlisted_path_and_directory_prefix(self):
+        for path in ("src/secret.py", "src", "src/../secret.py", "/src/main.py", "src\\\\main.py"):
+            with self.subTest(path=path), self.assertRaises(GitHubCapabilityBrokerError):
+                self.capability.authorize_read(
+                    repository="owner/private-repo", commit_sha="a" * 40,
+                    path=path, now=self.now,
+                )
+
+    def test_rejects_expired_capability(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.capability.authorize_read(
+                repository="owner/private-repo", commit_sha="a" * 40,
+                path="src/main.py", now=datetime(2026, 11, 25, tzinfo=timezone.utc),
+            )
 
 
 class GitHubCapabilityBrokerTests(unittest.TestCase):
