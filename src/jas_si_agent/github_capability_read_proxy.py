@@ -54,6 +54,10 @@ class GitHubCapabilityReadProxy:
         self._http = http_client
         self._max_content_bytes = max_content_bytes
 
+    def close(self) -> None:
+        """Close the Broker-owned HTTP connection pool during app shutdown."""
+        self._http.close()
+
     def read_file(
         self,
         *,
