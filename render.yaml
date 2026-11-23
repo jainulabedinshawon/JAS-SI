@@ -1,4 +1,34 @@
 services:
+  - type: pserv
+    name: jas-si-staging-github-capability-broker
+    runtime: docker
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python -m jas_si_agent.github_capability_server
+    autoDeploy: false
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - fromGroup: jas-si-staging-agent-shared
+      - key: JAS_SI_ENVIRONMENT
+        value: "preview"
+      - key: JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED
+        value: "true"
+      - key: JAS_SI_GITHUB_CAPABILITY_BROKER_DATABASE_URL
+        sync: false
+      - key: JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES
+        sync: false
+      - key: JAS_SI_GITHUB_BROKER_TLS_CERT_PATH
+        value: "/etc/secrets/broker-server-cert.pem"
+      - key: JAS_SI_GITHUB_BROKER_TLS_KEY_PATH
+        value: "/etc/secrets/broker-server-key.pem"
+      - key: JAS_SI_GITHUB_BROKER_CLIENT_CA_PATH
+        value: "/etc/secrets/workload-client-ca.pem"
+      - key: JAS_SI_GITHUB_BROKER_BIND_HOST
+        value: "0.0.0.0"
+      - key: JAS_SI_GITHUB_BROKER_PORT
+        value: "8787"
+
   - type: worker
     name: jas-si-staging-agent-worker
     runtime: docker
