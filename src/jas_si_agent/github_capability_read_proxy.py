@@ -129,3 +129,35 @@ class GitHubCapabilityReadProxy:
         except Exception:
             # Never expose HTTP exceptions: they can contain Authorization headers.
             raise GitHubCapabilityBrokerError("GitHub repository content read failed") from None
+
+
+def build_github_capability_read_proxy(settings: Any) -> GitHubCapabilityReadProxy:
+    """Build a Broker-local proxy from dedicated, non-public runtime settings."""
+    app_id = getattr(settings, "github_capability_app_id", None)
+    private_key_path = getattr(settings, "github_capability_app_private_key_path", None)
+    if (
+        isinstance(app_id, bool)
+        or not isinstance(app_id, int)
+        or app_id <= 0
+        or not isinstance(private_key_path, str)
+        or not private_key_path.strip()
+    ):
+        raise ValueError("Dedicated GitHub Capability App credentials are not configured")
+    from jas_si_agent.github_app_tokens import (
+        GitHubAppInstallationTokenIssuer,
+        GitHubAppTokenSettings,
+    )
+
+    issuer = GitHubAppInstallationTokenIssuer(
+        GitHubAppTokenSettings(
+            app_id=app_id,
+            private_key_path=private_key_path,
+        )
+    )
+    client = httpx.Client(
+        timeout=httpx.Timeout(10.0, connect=5.0),
+        follow_redirects=False,
+        trust_env=False,
+    )
+    return GitHubCapabilityReadProxy(issuer, http_client=client)
+
