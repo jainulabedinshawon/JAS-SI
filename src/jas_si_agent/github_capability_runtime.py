@@ -23,6 +23,9 @@ from jas_si_agent.github_capability_broker import (
     GitHubCapabilityBrokerError,
     PostgresGitHubCapabilityBroker,
 )
+from jas_si_agent.github_capability_read_proxy import (
+    build_github_capability_read_proxy,
+)
 
 
 settings = Settings.from_env()
@@ -77,7 +80,9 @@ def create_github_capability_app(
     application.state.github_capability_broker_factory = (
         broker_factory or PostgresGitHubCapabilityBroker
     )
-    application.state.github_capability_read_proxy_factory = read_proxy_factory
+    application.state.github_capability_read_proxy_factory = (
+        read_proxy_factory or build_github_capability_read_proxy
+    )
     if isinstance(
         configured.github_capability_workload_identities,
         CertificateWorkloadIdentityRegistry,
