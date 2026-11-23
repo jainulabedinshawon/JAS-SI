@@ -99,6 +99,7 @@ jobs:
               "20261119_general_runtime_customer_identity_acl.sql",
               "20261120_api_key_auth_runtime_tenant_acl.sql",
               "20261121_security_audit_writer_boundary.sql",
+              "20261121_security_audit_writer_boundary.sql",
               "20261122_customer_rate_limit_owner_boundary.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
@@ -154,6 +155,31 @@ jobs:
               """)
               if cur.fetchone()[0]:
                   raise SystemExit("jas_si_runtime regained direct tenant-table/column access")
+
+              cur.execute("""
+                  SELECT EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                      CROSS JOIN (VALUES ('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE')) privileges(privilege)
+                     WHERE pg_catalog.has_table_privilege(role_name,'public.jas_si_audit_chain_state',privilege)
+                  ) OR EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                      CROSS JOIN (VALUES ('INSERT'),('UPDATE')) privileges(privilege)
+                     WHERE pg_catalog.has_any_column_privilege(role_name,'public.jas_si_audit_chain_state',privilege)
+                  ) OR EXISTS (
+                    SELECT 1
+                      FROM (VALUES ('jas_si_runtime'),('jas_si_provisioner')) roles(role_name)
+                     WHERE pg_catalog.has_table_privilege(role_name,'public.jas_si_audit_events','INSERT')
+                        OR pg_catalog.has_table_privilege(role_name,'public.jas_si_audit_events','UPDATE')
+                        OR pg_catalog.has_table_privilege(role_name,'public.jas_si_audit_events','DELETE')
+                        OR pg_catalog.has_table_privilege(role_name,'public.jas_si_audit_events','TRUNCATE')
+                        OR pg_catalog.has_any_column_privilege(role_name,'public.jas_si_audit_events','INSERT')
+                        OR pg_catalog.has_any_column_privilege(role_name,'public.jas_si_audit_events','UPDATE')
+                  )
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("Runtime/provisioner regained direct audit table mutation privileges")
 
               cur.execute("""
                   SELECT count(*),
