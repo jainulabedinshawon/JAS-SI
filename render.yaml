@@ -16,6 +16,10 @@ services:
         value: "true"
       - key: JAS_SI_GITHUB_CAPABILITY_BROKER_DATABASE_URL
         sync: false
+      - key: JAS_SI_GITHUB_CAPABILITY_APP_ID
+        sync: false
+      - key: JAS_SI_GITHUB_CAPABILITY_APP_PRIVATE_KEY_PATH
+        value: "/etc/secrets/github-capability-app-private-key.pem"
       - key: JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES
         sync: false
       - key: JAS_SI_GITHUB_BROKER_TLS_CERT_PATH
@@ -46,6 +50,16 @@ services:
         value: "8a2e9c61-9a47-4c3f-a631-8f9a5f1d02b7"
       - key: JAS_SI_AGENT_WORKER_POLL_SECONDS
         value: "2"
+      - key: JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED
+        value: "true"
+      - key: JAS_SI_GITHUB_CAPABILITY_BROKER_URL
+        value: "https://jas-si-staging-github-capability-broker:8787"
+      - key: JAS_SI_GITHUB_CAPABILITY_CLIENT_CERT_PATH
+        value: "/etc/secrets/worker-client-cert.pem"
+      - key: JAS_SI_GITHUB_CAPABILITY_CLIENT_KEY_PATH
+        value: "/etc/secrets/worker-client-key.pem"
+      - key: JAS_SI_GITHUB_CAPABILITY_CA_BUNDLE_PATH
+        value: "/etc/secrets/broker-server-ca.pem"
       - key: LOG_LEVEL
         value: "INFO"
 
@@ -64,6 +78,16 @@ services:
         sync: false
       - key: JAS_SI_AGENT_VERIFIER_POLL_SECONDS
         value: "2"
+      - key: JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED
+        value: "true"
+      - key: JAS_SI_GITHUB_CAPABILITY_BROKER_URL
+        value: "https://jas-si-staging-github-capability-broker:8787"
+      - key: JAS_SI_GITHUB_CAPABILITY_CLIENT_CERT_PATH
+        value: "/etc/secrets/verifier-client-cert.pem"
+      - key: JAS_SI_GITHUB_CAPABILITY_CLIENT_KEY_PATH
+        value: "/etc/secrets/verifier-client-key.pem"
+      - key: JAS_SI_GITHUB_CAPABILITY_CA_BUNDLE_PATH
+        value: "/etc/secrets/broker-server-ca.pem"
       - key: JAS_SI_AGENT_VERIFIER_BATCH_SIZE
         value: "10"
       - key: JAS_SI_AGENT_VERIFIER_COLLECTOR_ID
