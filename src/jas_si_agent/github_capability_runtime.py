@@ -38,6 +38,14 @@ class GitHubCapabilityResolveRequest(BaseModel):
     verifier_claim_token: Optional[uuid.UUID] = None
 
 
+class GitHubCapabilityReadRequest(GitHubCapabilityResolveRequest):
+    """A read request contains selectors only; persisted capability is authority."""
+
+    repository: str = Field(min_length=3, max_length=200)
+    commit_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    path: str = Field(min_length=1, max_length=500)
+
+
 def require_enabled_authenticated_workload(request: Request) -> WorkloadIdentity:
     """Apply the isolated app kill-switch before evaluating certificate identity."""
     active_settings = request.app.state.github_capability_settings
@@ -52,6 +60,7 @@ def require_enabled_authenticated_workload(request: Request) -> WorkloadIdentity
 def create_github_capability_app(
     active_settings: Optional[Settings] = None,
     broker_factory: Optional[Callable[[str], object]] = None,
+    read_proxy_factory: Optional[Callable[[Settings], object]] = None,
 ) -> FastAPI:
     """Build a Broker-only app with isolated state and no public API imports."""
     configured = active_settings or settings
@@ -68,6 +77,7 @@ def create_github_capability_app(
     application.state.github_capability_broker_factory = (
         broker_factory or PostgresGitHubCapabilityBroker
     )
+    application.state.github_capability_read_proxy_factory = read_proxy_factory
     if isinstance(
         configured.github_capability_workload_identities,
         CertificateWorkloadIdentityRegistry,
@@ -136,6 +146,65 @@ def create_github_capability_app(
             "commit_sha": capability.commit_sha,
             "repository_paths": capability.repository_paths,
         }
+
+    @application.post("/internal/github/capabilities/read")
+    def read_github_task_file(
+        payload: GitHubCapabilityReadRequest,
+        request: Request,
+        workload: WorkloadIdentity = Depends(
+            require_enabled_authenticated_workload
+        ),
+    ) -> dict:
+        """Resolve live task authority then perform a Broker-owned content read."""
+        database_url = configured.github_capability_broker_database_url
+        if not database_url:
+            raise HTTPException(status_code=503, detail="GitHub capability Broker is not configured")
+        if workload.role == "worker":
+            if payload.lease_fence is None or payload.verifier_claim_token is not None:
+                raise HTTPException(status_code=422, detail="Worker lease fence is required")
+        elif workload.role == "verifier":
+            if payload.verifier_claim_token is None or payload.lease_fence is not None:
+                raise HTTPException(status_code=422, detail="Verifier claim token is required")
+        else:
+            raise HTTPException(status_code=403, detail="Workload role is not authorized")
+
+        proxy_factory = request.app.state.github_capability_read_proxy_factory
+        if proxy_factory is None:
+            raise HTTPException(status_code=503, detail="Broker GitHub read proxy is not configured")
+        broker = getattr(request.app.state, "github_capability_broker", None)
+        if broker is None:
+            try:
+                broker = request.app.state.github_capability_broker_factory(database_url)
+                request.app.state.github_capability_broker = broker
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=503, detail="GitHub capability Broker is not configured safely") from None
+        try:
+            capability = broker.resolve(
+                task_id=payload.task_id,
+                principal_id=workload.principal_id,
+                role=workload.role,
+                lease_fence=payload.lease_fence,
+                verifier_claim_token=payload.verifier_claim_token,
+            )
+            if capability is None:
+                raise HTTPException(status_code=404, detail="Task capability is not authorized")
+            proxy = request.app.state.github_capability_read_proxy
+            if proxy is None:
+                proxy = proxy_factory(configured)
+                request.app.state.github_capability_read_proxy = proxy
+            return proxy.read_file(
+                capability=capability,
+                repository=payload.repository,
+                commit_sha=payload.commit_sha,
+                path=payload.path,
+            )
+        except HTTPException:
+            raise
+        except GitHubCapabilityBrokerError:
+            raise HTTPException(status_code=403, detail="GitHub repository read is not authorized") from None
+        except Exception:
+            # Do not leak token, HTTP headers, DSNs, or private key diagnostics.
+            raise HTTPException(status_code=503, detail="GitHub repository read is unavailable") from None
 
     return application
 
