@@ -103,6 +103,14 @@ jobs:
               "20261123_agent_task_scope_allowlist.sql",
               "20261123_agent_task_store.sql",
               "20261124_agent_task_worker_lifecycle.sql",
+              "20261125_agent_task_usage_scope.sql",
+              "20261126_agent_task_nonretryable_failures.sql",
+              "20261127_agent_task_evidence_finalization.sql",
+              "20261128_agent_task_verifier_claims.sql",
+              "20261129_agent_runtime_default_acl_boundary.sql",
+              "20261130_customer_tenant_active_guard_reassert.sql",
+              "20261130a_general_runtime_default_acl_boundary.sql",
+              "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
           ):
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
@@ -268,6 +276,44 @@ jobs:
               """)
               if cur.fetchone()[0] != 5:
                   raise SystemExit("Expected all five worker lifecycle routines")
+
+              cur.execute("""
+                  SELECT count(*),
+                         pg_catalog.bool_and(p.prosecdef),
+                         pg_catalog.bool_and('search_path=pg_catalog'=ANY(COALESCE(p.proconfig,ARRAY[]::text[]))),
+                         pg_catalog.bool_and(pg_catalog.has_function_privilege('jas_si_agent_verifier',p.oid,'EXECUTE')),
+                         pg_catalog.bool_and(NOT pg_catalog.has_function_privilege('jas_si_agent_worker',p.oid,'EXECUTE')),
+                         pg_catalog.bool_and(NOT pg_catalog.has_function_privilege('jas_si_runtime',p.oid,'EXECUTE')),
+                         pg_catalog.bool_and(NOT pg_catalog.has_function_privilege('jas_si_provisioner',p.oid,'EXECUTE'))
+                    FROM pg_catalog.pg_proc p
+                    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                   WHERE n.nspname='public'
+                     AND p.proname IN (
+                       'jas_si_agent_task_verification_list',
+                       'jas_si_agent_task_verification_claim',
+                       'jas_si_agent_task_verification_release',
+                       'jas_si_agent_task_finalize_success',
+                       'jas_si_agent_task_verification_record_inconclusive'
+                     )
+              """)
+              verifier_routines = cur.fetchone()
+              if (
+                  verifier_routines[0] != 5
+                  or any(value is not True for value in verifier_routines[1:])
+              ):
+                  raise SystemExit("Verifier routines are incomplete or not least-privilege")
+
+              cur.execute("""
+                  SELECT
+                    pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_agent_tasks','SELECT')
+                    OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_agent_tasks','INSERT')
+                    OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_agent_tasks','UPDATE')
+                    OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_agent_evidence_records','SELECT')
+                    OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_agent_evidence_records','INSERT')
+                    OR pg_catalog.has_table_privilege('jas_si_agent_verifier','public.jas_si_agent_evidence_records','UPDATE')
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("Verifier direct table access must remain denied")
 
               cur.execute("""
                   SELECT count(*),COALESCE(pg_catalog.bool_and(status IN (
