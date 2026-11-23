@@ -319,7 +319,13 @@ class GitHubCapabilityBrokerIsolationTests(unittest.TestCase):
             getattr(route, "path", None)
             for route in app.routes
         }
-        self.assertEqual(paths, {"/internal/github/capabilities/resolve"})
+        self.assertEqual(
+            paths,
+            {
+                "/internal/github/capabilities/resolve",
+                "/internal/github/capabilities/read",
+            },
+        )
         self.assertIsNone(app.docs_url)
         self.assertIsNone(app.redoc_url)
         self.assertIsNone(app.openapi_url)
