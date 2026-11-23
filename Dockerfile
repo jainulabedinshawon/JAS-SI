@@ -29,6 +29,9 @@ RUN python -m pip install \
     --no-cache-dir \
     --require-hashes \
     -r /app/requirements.lock.txt \
+    && python -m pip install \
+    --no-cache-dir \
+    --require-hashes \
     -r /app/requirements-broker-asgi.lock.txt
 
 # Copy only application source into the runtime image.
