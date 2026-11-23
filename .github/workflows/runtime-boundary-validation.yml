@@ -3,7 +3,7 @@ name: JAS-SI Runtime Database Boundary Validation
 on:
   pull_request:
     branches:
-      - feat/durable-agent-task-store-v1
+      - main
     paths:
       - "src/jas_si_agent/api.py"
       - "src/jas_si_agent/api_key_registry.py"
