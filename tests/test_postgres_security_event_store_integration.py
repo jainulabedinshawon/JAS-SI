@@ -41,18 +41,38 @@ class TestPostgresAuditIntegration(unittest.TestCase):
         cls.dsn = DATABASE_URL
         cls.store = PostgresSecurityEventStore(cls.dsn)
 
-        migration = (
-            ROOT
-            / "src"
-            / "jas_si_agent"
-            / "migrations"
-            / "001_create_audit_tables.sql"
+        migration_dir = ROOT / "src" / "jas_si_agent" / "migrations"
+        required_roles = (
+            "jas_si_runtime",
+            "jas_si_provisioner",
+            "jas_si_customer_runtime",
+            "jas_si_customer_key_runtime",
         )
-
-        with psycopg.connect(cls.dsn) as connection:
-            with connection.cursor() as cursor:
+        migrations = (
+            "001_create_audit_tables.sql",
+            "002_create_tenant_api_keys.sql",
+            "003_atomic_api_key_provisioning.sql",
+            "004_audit_event_id_identity.sql",
+            "005_provisioner_tenant_row_lock.sql",
+            "006_api_key_registry_role_grants.sql",
+            "007_customer_api_key_self_service.sql",
+            "20261110_customer_identity.sql",
+            "20261112_customer_identity_routines.sql",
+            "20261113_customer_api_key_routines.sql",
+            "20261115_api_key_auth_boundary.sql",
+            "20261121_security_audit_writer_boundary.sql",
+        )
+        with psycopg.connect(cls.dsn) as connection, connection.cursor() as cursor:
+            for role in required_roles:
                 cursor.execute(
-                    migration.read_text(encoding="utf-8")
+                    "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s",
+                    (role,),
+                )
+                if cursor.fetchone() is None:
+                    cursor.execute(f'CREATE ROLE "{role}" NOLOGIN')
+            for name in migrations:
+                cursor.execute(
+                    (migration_dir / name).read_text(encoding="utf-8")
                 )
 
     def setUp(self):
@@ -72,6 +92,25 @@ class TestPostgresAuditIntegration(unittest.TestCase):
                 "event_type": "integration_test",
                 "sequence": sequence,
             })
+
+    def test_runtime_role_can_append_but_cannot_mutate_audit_tables(self):
+        event = {"event_type": "runtime_boundary", "role": "jas_si_runtime"}
+        with psycopg.connect(self.dsn) as connection, connection.cursor() as cursor:
+            cursor.execute("SET ROLE jas_si_runtime")
+            cursor.execute(
+                """SELECT has_table_privilege(current_user,
+                          'public.jas_si_audit_chain_state','INSERT'),
+                          has_table_privilege(current_user,
+                          'public.jas_si_audit_chain_state','UPDATE'),
+                          has_table_privilege(current_user,
+                          'public.jas_si_audit_events','INSERT')"""
+            )
+            self.assertEqual(cursor.fetchone(), (False, False, False))
+            PostgresSecurityEventStore.append_in_transaction(connection, event)
+
+        result = self.store.verify_integrity()
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["verified_event_count"], 1)
 
     def test_empty_database_has_valid_genesis_state(self):
         result = self.store.verify_integrity()
