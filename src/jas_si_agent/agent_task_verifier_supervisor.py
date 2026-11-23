@@ -116,7 +116,7 @@ def main() -> None:
         "GITHUB_APP_PRIVATE_KEY_PATH",
     )):
         raise SystemExit(
-            "GitHub App signing configuration is restricted to the isolated Broker"
+            "GitHub App signing configuration is restricted to the isolated reconciler; Broker signing material remains Broker-only"
         )
     broker_enabled = os.environ.get("JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED", "").strip().lower()
     broker_client = None
