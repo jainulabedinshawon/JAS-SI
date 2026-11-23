@@ -237,7 +237,7 @@ jobs:
                          AND (
                            owner.rolname<>'jas_si_agent_task_owner'
                            OR NOT p.prosecdef
-                           OR NOT ('search_path=pg_catalog'=ANY(p.proconfig))
+                           OR NOT ('search_path=pg_catalog'=ANY(COALESCE(p.proconfig,ARRAY[]::text[])))
                            OR NOT pg_catalog.has_function_privilege(
                                 'jas_si_agent_worker',p.oid,'EXECUTE')
                            OR pg_catalog.has_function_privilege(
@@ -256,10 +256,24 @@ jobs:
               if cur.fetchone()[0]:
                   raise SystemExit("Worker lifecycle role/routine boundary is not least-privilege")
               cur.execute("""
-                  SELECT count(*),pg_catalog.bool_and(status IN (
+                  SELECT count(*)
+                    FROM pg_catalog.pg_proc p
+                    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                   WHERE n.nspname='public'
+                     AND p.proname IN ('jas_si_agent_task_claim',
+                                       'jas_si_agent_task_renew',
+                                       'jas_si_agent_task_ack_cancel',
+                                       'jas_si_agent_task_report',
+                                       'jas_si_agent_task_fail')
+              """)
+              if cur.fetchone()[0] != 5:
+                  raise SystemExit("Expected all five worker lifecycle routines")
+
+              cur.execute("""
+                  SELECT count(*),COALESCE(pg_catalog.bool_and(status IN (
                     'queued','running','cancel_requested','awaiting_verification',
                     'succeeded','failed','cancelled'
-                  ))
+                  )),true)
                     FROM public.jas_si_agent_tasks
               """)
               task_rows, task_statuses_valid = cur.fetchone()
