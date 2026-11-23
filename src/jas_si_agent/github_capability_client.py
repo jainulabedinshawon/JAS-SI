@@ -118,17 +118,30 @@ class GitHubCapabilityBrokerClient:
 
     def _post(self, endpoint: str, payload: dict[str, object]) -> dict[str, Any]:
         try:
-            response = self._http.post(
+            with self._http.stream(
+                "POST",
                 f"{self._base_url}/internal/github/capabilities/{endpoint}",
                 json=payload,
                 headers={"Accept": "application/json"},
                 timeout=10.0,
-            )
-            body = response.content
-            if len(body) > _MAX_RESPONSE_BYTES:
-                raise GitHubCapabilityClientError("Broker response exceeds the configured limit")
-            if response.status_code != 200:
-                raise GitHubCapabilityClientError("Broker authorization or evidence read failed")
+            ) as response:
+                if response.status_code != 200:
+                    raise GitHubCapabilityClientError("Broker authorization or evidence read failed")
+                declared_length = response.headers.get("content-length")
+                if declared_length is not None:
+                    try:
+                        if int(declared_length) > _MAX_RESPONSE_BYTES:
+                            raise GitHubCapabilityClientError("Broker response exceeds the configured limit")
+                    except ValueError:
+                        raise GitHubCapabilityClientError("Broker response length is invalid") from None
+                chunks = []
+                size = 0
+                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                    size += len(chunk)
+                    if size > _MAX_RESPONSE_BYTES:
+                        raise GitHubCapabilityClientError("Broker response exceeds the configured limit")
+                    chunks.append(chunk)
+                body = b"".join(chunks)
             decoded = json.loads(body)
             if not isinstance(decoded, dict):
                 raise GitHubCapabilityClientError("Broker response is invalid")
