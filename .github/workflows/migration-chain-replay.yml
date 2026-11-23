@@ -97,6 +97,7 @@ jobs:
               "20261115z_api_key_auth_tenant_lock_reassert.sql",
               "20261121_security_audit_writer_boundary.sql",
               "20261122_customer_rate_limit_owner_boundary.sql",
+              "20261122a_customer_rate_limit_contract_boundary.sql",
               "20261123_agent_task_store.sql",
               "20261123_agent_task_scope_allowlist.sql",
               "20261124_agent_task_worker_lifecycle.sql",
@@ -159,6 +160,62 @@ jobs:
                       if not path.is_file():
                           raise SystemExit(f"Missing migration in canonical replay order: {name}")
                       cur.execute(path.read_text(encoding="utf-8"))
+                      if replay == 1 and name == "20261122_customer_rate_limit_owner_boundary.sql":
+                          # Expand phase: the new SECURITY DEFINER path must be ready
+                          # while legacy SELECT/INSERT/UPDATE grants remain intact.
+                          cur.execute("""
+                              SELECT
+                                c.relowner=(SELECT oid FROM pg_catalog.pg_roles
+                                  WHERE rolname='jas_si_customer_rate_limit_owner'),
+                                p.prosecdef,
+                                p.proconfig @> ARRAY['search_path=pg_catalog'],
+                                pg_catalog.has_function_privilege(
+                                  'jas_si_customer_runtime',p.oid,'EXECUTE'),
+                                pg_catalog.has_table_privilege(
+                                  'jas_si_customer_runtime',c.oid,'SELECT'),
+                                pg_catalog.has_table_privilege(
+                                  'jas_si_customer_runtime',c.oid,'INSERT'),
+                                pg_catalog.has_table_privilege(
+                                  'jas_si_customer_runtime',c.oid,'UPDATE')
+                              FROM pg_catalog.pg_class c
+                              CROSS JOIN pg_catalog.pg_proc p
+                              WHERE c.oid=pg_catalog.to_regclass(
+                                  'public.jas_si_customer_rate_limits')
+                                AND p.oid=pg_catalog.to_regprocedure(
+                                  'public.jas_si_customer_rate_limit_check(bytea,integer,integer)')
+                          """)
+                          expand_state = cur.fetchone()
+                          if expand_state is None or not all(expand_state):
+                              raise SystemExit(
+                                  "Customer rate-limit expand phase did not preserve "
+                                  "legacy runtime access and enable the new routine: "
+                                  f"{expand_state!r}"
+                              )
+                          # Exercise the SECURITY DEFINER routine as the
+                          # actual customer runtime role before contract.
+                          cur.execute("SET LOCAL ROLE jas_si_customer_runtime")
+                          cur.execute(
+                              """SELECT allowed,retry_after_seconds
+                                   FROM public.jas_si_customer_rate_limit_check(%s,1,60)""",
+                              (bytes([13])*32,),
+                          )
+                          expand_decision = cur.fetchone()
+                          if expand_decision is None or expand_decision[0] is not True:
+                              raise SystemExit(
+                                  "Customer rate-limit routine failed during expand phase: "
+                                  f"{expand_decision!r}"
+                              )
+                          cur.execute(
+                              "SELECT COUNT(*) FROM public.jas_si_customer_rate_limits "
+                              "WHERE bucket_key=%s",
+                              (bytes([13])*32,),
+                          )
+                          if cur.fetchone()[0] != 1:
+                              raise SystemExit(
+                                  "Expand-phase routine did not persist its rate-limit bucket"
+                              )
+                          cur.execute("RESET ROLE")
+                          print("Verified rate-limit expand phase as customer runtime: routine executes and legacy runtime access remains available")
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
               cur.execute("""
