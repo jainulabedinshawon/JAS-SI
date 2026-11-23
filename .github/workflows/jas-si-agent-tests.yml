@@ -21,10 +21,8 @@ on:
       - feat/github-capability-broker-isolated-asgi-v1
       - feat/github-capability-broker-commit-metadata-v1
       - feat/github-capability-broker-runtime-v1
-      - feat/github-capability-broker-isolated-asgi-v1
-      - feat/github-capability-broker-isolated-asgi-v1
-      - feat/github-capability-broker-commit-metadata-v1
       - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
@@ -49,6 +47,9 @@ on:
       - integrate/pr101-tls-transport-into-agent-db-principal-v1
       - feat/configure-github-capability-identity-registry-v1
       - feat/task-scoped-github-capability-broker-db-v1
+      - feat/github-capability-broker-isolated-asgi-v1
+      - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
