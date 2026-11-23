@@ -8,9 +8,12 @@ on:
       - "requirements.in"
       - "requirements.txt"
       - "requirements.lock.txt"
+      - "requirements-broker-asgi.in"
+      - "requirements-broker-asgi.lock.txt"
       - "src/**"
       - "tests/**"
       - ".github/workflows/dependency-lock-verification.yml"
+      - "Dockerfile"
 
   pull_request:
     branches:
@@ -24,6 +27,7 @@ on:
       - feat/github-capability-broker-isolated-asgi-v1
       - feat/github-capability-broker-commit-metadata-v1
       - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "requirements.in"
       - "requirements.txt"
@@ -104,6 +108,9 @@ jobs:
           python -m pip install \
             --require-hashes \
             -r requirements.lock.txt
+          python -m pip install \
+            --require-hashes \
+            -r requirements-broker-asgi.lock.txt
 
       - name: Verify source compilation
         run: |
@@ -125,6 +132,7 @@ jobs:
           name: jas-si-dependency-lock-review
           path: |
             requirements.lock.txt
+            requirements-broker-asgi.lock.txt
             dependency-lock-test-report.txt
           if-no-files-found: warn
           retention-days: 30
