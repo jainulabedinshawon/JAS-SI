@@ -21,10 +21,14 @@ from jas_si_agent.security_event_store import JsonlSecurityEventStore
 
 
 class FakeQuotaMeter:
+    def __init__(self):
+        self.calls = []
+
     def events_authenticated(self, **query):
         return {"items": [], "next_cursor": None}
 
     def record_authenticated(self, **event):
+        self.calls.append(event)
         return {
             "event_id": "00000000-0000-0000-0000-000000000099",
             "operation": event["operation"],
@@ -50,7 +54,8 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
         self.original_store = api.app.state.security_event_store
         self.original_meter = getattr(api.app.state, "usage_meter", None)
         self.original_api_limiter = getattr(api.app.state, "api_rate_limiter", None)
-        api.app.state.usage_meter = FakeQuotaMeter()
+        self.fake_meter = FakeQuotaMeter()
+        api.app.state.usage_meter = self.fake_meter
         api.app.state.api_rate_limiter = FakeSharedApiRateLimiter()
         self.addCleanup(self._restore_meter)
         self.addCleanup(self._restore_api_limiter)
@@ -138,6 +143,69 @@ class TestTenantApiKeyAuthentication(unittest.TestCase):
                 json={"action_id": "pilot-1", "claimed_success": True},
             )
         self.assertEqual(response.status_code, 403)
+
+    def test_github_actions_evidence_is_metered_for_authorized_tenant(self):
+        payload = {
+            "repository": "owner/project",
+            "commit_sha": "a" * 40,
+            "required_workflow_paths": [".github/workflows/tests.yml"],
+        }
+
+        class GitHubResponse:
+            status_code = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def iter_bytes(self):
+                yield b'{"total_count":0,"workflow_runs":[]}'
+
+        with (
+            patch.object(api, "PostgresApiKeyRegistry") as registry,
+            patch("jas_si_agent.verify_router.httpx.stream", return_value=GitHubResponse()),
+        ):
+            registry.return_value.authenticate.return_value = self._auth_result(
+                ["github:evidence:verify"]
+            )
+            response = self.client.post(
+                "/v1/github/actions/evidence",
+                headers={"X-API-Key": self.token},
+                json=payload,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "INCONCLUSIVE")
+        self.assertEqual(len(self.fake_meter.calls), 1)
+        self.assertEqual(
+            self.fake_meter.calls[0]["operation"],
+            "github.evidence.verify",
+        )
+        self.assertEqual(
+            self.fake_meter.calls[0]["required_scope"],
+            "github:evidence:verify",
+        )
+
+    def test_github_actions_evidence_requires_github_evidence_scope(self):
+        payload = {
+            "repository": "owner/project",
+            "commit_sha": "a" * 40,
+            "required_workflow_paths": [".github/workflows/tests.yml"],
+        }
+        with patch.object(api, "PostgresApiKeyRegistry") as registry:
+            registry.return_value.authenticate.return_value = self._auth_result(
+                ["outcomes:submit"]
+            )
+            with patch("jas_si_agent.verify_router.httpx.stream") as github:
+                response = self.client.post(
+                    "/v1/github/actions/evidence",
+                    headers={"X-API-Key": self.token},
+                    json=payload,
+                )
+        self.assertEqual(response.status_code, 403)
+        github.assert_not_called()
 
     def test_usage_history_requires_usage_read_scope(self):
         with patch.object(api, "PostgresApiKeyRegistry") as registry:
