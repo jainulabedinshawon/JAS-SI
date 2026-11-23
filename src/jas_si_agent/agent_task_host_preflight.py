@@ -66,7 +66,18 @@ def verify_agent_host_database_access(
     )
     query = (
         "SELECT session_user, current_user, "
+        "COALESCE((SELECT r.rolcanlogin AND NOT r.rolsuper "
+        "AND NOT r.rolcreatedb AND NOT r.rolcreaterole "
+        "AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT r.rolinherit "
+        "FROM pg_catalog.pg_roles r WHERE r.rolname=session_user), FALSE), "
+        "COALESCE((SELECT NOT r.rolcanlogin AND NOT r.rolsuper "
+        "AND NOT r.rolcreatedb AND NOT r.rolcreaterole "
+        "AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT r.rolinherit "
+        "FROM pg_catalog.pg_roles r WHERE r.rolname=current_user), FALSE), "
         "pg_catalog.pg_has_role(session_user, %s, 'MEMBER'), "
+        "EXISTS (SELECT 1 FROM pg_catalog.pg_roles r "
+        "WHERE r.rolname NOT IN (session_user, current_user) "
+        "AND pg_catalog.pg_has_role(session_user, r.oid, 'MEMBER')), "
         + routine_checks + ", " + ", ".join(table_checks)
     )
     try:
@@ -80,16 +91,22 @@ def verify_agent_host_database_access(
             "Agent host database connectivity or privilege preflight failed"
         ) from None
 
-    expected_length = 3 + len(required_functions) + len(table_checks)
+    expected_length = 6 + len(required_functions) + len(table_checks)
     if not row or len(row) != expected_length:
         raise AgentHostPreflightError("Agent host database preflight returned an invalid result")
-    forbidden_role_membership = row[2]
-    routine_values = row[3 : 3 + len(required_functions)]
-    table_values = row[3 + len(required_functions) :]
+    login_role_is_safe = row[2]
+    capability_role_is_safe = row[3]
+    forbidden_role_membership = row[4]
+    unexpected_role_membership = row[5]
+    routine_values = row[6 : 6 + len(required_functions)]
+    table_values = row[6 + len(required_functions) :]
     if (
         row[0] != expected_login
         or row[1] != capability_role
+        or login_role_is_safe is not True
+        or capability_role_is_safe is not True
         or forbidden_role_membership is not False
+        or unexpected_role_membership is not False
         or any(value is not True for value in routine_values)
         or any(value is not False for value in table_values)
     ):
