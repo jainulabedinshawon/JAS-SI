@@ -34,6 +34,7 @@ on:
 
   pull_request:
     branches:
+      - feat/github-capability-broker-commit-metadata-v1
       - main
       - feat/github-capability-broker-runtime-v1
       - feat/jas-si-agent-mvp-safety-core
