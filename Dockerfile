@@ -24,10 +24,12 @@ RUN mkdir -p /var/lib/jas-si/audit \
 
 # Install exact, hash-verified dependencies from lock file.
 COPY requirements.lock.txt /app/requirements.lock.txt
+COPY requirements-broker-asgi.lock.txt /app/requirements-broker-asgi.lock.txt
 RUN python -m pip install \
     --no-cache-dir \
     --require-hashes \
-    -r /app/requirements.lock.txt
+    -r /app/requirements.lock.txt \
+    -r /app/requirements-broker-asgi.lock.txt
 
 # Copy only application source into the runtime image.
 COPY src/ /app/src/
