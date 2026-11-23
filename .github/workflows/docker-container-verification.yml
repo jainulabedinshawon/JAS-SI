@@ -14,6 +14,11 @@ on:
   pull_request:
     branches:
       - main
+      - feat/github-capability-broker-runtime-v1
+      - feat/github-capability-broker-isolated-asgi-v1
+      - feat/github-capability-broker-commit-metadata-v1
+      - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-worker-verifier-adapters-v1
     paths:
       - "Dockerfile"
       - ".dockerignore"
