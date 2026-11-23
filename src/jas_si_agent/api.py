@@ -65,6 +65,11 @@ from jas_si_agent.api_key_registry import (
     PostgresApiKeyRegistry,
 )
 from jas_si_agent.usage_meter import PostgresUsageMeter, UsageQuotaExceeded
+from jas_si_agent.agent_task_store import (
+    AgentTaskIdempotencyConflict,
+    AgentTaskStoreError,
+    PostgresAgentTaskStore,
+)
 from jas_si_agent.billing_catalog import get_free_monthly_units, get_plan_catalog
 from jas_si_agent.sdk import JASSI
 from jas_si_agent.postgres_security_event_store import (
@@ -103,6 +108,8 @@ _sdk = JASSI()
 app.state.security_event_store = JsonlSecurityEventStore(
     settings.security_event_log_path
 )
+# Task submissions remain fail-closed until a Worker host is independently ready.
+app.state.agent_task_submission_enabled = False
 
 
 @app.on_event("startup")
@@ -443,6 +450,19 @@ class VerifyRequest(BaseModel):
     )
 
 
+class AgentTaskCreateRequest(BaseModel):
+    """Bounded, client-submitted task input; task execution is worker-owned."""
+
+    class Config:
+        extra = "forbid"
+
+    task_type: str = Field(min_length=1, max_length=64)
+    input_payload: dict = Field(default_factory=dict)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+
+
+
+
 def _rate_limit_decision(client_ip: str):
     """Return allowed, remaining, and retry-after seconds."""
     now = time.monotonic()
@@ -511,7 +531,8 @@ async def security_and_rate_limit_middleware(
             "/v1/authorize": "authorization.evaluate",
             "/v1/verify": "outcome.submit",
             "/v1/github/evidence": "github.evidence.verify",
-        "/v1/github/actions/evidence": "github.evidence.verify",
+            "/v1/github/actions/evidence": "github.evidence.verify",
+            "/v1/agent/tasks": "agent.task.submit",
         }
         operation = metered_paths.get(request.url.path)
         meter = getattr(request.app.state, "usage_meter", None)
@@ -615,6 +636,7 @@ def _record_usage_for_authenticated_tenant(request: Request) -> None:
         "/v1/verify": "outcome.submit",
         "/v1/github/evidence": "github.evidence.verify",
         "/v1/github/actions/evidence": "github.evidence.verify",
+        "/v1/agent/tasks": "agent.task.submit",
     }
     operation = operations.get(request.url.path)
     tenant_id = getattr(request.state, "tenant_id", None)
@@ -627,6 +649,7 @@ def _record_usage_for_authenticated_tenant(request: Request) -> None:
         "outcome.submit": "outcomes:submit",
         "github.evidence.verify": "github:evidence:verify",
         "github.actions.evidence": "github:evidence:verify",
+        "agent.task.submit": "agent:tasks:write",
     }[operation]
     meter = getattr(request.app.state, "usage_meter", None)
     fingerprint = getattr(request.state, "request_fingerprint", None)
@@ -748,8 +771,14 @@ def _require_api_key(
             "/v1/github/actions/evidence": "github:evidence:verify",
             "/v1/usage": "usage:read",
             "/v1/usage/events": "usage:read",
+            "/v1/agent/tasks": "agent:tasks:write",
         }
-        required_scope = required_scopes.get(request.url.path)
+        if request.url.path.startswith("/v1/agent/tasks/"):
+            required_scope = (
+                "agent:tasks:write" if request.method == "POST" else "agent:tasks:read"
+            )
+        else:
+            required_scope = required_scopes.get(request.url.path)
         if required_scope and required_scope not in authenticated.scopes:
             _log_security_event(
                 "authorization_scope_denied",
@@ -771,6 +800,15 @@ def _require_api_key(
         # Keep only the peppered digest in this request context; never retain the raw token.
         request.state.api_key_candidate_digest = authenticated.candidate_digest
         request.state.api_key_required_scope = required_scope
+        if (
+            request.url.path == "/v1/agent/tasks"
+            and request.method == "POST"
+            and getattr(request.app.state, "agent_task_submission_enabled", False) is not True
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="Agent task execution is not currently available",
+            )
         _record_usage_for_authenticated_tenant(request)
         return
 
@@ -822,7 +860,7 @@ class CustomerTokenRequest(BaseModel):
 
 class CustomerApiKeyCreateRequest(BaseModel):
     key_name: str = Field(min_length=1, max_length=120)
-    scopes: list[str] = Field(min_length=1, max_length=4)
+    scopes: list[str] = Field(min_length=1, max_length=6)
     expires_in_days: int = Field(default=90, ge=1, le=365)
 
 
@@ -1364,6 +1402,174 @@ def usage_events(
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except Exception:
         raise HTTPException(status_code=503, detail="Tenant usage history is temporarily unavailable") from None
+
+
+def _get_agent_task_store(request: Request) -> PostgresAgentTaskStore:
+    """Return a task store only after its database-owned boundary is verified."""
+    store = getattr(request.app.state, "agent_task_store", None)
+    if store is not None:
+        return store
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="Agent task storage is not configured")
+    try:
+        store = PostgresAgentTaskStore(settings.database_url)
+        if store.verify_schema() is not True:
+            raise RuntimeError("Agent task database routines are not ready")
+        request.app.state.agent_task_store = store
+        return store
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent task storage is temporarily unavailable",
+        ) from None
+
+
+def _agent_task_api_key_context(request: Request) -> tuple[uuid.UUID, bytes]:
+    """Require a real tenant-scoped API-key proof for every task operation."""
+    key_id = getattr(request.state, "api_key_id", None)
+    digest = getattr(request.state, "api_key_candidate_digest", None)
+    if not key_id or not isinstance(digest, bytes) or len(digest) != 32:
+        raise HTTPException(
+            status_code=403,
+            detail="Tenant-scoped API key authentication is required",
+        )
+    try:
+        return uuid.UUID(key_id), digest
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=403, detail="API key identity is invalid") from None
+
+
+def _agent_task_response(task) -> dict:
+    return {
+        "task_id": str(task.task_id),
+        "task_type": task.task_type,
+        "status": task.status,
+        "input_payload": task.input_payload,
+        "result_payload": task.result_payload,
+        "error_code": task.error_code,
+        "attempt_count": task.attempt_count,
+        "max_attempts": task.max_attempts,
+        "created_at": task.created_at.isoformat(),
+        "updated_at": task.updated_at.isoformat(),
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "verification_status": "NOT_VERIFIED",
+    }
+
+@app.post(
+    "/v1/agent/tasks",
+    status_code=202,
+    dependencies=[Depends(_require_api_key)],
+)
+def submit_agent_task(
+    payload: AgentTaskCreateRequest,
+    request: Request,
+    event_store: SecurityEventStore = Depends(get_security_event_store),
+) -> dict:
+    """Persist a metered task request; execution remains disabled without a ready worker host."""
+    if getattr(request.app.state, "agent_task_submission_enabled", False) is not True:
+        raise HTTPException(
+            status_code=503,
+            detail="Agent task execution is not currently available",
+        )
+    api_key_id, candidate_digest = _agent_task_api_key_context(request)
+    store = _get_agent_task_store(request)
+    try:
+        submission = store.create(
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            idempotency_key=(
+                request.headers.get("Idempotency-Key") or request.state.request_id
+            ),
+            task_type=payload.task_type,
+            input_payload=payload.input_payload,
+            max_attempts=payload.max_attempts,
+        )
+    except AgentTaskIdempotencyConflict:
+        raise HTTPException(status_code=409, detail="Idempotency key conflicts with a different task") from None
+    except (AgentTaskStoreError, ValueError):
+        raise HTTPException(status_code=503, detail="Agent task could not be persisted") from None
+
+    if not _log_security_event(
+        "agent_task_submitted",
+        request,
+        event_store,
+        task_id=str(submission.task.task_id),
+        task_type=submission.task.task_type,
+        created=submission.created,
+    ):
+        raise HTTPException(status_code=503, detail="Agent task audit could not be persisted")
+    return {
+        "task": _agent_task_response(submission.task),
+        "created": submission.created,
+        "execution_status": "queued_for_worker",
+        "note": "A worker report is not a verified outcome; independent verification is required.",
+    }
+
+
+@app.get(
+    "/v1/agent/tasks/{task_id}",
+    dependencies=[Depends(_require_api_key)],
+)
+def get_agent_task(task_id: str, request: Request) -> dict:
+    try:
+        parsed_task_id = uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
+    api_key_id, candidate_digest = _agent_task_api_key_context(request)
+    store = _get_agent_task_store(request)
+    try:
+        task = store.get(
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            task_id=parsed_task_id,
+        )
+    except (AgentTaskStoreError, ValueError):
+        raise HTTPException(status_code=503, detail="Agent task retrieval is unavailable") from None
+    if task is None:
+        raise HTTPException(status_code=404, detail="Agent task not found")
+    return {
+        "task": _agent_task_response(task),
+        "verification_status": "NOT_VERIFIED",
+        "note": "Task persistence state is not independent verification of reality.",
+    }
+
+
+
+@app.post(
+    "/v1/agent/tasks/{task_id}/cancel",
+    dependencies=[Depends(_require_api_key)],
+)
+def cancel_agent_task(
+    task_id: str,
+    request: Request,
+    event_store: SecurityEventStore = Depends(get_security_event_store),
+) -> dict:
+    try:
+        parsed_task_id = uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Agent task not found") from None
+    api_key_id, candidate_digest = _agent_task_api_key_context(request)
+    store = _get_agent_task_store(request)
+    try:
+        cancelled = store.cancel(
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            task_id=parsed_task_id,
+        )
+    except (AgentTaskStoreError, ValueError):
+        raise HTTPException(status_code=503, detail="Agent task cancellation is unavailable") from None
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Agent task not found or no longer cancellable")
+    if not _log_security_event(
+        "agent_task_cancellation_requested",
+        request,
+        event_store,
+        task_id=str(parsed_task_id),
+    ):
+        raise HTTPException(status_code=503, detail="Agent task cancellation audit could not be persisted")
+    return {"task_id": str(parsed_task_id), "cancellation_requested": True}
+
+
 
 
 @app.post(
