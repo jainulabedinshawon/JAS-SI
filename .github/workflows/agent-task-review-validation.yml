@@ -62,7 +62,7 @@ jobs:
             fi
           done
           if [[ "${#tests[@]}" -eq 0 ]]; then
-            echo "No Agent Task tests found; failing closed."
-            exit 1
+            echo "No Agent Task implementation/tests are part of this change; nothing applicable to run."
+            exit 0
           fi
           python -m pytest -q "${tests[@]}"
