@@ -20,6 +20,8 @@ except ModuleNotFoundError as exc:
     Config = None
     serve = None
 
+ANYCORN_AVAILABLE = Config is not None and serve is not None and anyio is not None
+
 from jas_si_agent.config import Settings
 from jas_si_agent.github_capability_runtime import app
 
