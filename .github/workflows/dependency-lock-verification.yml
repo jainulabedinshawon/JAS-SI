@@ -125,3 +125,5 @@ jobs:
             dependency-lock-test-report.txt
           if-no-files-found: warn
           retention-days: 30
+
+# Broker stack CI trigger coverage: 2026-11-23
