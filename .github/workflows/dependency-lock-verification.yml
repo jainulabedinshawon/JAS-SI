@@ -21,6 +21,10 @@ on:
       - feat/github-webhook-http-ingress-v1
       - feat/task-scoped-github-capability-broker-db-v1
       - feat/github-capability-broker-runtime-v1
+      - feat/github-capability-worker-verifier-adapters-v1
+      - feat/github-capability-broker-mtls-client-v1
+      - feat/github-capability-broker-commit-metadata-v1
+      - feat/github-capability-broker-isolated-asgi-v1
     paths:
       - "requirements.in"
       - "requirements.txt"
