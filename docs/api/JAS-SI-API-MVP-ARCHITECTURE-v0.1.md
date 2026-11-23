@@ -1,6 +1,6 @@
 # JAS-SI API Backend MVP Architecture v0.1
 
-Status (2026-11-15): v0.1 architecture baseline; implementation has advanced beyond the original proposal. This document is retained as an architectural reference, with current code and activation status recorded below. It must not be read as proof that the full customer journey or agent-execution system is production-ready.
+Status (historical baseline, reviewed 2026-11-23): v0.1 architecture baseline; implementation has advanced beyond the original proposal. This document is retained as an architectural reference, with live activation blockers tracked in the private-pilot runbook. It must not be read as proof that the full customer journey or agent-execution system is production-ready.
 
 ## 1. What already exists
 
