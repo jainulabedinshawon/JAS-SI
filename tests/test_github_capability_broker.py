@@ -101,7 +101,7 @@ class GitHubCapabilityReadScopeTests(unittest.TestCase):
             )
 
     def test_rejects_unlisted_path_and_directory_prefix(self):
-        for path in ("src/secret.py", "src", "src/../secret.py", "/src/main.py", "src\\\\main.py"):
+        for path in ("src/secret.py", "src", "src/../secret.py", "/src/main.py", "src\\main.py"):
             with self.subTest(path=path), self.assertRaises(GitHubCapabilityBrokerError):
                 self.capability.authorize_read(
                     repository="owner/private-repo", commit_sha="a" * 40,
