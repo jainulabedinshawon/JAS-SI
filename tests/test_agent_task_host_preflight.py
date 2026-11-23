@@ -39,7 +39,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
     @staticmethod
     def valid_row(login, role, routine_count):
         return (
-            login, role, False,
+            login, role, True, True, False, False,
             *([True] * routine_count),
             *([False] * 22),
         )
@@ -85,7 +85,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
         ))
-        row[2] = True
+        row[4] = True
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -95,11 +95,32 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
                 required_functions=WORKER_FUNCTIONS,
             )
 
+    def test_rejects_unsafe_database_login_attributes(self):
+        row = list(self.valid_row("jas_si_agent_worker_login", "jas_si_agent_worker", 5))
+        row[2] = False
+        self.cursor.fetchone.return_value = tuple(row)
+        with self.assertRaises(AgentHostPreflightError):
+            verify_agent_host_database_access("postgresql://not-logged", capability_role="jas_si_agent_worker", expected_login="jas_si_agent_worker_login", required_functions=WORKER_FUNCTIONS)
+
+    def test_rejects_unsafe_capability_role_attributes(self):
+        row = list(self.valid_row("jas_si_agent_worker_login", "jas_si_agent_worker", 5))
+        row[3] = False
+        self.cursor.fetchone.return_value = tuple(row)
+        with self.assertRaises(AgentHostPreflightError):
+            verify_agent_host_database_access("postgresql://not-logged", capability_role="jas_si_agent_worker", expected_login="jas_si_agent_worker_login", required_functions=WORKER_FUNCTIONS)
+
+    def test_rejects_unapproved_role_membership(self):
+        row = list(self.valid_row("jas_si_agent_worker_login", "jas_si_agent_worker", 5))
+        row[5] = True
+        self.cursor.fetchone.return_value = tuple(row)
+        with self.assertRaises(AgentHostPreflightError):
+            verify_agent_host_database_access("postgresql://not-logged", capability_role="jas_si_agent_worker", expected_login="jas_si_agent_worker_login", required_functions=WORKER_FUNCTIONS)
+
     def test_rejects_verifier_direct_task_insert_privilege(self):
         row = list(self.valid_row(
             "jas_si_agent_verifier_login", "jas_si_agent_verifier", 3
         ))
-        row[3 + 3 + 1] = True  # task-table INSERT
+        row[6 + 3 + 1] = True  # task-table INSERT
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -113,7 +134,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         row = list(self.valid_row(
             "jas_si_agent_verifier_login", "jas_si_agent_verifier", 3
         ))
-        row[3 + 3 + 11 + 9] = True
+        row[6 + 3 + 11 + 9] = True
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -139,7 +160,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
         ))
-        row[3] = False
+        row[6] = False
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -153,7 +174,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
         ))
-        row[3 + 5 + 1] = True
+        row[6 + 5 + 1] = True
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -167,7 +188,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
         ))
-        row[3 + 5 + 4] = True
+        row[6 + 5 + 4] = True
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(
@@ -181,7 +202,7 @@ class AgentTaskHostPreflightTests(unittest.TestCase):
         row = list(self.valid_row(
             "jas_si_agent_worker_login", "jas_si_agent_worker", 5
         ))
-        row[3 + 5 + 7] = True
+        row[6 + 5 + 7] = True
         self.cursor.fetchone.return_value = tuple(row)
         with self.assertRaises(AgentHostPreflightError):
             verify_agent_host_database_access(

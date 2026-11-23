@@ -35,6 +35,7 @@ def setup_database() -> None:
         with conn.cursor() as cur:
             cur.execute("CREATE ROLE jas_si_agent_worker NOLOGIN NOINHERIT")
             cur.execute("CREATE ROLE jas_si_agent_verifier NOLOGIN NOINHERIT")
+            cur.execute("CREATE ROLE jas_si_runtime NOLOGIN NOINHERIT")
             cur.execute(
                 "CREATE ROLE jas_si_agent_worker_login LOGIN NOINHERIT "
                 "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS "
@@ -177,6 +178,23 @@ def main() -> None:
             cur.execute(
                 "REVOKE jas_si_agent_verifier FROM jas_si_agent_worker_login"
             )
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("GRANT jas_si_runtime TO jas_si_agent_worker_login")
+    expect_denied("Worker login membership in general runtime capability", WORKER_DSN, "jas_si_agent_worker", "jas_si_agent_worker_login", WORKER_FUNCTIONS)
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("REVOKE jas_si_runtime FROM jas_si_agent_worker_login")
+            cur.execute("ALTER ROLE jas_si_agent_worker_login SUPERUSER")
+    expect_denied("Worker login with superuser attribute", WORKER_DSN, "jas_si_agent_worker", "jas_si_agent_worker_login", WORKER_FUNCTIONS)
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("ALTER ROLE jas_si_agent_worker_login NOSUPERUSER")
+            cur.execute("ALTER ROLE jas_si_agent_worker LOGIN")
+    expect_denied("Capability role configured as LOGIN", WORKER_DSN, "jas_si_agent_worker", "jas_si_agent_worker_login", WORKER_FUNCTIONS)
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("ALTER ROLE jas_si_agent_worker NOLOGIN")
     print("PASS: all real PostgreSQL privilege-boundary smoke tests")
 
 
