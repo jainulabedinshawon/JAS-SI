@@ -24,6 +24,7 @@ on:
       - feat/github-capability-broker-isolated-asgi-v1
       - feat/github-capability-broker-isolated-asgi-v1
       - feat/github-capability-broker-commit-metadata-v1
+      - feat/github-capability-broker-mtls-client-v1
     paths:
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
