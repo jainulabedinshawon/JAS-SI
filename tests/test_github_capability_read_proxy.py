@@ -74,6 +74,66 @@ class GitHubCapabilityReadProxyTests(unittest.TestCase):
         self.proxy.close()
         self.http.close.assert_called_once_with()
 
+    def test_reads_immutable_commit_tree_metadata_without_token(self):
+        payload = {
+            "sha": "a" * 40,
+            "commit": {"tree": {"sha": "c" * 40}},
+        }
+        response = _StreamingResponse(__import__("json").dumps(payload).encode("utf-8"))
+        self.http.stream.return_value = response
+        result = self.proxy.read_commit(
+            capability=self.capability,
+            repository="owner/private-repo",
+            commit_sha="a" * 40,
+        )
+        self.assertEqual(result, {
+            "repository": "owner/private-repo",
+            "commit_sha": "a" * 40,
+            "tree_sha": "c" * 40,
+        })
+        self.assertNotIn("access_token", repr(result))
+        self.assertNotIn("ghs-test-secret", repr(result))
+
+    def test_rejects_commit_metadata_scope_mismatch_before_token_issuance(self):
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.proxy.read_commit(
+                capability=self.capability,
+                repository="owner/other-repo",
+                commit_sha="a" * 40,
+            )
+        self.issuer.issue.assert_not_called()
+        self.http.stream.assert_not_called()
+
+    def test_rejects_commit_response_for_different_sha_or_invalid_tree(self):
+        for payload in (
+            {"sha": "d" * 40, "commit": {"tree": {"sha": "c" * 40}}},
+            {"sha": "a" * 40, "commit": {"tree": {"sha": "invalid"}}},
+        ):
+            with self.subTest(payload=payload):
+                self.http.stream.return_value = _StreamingResponse(
+                    __import__("json").dumps(payload).encode("utf-8")
+                )
+                with self.assertRaises(GitHubCapabilityBrokerError):
+                    self.proxy.read_commit(
+                        capability=self.capability,
+                        repository="owner/private-repo",
+                        commit_sha="a" * 40,
+                    )
+
+    def test_rejects_oversized_commit_metadata_response(self):
+        response = _StreamingResponse(
+            b'{"padding":"' + (b"x" * (_MAX_API_RESPONSE_BYTES + 1)) + b'"}',
+            chunk_size=4096,
+        )
+        self.http.stream.return_value = response
+        with self.assertRaises(GitHubCapabilityBrokerError):
+            self.proxy.read_commit(
+                capability=self.capability,
+                repository="owner/private-repo",
+                commit_sha="a" * 40,
+            )
+        self.assertTrue(response.iterated)
+
     def test_reads_only_exact_capability_and_returns_no_token(self):
         result = self.proxy.read_file(
             capability=self.capability,

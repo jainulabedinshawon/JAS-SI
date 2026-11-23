@@ -30,6 +30,35 @@ class ResolvedGitHubTaskCapability:
     commit_sha: str
     repository_paths: list[str]
 
+    def authorize_commit(
+        self,
+        *,
+        repository: str,
+        commit_sha: str,
+        now: datetime | None = None,
+    ) -> None:
+        """Authorize immutable commit metadata under the same task scope."""
+        current = now or datetime.now(timezone.utc)
+        if (
+            not isinstance(current, datetime)
+            or current.tzinfo is None
+            or current.utcoffset() is None
+            or not isinstance(self.expires_at, datetime)
+            or self.expires_at.tzinfo is None
+            or self.expires_at.utcoffset() is None
+            or self.expires_at <= current
+        ):
+            raise GitHubCapabilityBrokerError("Task capability is expired or has invalid time bounds")
+        if (
+            not isinstance(repository, str)
+            or repository.casefold() != self.repository_full_name.casefold()
+            or not isinstance(commit_sha, str)
+            or commit_sha != self.commit_sha
+            or len(commit_sha) != 40
+            or any(char not in "0123456789abcdef" for char in commit_sha)
+        ):
+            raise GitHubCapabilityBrokerError("Repository or commit is outside the task capability")
+
     def authorize_read(
         self,
         *,
