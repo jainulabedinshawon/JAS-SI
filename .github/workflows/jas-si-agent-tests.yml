@@ -21,13 +21,6 @@ on:
       - feat/jas-si-agent-mvp-safety-core
       - feat/customer-identity-onboarding-v1
       - fix/shared-api-rate-limiter-v1
-    paths:
-      - "src/jas_si_agent/**"
-      - "tests/test_*.py"
-      - "docs/security/**"
-      - ".github/workflows/**"
-      - ".github/workflows/jas-si-agent-tests.yml"
-
   workflow_dispatch:
 
 permissions:
