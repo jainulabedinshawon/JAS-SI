@@ -61,6 +61,7 @@ class GitHubRepositoryReadHandlerTests(unittest.TestCase):
         self.assertEqual(provider.calls, [(TENANT_ID, "owner/project")])
         self.assertIsNone(verify.call_args.kwargs["access_token"])
         self.assertEqual(verify.call_args.kwargs["access_mode"], "public_repository_only")
+        self.assertIs(verify.call_args.kwargs["allow_legacy_env_token"], False)
         self.assertFalse(result["semantic_truth_verified"])
 
     def test_private_repository_uses_only_matching_tenant_installation(self):
@@ -84,6 +85,7 @@ class GitHubRepositoryReadHandlerTests(unittest.TestCase):
             verify.call_args.kwargs["access_mode"],
             "tenant_github_app_installation",
         )
+        self.assertIs(verify.call_args.kwargs["allow_legacy_env_token"], False)
         self.assertNotIn("installation-token", str(result))
 
     def test_tenant_mismatch_fails_closed_before_github_request(self):
