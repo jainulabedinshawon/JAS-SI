@@ -2,4 +2,4 @@ fastapi
 uvicorn
 httpx
 psycopg[binary]
-cryptography==45.0.7
+cryptography==50.0.0
