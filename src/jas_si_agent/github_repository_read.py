@@ -79,6 +79,9 @@ def build_github_repository_read_handler(
             request,
             access_token=access_token,
             access_mode=access_mode,
+            # Tenant workers must never inherit a process-wide token, even
+            # when a public-only provider returns no installation credential.
+            allow_legacy_env_token=False,
         )
         if cancelled.is_set():
             raise RuntimeError("Task cancelled during GitHub read")
