@@ -17,6 +17,16 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - "main.py"
+      - ".python-version"
+      - "requirements.txt"
+      - "requirements.lock.txt"
+      - "src/jas_si_agent/**"
+      - "tests/**"
+      - ".github/workflows/**"
+      - ".github/workflows/vercel-python-compatibility.yml"
+
 permissions:
   contents: read
 
