@@ -21,20 +21,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "Dockerfile"
-      - "requirements.lock.txt"
-      - "src/jas_si_agent/security_event_store.py"
-      - "src/jas_si_agent/security_event_checkpoint.py"
-      - "src/jas_si_agent/security_checkpoint_anchor.py"
-      - "src/jas_si_agent/security_checkpoint_anchor_journal.py"
-      - "tests/test_security_event_store.py"
-      - "tests/test_security_event_checkpoint.py"
-      - "tests/test_security_checkpoint_anchor_contract.py"
-      - "tests/test_security_checkpoint_anchor_journal.py"
-      - "tests/test_rest_api.py"
-      - ".github/workflows/security-checkpoint-recovery.yml"
-
 permissions:
   contents: read
 
