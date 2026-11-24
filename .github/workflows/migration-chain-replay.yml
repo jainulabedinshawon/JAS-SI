@@ -137,7 +137,7 @@ jobs:
               # not customer migrations. Create them explicitly on the empty DB.
               for role in (
                   "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
-                  "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
+                  "neondb_owner", "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
