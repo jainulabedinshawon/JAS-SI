@@ -22,6 +22,7 @@ on:
     branches:
       - main
     paths:
+      - "tests/test_postgres_security_event_store_integration.py"
       - "Dockerfile"
       - "requirements.lock.txt"
       - "src/jas_si_agent/security_event_store.py"

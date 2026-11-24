@@ -15,6 +15,7 @@ on:
     branches:
       - main
     paths:
+      - "tests/test_postgres_security_event_store_integration.py"
       - "Dockerfile"
       - ".dockerignore"
       - "requirements.lock.txt"

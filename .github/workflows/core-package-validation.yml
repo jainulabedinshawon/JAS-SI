@@ -5,6 +5,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "tests/test_postgres_security_event_store_integration.py"
       - "pyproject.toml"
       - "LICENSE"
       - "README.md"
