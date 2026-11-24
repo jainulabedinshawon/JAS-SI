@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   persistence-verification:
-    name: Verify JSONL Recovery Across Container Recreation
+    name: JSONL Recovery
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
