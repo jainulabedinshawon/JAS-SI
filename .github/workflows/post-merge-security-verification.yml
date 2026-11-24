@@ -14,13 +14,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "src/jas_si_agent/**"
-      - "tests/**"
-      - "requirements.lock.txt"
-      - ".github/workflows/**"
-      - ".github/workflows/post-merge-security-verification.yml"
-
 permissions:
   contents: read
 
