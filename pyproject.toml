@@ -28,6 +28,7 @@ dependencies = [
     "uvicorn==0.54.0",
     "pydantic==2.14.1",
     "httpx==0.28.1",
+    "cryptography==45.0.7",
     "psycopg[binary]==3.3.8",
 ]
 
@@ -36,6 +37,10 @@ dev = [
     "pytest>=8.0",
     "build>=1.0",
 ]
+
+[project.scripts]
+jas-si-agent-worker = "jas_si_agent.agent_task_worker_supervisor:main"
+jas-si-agent-verifier = "jas_si_agent.agent_task_verifier_supervisor:main"
 
 [project.urls]
 Homepage = "https://github.com/jainulabedinshawon/JAS-SI"
