@@ -124,6 +124,8 @@ class TenantGitHubEvidenceCollector:
                 if credential is not None
                 else "public_repository_only"
             ),
+            # Never fall back to a process-wide token: it is not tenant-bound.
+            allow_legacy_env_token=False,
         )
         files = tuple(result.get("files", ()))
         canonical = "|".join(
