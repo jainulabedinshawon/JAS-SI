@@ -174,7 +174,7 @@ def sign_task_grant(
     payload = canonical_grant_payload(grant)
     return hmac.new(
         key,
-        _TASK_DOMAIN + task_id.bytes + b"\\x00" + payload,
+        _TASK_DOMAIN + task_id.bytes + b"\x00" + payload,
         hashlib.sha256,
     ).hexdigest()
 
