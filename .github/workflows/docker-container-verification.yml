@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   docker-smoke-test:
-    name: Docker Build and Runtime Security Smoke Test
+    name: Docker Container Verification
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   resolve-and-test:
-    name: Resolve and Verify Python 3.10 Dependencies
+    name: Dependency Lock Verification
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
