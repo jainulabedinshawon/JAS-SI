@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Optional
+from uuid import UUID
 
 SAFE_ACTIONS = frozenset(
     {
@@ -61,6 +62,8 @@ class AuthorizationGrant:
     allowed_actions: tuple[str, ...]
     allowed_resources: tuple[str, ...]
     expires_at: datetime
+    # Optional at policy level; required by the task worker for tenant-bound actions.
+    tenant_id: Optional[UUID] = None
 
 
 @dataclass(frozen=True)

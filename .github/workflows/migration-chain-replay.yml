@@ -107,11 +107,38 @@ jobs:
               if migration_dir.joinpath(optional_acl_migration).is_file():
                   migrations = migrations + (optional_acl_migration,)
 
+          # Agent Worker/Verifier runtime migrations are required in canonical
+          # order. A missing migration must fail CI rather than silently skip
+          # part of the lifecycle or evidence boundary.
+          required_agent_runtime_migrations = (
+              "20261125_agent_task_usage_scope.sql",
+              "20261126_agent_task_nonretryable_failures.sql",
+              "20261127_agent_task_evidence_finalization.sql",
+              "20261128_agent_task_verifier_claims.sql",
+              "20261129_agent_runtime_default_acl_boundary.sql",
+              "20261130_customer_tenant_active_guard_reassert.sql",
+              "20261130a_general_runtime_default_acl_boundary.sql",
+              "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
+          )
+          missing_agent_runtime_migrations = [
+              name for name in required_agent_runtime_migrations
+              if not migration_dir.joinpath(name).is_file()
+          ]
+          if missing_agent_runtime_migrations:
+              raise SystemExit(
+                  "Missing required Agent runtime migrations: "
+                  + ", ".join(missing_agent_runtime_migrations)
+              )
+          migrations = migrations + required_agent_runtime_migrations
+
           dsn = os.environ["JAS_SI_MIGRATION_REPLAY_DATABASE_URL"]
           with psycopg.connect(dsn) as conn, conn.cursor() as cur:
               # These three core service roles are platform bootstrap inputs,
               # not customer migrations. Create them explicitly on the empty DB.
-              for role in ("jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime"):
+              for role in (
+                  "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
+                  "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
+              ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
                       cur.execute(
@@ -126,6 +153,17 @@ jobs:
                           raise SystemExit(f"Missing migration in canonical replay order: {name}")
                       cur.execute(path.read_text(encoding="utf-8"))
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
+
+              # Simulate dedicated login-to-capability SET ROLE memberships in
+              # this disposable CI database; no credentials are provisioned.
+              cur.execute(
+                  "GRANT jas_si_agent_worker TO jas_si_agent_worker_login "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
+              cur.execute(
+                  "GRANT jas_si_agent_verifier TO jas_si_agent_verifier_login "
+                  "WITH ADMIN FALSE, INHERIT FALSE, SET TRUE"
+              )
 
               cur.execute("""
                   SELECT
@@ -269,10 +307,73 @@ jobs:
               if cur.fetchone()[0] != 5:
                   raise SystemExit("Expected all five worker lifecycle routines")
 
+              # Verifier identity is distinct from Worker and receives no direct
+              # table access. Only verifier lifecycle/evidence routines execute.
+              cur.execute("""
+                  SELECT
+                    NOT EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_roles
+                       WHERE rolname='jas_si_agent_verifier'
+                         AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+                         AND NOT rolcreaterole AND NOT rolreplication
+                         AND NOT rolbypassrls AND NOT rolinherit
+                    )
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_verifier','public.jas_si_agent_tasks','SELECT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_verifier','public.jas_si_agent_tasks','UPDATE')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_verifier','public.jas_si_agent_evidence_records','SELECT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_verifier','public.jas_si_agent_evidence_records','INSERT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker','public.jas_si_agent_evidence_records','SELECT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker','public.jas_si_agent_evidence_records','INSERT')
+                    OR NOT pg_catalog.has_function_privilege(
+                         'jas_si_agent_verifier',
+                         'public.jas_si_agent_task_verification_claim(integer,integer)','EXECUTE')
+                    OR NOT pg_catalog.has_function_privilege(
+                         'jas_si_agent_verifier',
+                         'public.jas_si_agent_task_verification_release(uuid,uuid,uuid)','EXECUTE')
+                    OR NOT pg_catalog.has_function_privilege(
+                         'jas_si_agent_verifier',
+                         'public.jas_si_agent_task_verification_record_inconclusive(uuid,uuid,uuid,text)','EXECUTE')
+                    OR NOT pg_catalog.has_function_privilege(
+                         'jas_si_agent_verifier',
+                         'public.jas_si_agent_task_finalize_success(uuid,uuid,uuid,uuid,text,bytea,jsonb,timestamptz)','EXECUTE')
+                    OR pg_catalog.has_function_privilege(
+                         'jas_si_agent_worker',
+                         'public.jas_si_agent_task_verification_claim(integer,integer)','EXECUTE')
+                    OR pg_catalog.has_function_privilege(
+                         'jas_si_agent_worker',
+                         'public.jas_si_agent_task_finalize_success(uuid,uuid,uuid,uuid,text,bytea,jsonb,timestamptz)','EXECUTE')
+                    OR NOT pg_catalog.pg_has_role(
+                         'jas_si_agent_worker_login','jas_si_agent_worker','MEMBER')
+                    OR NOT pg_catalog.pg_has_role(
+                         'jas_si_agent_verifier_login','jas_si_agent_verifier','MEMBER')
+                    OR pg_catalog.pg_has_role(
+                         'jas_si_agent_worker_login','jas_si_agent_verifier','MEMBER')
+                    OR pg_catalog.pg_has_role(
+                         'jas_si_agent_verifier_login','jas_si_agent_worker','MEMBER')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_worker_login','public.jas_si_agent_tasks','SELECT')
+                    OR pg_catalog.has_table_privilege(
+                         'jas_si_agent_verifier_login','public.jas_si_agent_evidence_records','SELECT')
+                    OR NOT EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_class c
+                      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                      WHERE n.nspname='public' AND c.relname='jas_si_agent_evidence_records'
+                        AND c.relrowsecurity AND c.relforcerowsecurity
+                    )
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit("Verifier/Worker identity or evidence boundary is not least-privilege")
+
               cur.execute("""
                   SELECT count(*),COALESCE(pg_catalog.bool_and(status IN (
                     'queued','running','cancel_requested','awaiting_verification',
-                    'succeeded','failed','cancelled'
+                    'human_review_required','succeeded','failed','cancelled'
                   )),true)
                     FROM public.jas_si_agent_tasks
               """)
