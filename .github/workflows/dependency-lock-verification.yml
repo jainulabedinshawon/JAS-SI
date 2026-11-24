@@ -59,6 +59,7 @@ jobs:
         run: |
           mkdir -p .lock-verification
           cp requirements.in .lock-verification/requirements.in
+          cp requirements.lock.txt .lock-verification/requirements.lock.txt
           (
             cd .lock-verification
             pip-compile \
