@@ -17,6 +17,8 @@ from jas_si_agent.grant_signing import (  # noqa: E402
     GrantSigningError,
     sign_grant,
     verify_grant_signature,
+    sign_task_grant,
+    verify_task_grant_signature,
 )
 
 
@@ -97,6 +99,23 @@ class TestGrantSigning(unittest.TestCase):
             verify_grant_signature(altered, signature, self.key)
         )
 
+
+    def test_task_signature_is_bound_to_task_id(self) -> None:
+        task_id = __import__('uuid').uuid4()
+        signature = sign_task_grant(self.grant, task_id, self.key)
+        self.assertTrue(verify_task_grant_signature(self.grant, task_id, signature, self.key))
+        self.assertFalse(verify_task_grant_signature(self.grant, __import__('uuid').uuid4(), signature, self.key))
+
+    def test_task_signature_binds_grant_tenant(self) -> None:
+        task_id = __import__('uuid').uuid4()
+        grant = replace(self.grant, tenant_id=__import__('uuid').uuid4())
+        signature = sign_task_grant(grant, task_id, self.key)
+        altered = replace(grant, tenant_id=__import__('uuid').uuid4())
+        self.assertFalse(verify_task_grant_signature(altered, task_id, signature, self.key))
+
+    def test_task_signing_rejects_non_uuid_task_id(self) -> None:
+        with self.assertRaises(GrantSigningError):
+            sign_task_grant(self.grant, 'task-1', self.key)
 
 if __name__ == "__main__":
     unittest.main()

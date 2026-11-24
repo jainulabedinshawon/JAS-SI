@@ -110,16 +110,24 @@ def _validate_request(payload: GitHubEvidenceRequest) -> None:
                 "Invalid repository file path.",
             )
 
-def _github_headers() -> dict[str, str]:
+def _github_headers(
+    *,
+    access_token: str | None = None,
+    allow_legacy_env_token: bool = True,
+) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "JAS-SI-Verify/0.1",
     }
 
-    token = os.getenv("JAS_SI_GITHUB_TOKEN")
+    token = access_token
+    if token is None and allow_legacy_env_token:
+        token = os.getenv("JAS_SI_GITHUB_TOKEN")
 
     if token:
+        if not isinstance(token, str) or not token or len(token) > 4096:
+            raise _client_error(503, "GitHub installation credential is invalid.")
         headers["Authorization"] = f"Bearer {token}"
 
     return headers
@@ -128,12 +136,17 @@ def _github_get(
     url: str,
     *,
     params: dict[str, str] | None = None,
+    access_token: str | None = None,
+    allow_legacy_env_token: bool = True,
 ) -> dict[str, Any]:
     try:
         with httpx.stream(
             "GET",
             url,
-            headers=_github_headers(),
+            headers=_github_headers(
+                access_token=access_token,
+                allow_legacy_env_token=allow_legacy_env_token,
+            ),
             params=params,
             timeout=_TIMEOUT_SECONDS,
             follow_redirects=False,
@@ -286,6 +299,10 @@ def _require_sha(value: Any, description: str) -> str:
 
 def _verify_github_evidence(
     payload: GitHubEvidenceRequest,
+    *,
+    access_token: str | None = None,
+    access_mode: str = "public_repository_only",
+    allow_legacy_env_token: bool = True,
 ) -> dict[str, Any]:
     """
     Read-only GitHub evidence integrity verification.
@@ -305,7 +322,9 @@ def _verify_github_evidence(
     base_url = f"{_GITHUB_API}/repos/{repository}"
 
     commit_data = _github_get(
-        f"{base_url}/commits/{commit_sha}"
+        f"{base_url}/commits/{commit_sha}",
+        access_token=access_token,
+        allow_legacy_env_token=allow_legacy_env_token,
     )
 
     actual_commit_sha = _require_sha(
@@ -350,6 +369,8 @@ def _verify_github_evidence(
         file_data = _github_get(
             safe_path_url,
             params={"ref": commit_sha},
+            access_token=access_token,
+        allow_legacy_env_token=allow_legacy_env_token,
         )
 
         if file_data.get("type") != "file":
@@ -400,6 +421,7 @@ def _verify_github_evidence(
         "files_verified": len(verified_files),
         "files": verified_files,
         "read_only": True,
+        "access_mode": access_mode,
         "semantic_truth_verified": False,
     }
 
