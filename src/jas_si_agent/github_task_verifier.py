@@ -204,12 +204,24 @@ def verify_github_repository_task(
         return inconclusive("WORKER_REPORTED_FAILURE_REQUIRES_SEPARATE_FAILURE_EVIDENCE")
 
     try:
-        evidence = collector.collect(
-            tenant_id=task.tenant_id,
-            repository=request.repository,
-            commit_sha=request.commit_sha,
-            paths=tuple(request.paths),
-        )
+        # Inspect the concrete collector type: dynamic Mock attributes must
+        # not accidentally select the task-bound extension protocol.
+        collect_for_task = getattr(type(collector), "collect_for_task", None)
+        if callable(collect_for_task):
+            collect_for_task = collect_for_task.__get__(collector, type(collector))
+            evidence = collect_for_task(
+                task=task,
+                repository=request.repository,
+                commit_sha=request.commit_sha,
+                paths=tuple(request.paths),
+            )
+        else:
+            evidence = collector.collect(
+                tenant_id=task.tenant_id,
+                repository=request.repository,
+                commit_sha=request.commit_sha,
+                paths=tuple(request.paths),
+            )
     except Exception:
         return inconclusive("INDEPENDENT_EVIDENCE_COLLECTION_FAILED")
 

@@ -17,6 +17,8 @@ from jas_si_agent.agent_task_host_preflight import (
     verify_agent_host_database_access,
 )
 from jas_si_agent.agent_task_verifier import build_github_repository_verifier
+from jas_si_agent.github_capability_client import GitHubCapabilityBrokerClient
+from jas_si_agent.github_capability_evidence import build_broker_github_repository_verifier
 
 _LOG = logging.getLogger("jas_si_agent.verifier")
 
@@ -105,8 +107,8 @@ def main() -> None:
     except AgentHostPreflightError:
         raise SystemExit("Verifier database readiness preflight failed") from None
 
-    # GitHub App signing material is restricted to the isolated reconciler.
-    # Until an authenticated capability broker exists, this host is public-only.
+    # GitHub App signing material remains Broker-only. Verifier receives only
+    # mTLS client material and its persisted database claim token.
     if any(os.environ.get(name, "").strip() for name in (
         "JAS_SI_GITHUB_APP_ID",
         "GITHUB_APP_ID",
@@ -114,16 +116,31 @@ def main() -> None:
         "GITHUB_APP_PRIVATE_KEY_PATH",
     )):
         raise SystemExit(
-            "GitHub App signing configuration is restricted to the isolated reconciler"
+            "GitHub App signing configuration is restricted to the isolated reconciler; Broker signing material remains Broker-only"
         )
-    credential_provider = _PublicRepositoryOnlyProvider()
-
-    verifier = build_github_repository_verifier(
-        verifier_dsn=dsn,
-        credential_provider=credential_provider,
-        collector_id=collector_id,
-        batch_size=batch_size,
-    )
+    broker_enabled = os.environ.get("JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED", "").strip().lower()
+    broker_client = None
+    if broker_enabled == "true":
+        try:
+            broker_client = GitHubCapabilityBrokerClient.from_env()
+            verifier = build_broker_github_repository_verifier(
+                verifier_dsn=dsn,
+                collector_id=collector_id,
+                broker_client=broker_client,
+                batch_size=batch_size,
+            )
+        except (TypeError, ValueError):
+            raise SystemExit("Verifier GitHub capability Broker mTLS configuration is invalid") from None
+    elif broker_enabled in ("", "false"):
+        credential_provider = _PublicRepositoryOnlyProvider()
+        verifier = build_github_repository_verifier(
+            verifier_dsn=dsn,
+            credential_provider=credential_provider,
+            collector_id=collector_id,
+            batch_size=batch_size,
+        )
+    else:
+        raise SystemExit("JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED must be true or false")
     stop_event = threading.Event()
 
     def request_stop(_signum, _frame) -> None:
@@ -144,6 +161,8 @@ def main() -> None:
         )
     finally:
         health_server.close()
+        if broker_client is not None:
+            broker_client.close()
     _LOG.info("JAS-SI independent verifier stopped")
 
 
