@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import os
 import unittest
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from jas_si_agent.github_task_verifier import (
     CollectedGitHubEvidence,
+    TenantGitHubEvidenceCollector,
     PersistedTask,
     WorkerTaskReport,
     verify_github_repository_task,
 )
 from jas_si_agent.verification import VerificationStatus
+from jas_si_agent.verify_router import _github_headers
 
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000021")
@@ -212,6 +215,46 @@ class GitHubTaskVerifierTests(unittest.TestCase):
         )
         collector.collect.assert_not_called()
 
+
+    def test_public_only_headers_ignore_ambient_legacy_token(self):
+        with patch.dict(os.environ, {"JAS_SI_GITHUB_TOKEN": "legacy-process-token"}):
+            headers = _github_headers(
+                access_token=None,
+                allow_legacy_env_token=False,
+            )
+        self.assertNotIn("Authorization", headers)
+
+    def test_tenant_collector_disables_process_wide_token_fallback(self):
+        provider = Mock()
+        provider.resolve.return_value = None
+        result = {
+            "repository": "owner/project",
+            "commit_sha": SHA,
+            "tree_sha": "b" * 40,
+            "files": [{
+                "path": "README.md",
+                "blob_sha": "c" * 40,
+                "sha256": "d" * 64,
+                "size_bytes": 123,
+                "integrity": "VERIFIED",
+            }],
+        }
+        collector = TenantGitHubEvidenceCollector(
+            collector_id="tenant-verifier-test",
+            credential_provider=provider,
+        )
+        with patch(
+            "jas_si_agent.github_task_verifier._verify_github_evidence",
+            return_value=result,
+        ) as verify:
+            collector.collect(
+                tenant_id=TENANT,
+                repository="owner/project",
+                commit_sha=SHA,
+                paths=("README.md",),
+            )
+        self.assertIsNone(verify.call_args.kwargs["access_token"])
+        self.assertFalse(verify.call_args.kwargs["allow_legacy_env_token"])
 
 if __name__ == "__main__":
     unittest.main()
