@@ -8,6 +8,7 @@ on:
       - "src/jas_si_agent/**"
       - "tests/**"
       - "requirements.lock.txt"
+      - ".github/workflows/**"
       - ".github/workflows/post-merge-security-verification.yml"
 
   pull_request:
@@ -17,6 +18,7 @@ on:
       - "src/jas_si_agent/**"
       - "tests/**"
       - "requirements.lock.txt"
+      - ".github/workflows/**"
       - ".github/workflows/post-merge-security-verification.yml"
 
 permissions:
