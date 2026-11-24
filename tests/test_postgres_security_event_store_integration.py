@@ -112,6 +112,19 @@ class TestPostgresAuditIntegration(unittest.TestCase):
         self.assertTrue(result["valid"])
         self.assertEqual(result["verified_event_count"], 1)
 
+    def test_runtime_role_can_verify_audit_chain_with_canonicalizer(self):
+        self._append_events(2)
+
+        with psycopg.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET ROLE jas_si_runtime")
+            result = PostgresSecurityEventStore.verify_integrity_in_transaction(
+                connection
+            )
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["verified_event_count"], 2)
+
     def test_empty_database_has_valid_genesis_state(self):
         result = self.store.verify_integrity()
 
