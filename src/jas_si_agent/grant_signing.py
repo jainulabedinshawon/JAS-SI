@@ -13,6 +13,7 @@ import hmac
 import json
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from jas_si_agent.authorization import AuthorizationGrant
 
@@ -20,6 +21,7 @@ ALGORITHM = "HMAC-SHA256"
 SIGNING_VERSION = 1
 _MIN_KEY_BYTES = 32
 _DOMAIN = b"JAS-SI:AUTHORIZATION-GRANT:v1:"
+_TASK_DOMAIN = b"JAS-SI:TASK-AUTHORIZATION-GRANT:v1:"
 
 
 class GrantSigningError(ValueError):
@@ -96,10 +98,14 @@ def canonical_grant_payload(grant: AuthorizationGrant) -> bytes:
     ):
         raise GrantSigningError("Invalid allowed_resources")
 
+    if grant.tenant_id is not None and not isinstance(grant.tenant_id, UUID):
+        raise GrantSigningError("tenant_id must be a UUID when provided")
+
     payload: dict[str, Any] = {
         "version": SIGNING_VERSION,
         "algorithm": ALGORITHM,
         "grant_id": grant.grant_id,
+        "tenant_id": str(grant.tenant_id) if grant.tenant_id is not None else None,
         "approved_by": grant.approved_by,
         "human_approved": grant.human_approved,
         "allowed_actions": list(grant.allowed_actions),
@@ -151,6 +157,43 @@ def verify_grant_signature(
             return False
 
         expected = sign_grant(grant, key)
+        return hmac.compare_digest(expected, signature)
+    except (GrantSigningError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def sign_task_grant(
+    grant: AuthorizationGrant,
+    task_id: UUID,
+    key: bytes,
+) -> str:
+    """Sign a grant for one immutable task ID and its tenant-bound scope."""
+    _validate_key(key)
+    if not isinstance(task_id, UUID):
+        raise GrantSigningError("task_id must be a UUID")
+    payload = canonical_grant_payload(grant)
+    return hmac.new(
+        key,
+        _TASK_DOMAIN + task_id.bytes + b"\\x00" + payload,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def verify_task_grant_signature(
+    grant: AuthorizationGrant,
+    task_id: UUID,
+    signature: str,
+    key: bytes,
+) -> bool:
+    """Verify a task-bound grant signature without leaking validation errors."""
+    try:
+        if (
+            not isinstance(signature, str)
+            or len(signature) != 64
+            or any(char not in "0123456789abcdef" for char in signature)
+        ):
+            return False
+        expected = sign_task_grant(grant, task_id, key)
         return hmac.compare_digest(expected, signature)
     except (GrantSigningError, TypeError, ValueError, OverflowError):
         return False
