@@ -214,3 +214,6 @@ BEGIN
     END LOOP;
 END
 $assert_runtime_acl$;
+
+-- Do not leak the dedicated owner role into subsequent migrations or callers.
+RESET ROLE;
