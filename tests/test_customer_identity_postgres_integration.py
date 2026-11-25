@@ -86,6 +86,13 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                         "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                     )
+            # Bootstrap ADMIN OPTION for cloud_admin before it grants the
+            # matching membership to neondb_owner, mirroring Neon provenance.
+            for owner_role in owner_roles:
+                cur.execute(
+                    f'GRANT "{owner_role}" TO cloud_admin '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for owner_role in owner_roles:
                 cur.execute(
