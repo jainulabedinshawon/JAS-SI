@@ -59,18 +59,18 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_DB: jas_si_test
-          POSTGRES_USER: jas_si
+          POSTGRES_USER: cloud_admin
           POSTGRES_PASSWORD: test-only-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U jas_si -d jas_si_test"
+          --health-cmd "pg_isready -U cloud_admin -d jas_si_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
     env:
-      JAS_SI_TEST_DATABASE_URL: postgresql://jas_si:test-only-password@localhost:5432/jas_si_test
+      JAS_SI_TEST_DATABASE_URL: postgresql://cloud_admin:test-only-password@localhost:5432/jas_si_test
 
     steps:
       - name: Checkout repository
