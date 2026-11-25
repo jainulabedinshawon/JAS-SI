@@ -61,7 +61,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             # superuser and can grant memberships without becoming a member.
             cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-            cur.execute("SET ROLE cloud_admin")
+            # Existing shared PostgreSQL test tables may have been bootstrapped by jas_si.
+            # Transfer only these audit tables to the migration database owner.
+            cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_chain_state OWNER TO neondb_owner")
+            cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_events OWNER TO neondb_owner")
+            cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for managed_role in (
                 "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
             ):
@@ -69,7 +73,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     f'GRANT "{managed_role}" TO neondb_owner '
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
-            cur.execute("RESET ROLE")
+            cur.execute("RESET SESSION AUTHORIZATION")
             # Pre-create SECURITY DEFINER owner roles and mirror Neon:
             # cloud_admin ADMIN grant + migration-created neondb_owner SET grant.
             owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
@@ -83,13 +87,13 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             # Mirror Neon grant provenance: the superuser cloud_admin grants
             # ADMIN membership directly to neondb_owner without becoming a
             # member of the protected owner roles itself.
-            cur.execute("SET ROLE cloud_admin")
+            cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for owner_role in owner_roles:
                 cur.execute(
                     f'GRANT "{owner_role}" TO neondb_owner '
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
-            cur.execute("RESET ROLE")
+            cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Emit the exact catalog state before the identity migration's
             # fail-closed membership assertion; this is diagnostic only.
@@ -168,13 +172,13 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute("SELECT session_user, current_user")
             self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
-            cur.execute("RESET ROLE")
+            cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute("SELECT session_user, current_user")
             self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
         self.assertFalse(PostgresCustomerIdentityStore(self.login_dsn, self.pepper).verify_schema())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
-                cur.execute("RESET ROLE")
+                cur.execute("RESET SESSION AUTHORIZATION")
                 cur.execute("SET ROLE jas_si_provisioner")
 
     def setUp(self):
@@ -1051,7 +1055,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         cur.execute(f"SELECT * FROM public.{table} LIMIT 1")
                     cur.execute("ROLLBACK TO SAVEPOINT direct_identity_read_probe")
                     cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
-                    cur.execute("RESET ROLE")
+                    cur.execute("RESET SESSION AUTHORIZATION")
 
             for role in ("jas_si_runtime", "jas_si_provisioner"):
                 cur.execute(
