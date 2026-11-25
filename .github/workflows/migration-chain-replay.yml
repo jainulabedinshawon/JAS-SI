@@ -178,11 +178,9 @@ jobs:
                       )
               # The superuser fixture must delegate ADMIN OPTION to cloud_admin
               # before cloud_admin can grant neondb_owner its ADMIN membership.
-              for owner_role in owner_roles:
-                  cur.execute(
-                      f'GRANT "{owner_role}" TO cloud_admin '
-                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                  )
+              # cloud_admin (CREATEROLE) is the grantor of ADMIN membership
+              # directly to neondb_owner. Do not add cloud_admin as a member
+              # of the protected owner role: the migration rejects that path.
               cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for owner_role in owner_roles:
                   cur.execute(
