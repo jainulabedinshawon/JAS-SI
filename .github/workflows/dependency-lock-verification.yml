@@ -16,15 +16,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "tests/test_postgres_security_event_store_integration.py"
-      - "pyproject.toml"
-      - "requirements.in"
-      - "requirements.txt"
-      - "requirements.lock.txt"
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/dependency-lock-verification.yml"
 
 permissions:
   contents: read
