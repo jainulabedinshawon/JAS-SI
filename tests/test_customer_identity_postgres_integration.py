@@ -91,6 +91,20 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 )
             cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
+            # Emit the exact catalog state before the identity migration's
+            # fail-closed membership assertion; this is diagnostic only.
+            cur.execute("""
+                SELECT granted.rolname, member.rolname, grantor.rolname,
+                       m.admin_option, m.inherit_option, m.set_option
+                  FROM pg_catalog.pg_auth_members m
+                  JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid
+                  JOIN pg_catalog.pg_roles member ON member.oid=m.member
+                  JOIN pg_catalog.pg_roles grantor ON grantor.oid=m.grantor
+                 WHERE granted.rolname='jas_si_customer_identity_owner'
+                    OR member.rolname='jas_si_customer_identity_owner'
+                 ORDER BY granted.rolname,member.rolname,grantor.rolname
+            """)
+            print("customer identity owner membership fixture:", cur.fetchall())
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
             for name in (
