@@ -165,6 +165,24 @@ jobs:
                       "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                   )
               cur.execute("RESET SESSION AUTHORIZATION")
+              # Pre-create database-owned SECURITY DEFINER principals and
+              # seed Neon's cloud_admin ADMIN grant before the migrations add
+              # neondb_owner's separate SET-only membership.
+              owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
+              for owner_role in owner_roles:
+                  cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (owner_role,))
+                  if cur.fetchone() is None:
+                      cur.execute(
+                          f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                          "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                      )
+              cur.execute("SET SESSION AUTHORIZATION cloud_admin")
+              for owner_role in owner_roles:
+                  cur.execute(
+                      f'GRANT "{owner_role}" TO neondb_owner '
+                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                  )
+              cur.execute("RESET SESSION AUTHORIZATION")
               cur.execute("SET SESSION AUTHORIZATION neondb_owner")
 
               for replay in (1, 2):
