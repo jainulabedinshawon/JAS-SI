@@ -103,6 +103,8 @@ class BillingOrder:
             self.tenant_id, UUID
         ):
             raise BillingInvariantError("ORDER_AND_TENANT_IDS_MUST_BE_UUIDS")
+        if not isinstance(self.amount, Money):
+            raise BillingInvariantError("ORDER_AMOUNT_MUST_BE_MONEY")
         if isinstance(self.credit_quantity, bool) or not isinstance(
             self.credit_quantity, int
         ):
@@ -142,6 +144,22 @@ class VerifiedPayment:
     provider_transaction_id: str
     order_id: UUID
     amount: Money
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (
+                self.provider,
+                self.provider_account_id,
+                self.provider_event_id,
+                self.provider_transaction_id,
+            )
+        ):
+            raise BillingInvariantError("INCOMPLETE_PROVIDER_PAYMENT_REFERENCE")
+        if not isinstance(self.order_id, UUID):
+            raise BillingInvariantError("PAYMENT_ORDER_ID_MUST_BE_UUID")
+        if not isinstance(self.amount, Money):
+            raise BillingInvariantError("PAYMENT_AMOUNT_MUST_BE_MONEY")
 
 
 def apply_verified_payment(
