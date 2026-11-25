@@ -160,12 +160,12 @@ GRANT EXECUTE ON FUNCTION public.jas_si_customer_rate_limit_check(bytea,integer,
     TO jas_si_customer_runtime;
 
 RESET ROLE;
-
--- The original grants were issued by neondb_owner. After ownership transfer,
--- revoke them while acting as the new table owner; the old grantor no longer
--- has the ownership authority required to revoke grants on this relation.
-SET LOCAL ROLE jas_si_customer_rate_limit_owner;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_rate_limit_owner;
+
+-- The original table grants were issued by neondb_owner. After ownership
+-- transfer, revoke them while acting as the new table owner; the old grantor
+-- no longer has the ownership authority required to revoke grants on this relation.
+SET LOCAL ROLE jas_si_customer_rate_limit_owner;
 
 -- No application role may inspect or mutate bucket state directly. The
 -- database-owned routine is the only permitted access path. Revoke legacy
