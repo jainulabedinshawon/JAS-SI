@@ -76,6 +76,23 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
             cur.execute("RESET SESSION AUTHORIZATION")
+            # Pre-create SECURITY DEFINER owner roles and mirror Neon:
+            # cloud_admin ADMIN grant + migration-created neondb_owner SET grant.
+            owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
+            for owner_role in owner_roles:
+                cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (owner_role,))
+                if cur.fetchone() is None:
+                    cur.execute(
+                        f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                        "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                    )
+            cur.execute("SET SESSION AUTHORIZATION cloud_admin")
+            for owner_role in owner_roles:
+                cur.execute(
+                    f'GRANT "{owner_role}" TO neondb_owner '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
+            cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
