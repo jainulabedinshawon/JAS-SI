@@ -88,11 +88,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     )
             # Bootstrap ADMIN OPTION for cloud_admin before it grants the
             # matching membership to neondb_owner, mirroring Neon provenance.
-            for owner_role in owner_roles:
-                cur.execute(
-                    f'GRANT "{owner_role}" TO cloud_admin '
-                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                )
+            # cloud_admin (CREATEROLE) grants ADMIN membership directly to
+            # neondb_owner. Do not make cloud_admin a member of protected owner
+            # roles; the migration intentionally rejects that extra membership.
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for owner_role in owner_roles:
                 cur.execute(
@@ -125,7 +123,10 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261122_customer_rate_limit_owner_boundary.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
-                cur.execute(migration_path.read_text(encoding="utf-8"))
+                try:
+                    cur.execute(migration_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    raise RuntimeError(f"Customer identity migration failed: {name}") from exc
             cur.execute("RESET SESSION AUTHORIZATION")
             # The admin DSN is fixture-only; app traffic uses a dedicated NOINHERIT login.
             cls.login_role = "jas_si_identity_login_" + uuid.uuid4().hex
