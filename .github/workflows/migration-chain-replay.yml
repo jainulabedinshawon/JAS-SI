@@ -151,14 +151,15 @@ jobs:
               # while neondb_owner owns the public schema and runs migrations.
               # RESET ROLE inside migrations must return to neondb_owner.
               cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
+              cur.execute("ALTER DATABASE jas_si_migration_replay OWNER TO neondb_owner")
               cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-              cur.execute("SET ROLE cloud_admin")
+              cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for managed_role in ("jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"):
                   cur.execute(
                       f'GRANT "{managed_role}" TO neondb_owner '
                       "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                   )
-              cur.execute("RESET ROLE")
+              cur.execute("RESET SESSION AUTHORIZATION")
               # Pre-create database-owned SECURITY DEFINER principals and
               # seed Neon's cloud_admin ADMIN grant before the migrations add
               # neondb_owner's separate SET-only membership.
@@ -172,13 +173,13 @@ jobs:
                       )
               # Neon records cloud_admin as grantor without making it a
               # member of the protected NOLOGIN owner roles.
-              cur.execute("SET ROLE cloud_admin")
+              cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for owner_role in owner_roles:
                   cur.execute(
                       f'GRANT "{owner_role}" TO neondb_owner '
                       "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                   )
-              cur.execute("RESET ROLE")
+              cur.execute("RESET SESSION AUTHORIZATION")
               cur.execute("SET SESSION AUTHORIZATION neondb_owner")
               # Emit membership provenance before fail-closed owner-role checks.
               cur.execute("""
