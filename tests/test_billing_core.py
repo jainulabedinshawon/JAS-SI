@@ -56,6 +56,35 @@ class TestBillingMoneyAndOrders(unittest.TestCase):
         with self.assertRaises(BillingInvariantError):
             self.order.transition(OrderStatus.PAID)
 
+    def test_order_requires_money_value_object(self) -> None:
+        with self.assertRaises(BillingInvariantError):
+            BillingOrder(
+                order_id=uuid4(),
+                tenant_id=self.tenant_id,
+                amount="12.50",  # type: ignore[arg-type]
+                credit_quantity=1,
+            )
+
+    def test_verified_payment_rejects_malformed_trusted_command(self) -> None:
+        with self.assertRaises(BillingInvariantError):
+            VerifiedPayment(
+                provider="sandbox",
+                provider_account_id="merchant-test",
+                provider_event_id="evt-invalid",
+                provider_transaction_id="txn-invalid",
+                order_id="not-a-uuid",  # type: ignore[arg-type]
+                amount=Money(100, "USD"),
+            )
+        with self.assertRaises(BillingInvariantError):
+            VerifiedPayment(
+                provider="sandbox",
+                provider_account_id="merchant-test",
+                provider_event_id="evt-invalid",
+                provider_transaction_id="txn-invalid",
+                order_id=self.order.order_id,
+                amount="100",  # type: ignore[arg-type]
+            )
+
     def test_verified_payment_must_match_order_reference_amount_and_currency(
         self,
     ) -> None:
