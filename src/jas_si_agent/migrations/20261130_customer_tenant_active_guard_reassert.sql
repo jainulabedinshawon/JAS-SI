@@ -2,6 +2,9 @@
 -- CREATE OR REPLACE preserves existing function ownership and ACLs.
 -- These routines are owned by the dedicated NOLOGIN identity owner.
 -- Reassert their bodies under that owner; neondb_owner has SET-only membership.
+-- CREATE OR REPLACE requires CREATE on the containing schema. Grant it only
+-- for this migration window and revoke it immediately after the owner switch.
+GRANT CREATE ON SCHEMA public TO jas_si_customer_identity_owner;
 SET LOCAL ROLE jas_si_customer_identity_owner;
 
 CREATE OR REPLACE FUNCTION public.customer_authenticate_session(p_session_digest bytea)
@@ -164,6 +167,7 @@ END;
 $function$;
 
 RESET ROLE;
+REVOKE CREATE ON SCHEMA public FROM jas_si_customer_identity_owner;
 
 DO $assert$
 DECLARE v_name text; v_def text;
