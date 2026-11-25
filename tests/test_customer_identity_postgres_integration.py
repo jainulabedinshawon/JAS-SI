@@ -67,7 +67,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             ):
                 cur.execute(
                     f'GRANT "{managed_role}" TO neondb_owner '
-                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE GRANTED BY cloud_admin"
                 )
             cur.execute("RESET ROLE")
             # Pre-create SECURITY DEFINER owner roles and mirror Neon:
@@ -87,7 +87,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             for owner_role in owner_roles:
                 cur.execute(
                     f'GRANT "{owner_role}" TO neondb_owner '
-                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE GRANTED BY cloud_admin"
                 )
             cur.execute("RESET ROLE")
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
