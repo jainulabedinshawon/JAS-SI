@@ -147,17 +147,11 @@ jobs:
                           + "NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
 
-              # Match Neon: neondb_owner owns the public schema and is the
-              # migration session identity. RESET ROLE inside migrations must
-              # return to this role, not to the local superuser bootstrap login.
+              # Match Neon: cloud_admin is the managed superuser grantor,
+              # while neondb_owner owns the public schema and runs migrations.
+              # RESET ROLE inside migrations must return to neondb_owner.
+              cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
               cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-              # Bootstrap cloud_admin with ADMIN OPTION as the local
-              # superuser, then mirror its grant provenance as in Neon.
-              for managed_role in ("jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"):
-                  cur.execute(
-                      f'GRANT "{managed_role}" TO cloud_admin '
-                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                  )
               cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for managed_role in ("jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"):
                   cur.execute(
@@ -176,14 +170,8 @@ jobs:
                           f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
-              # Temporarily delegate ADMIN OPTION so cloud_admin can grant
-              # neondb_owner. Revoke bootstrap membership before migrations:
-              # production invariant forbids cloud_admin being an owner-role member.
-              for owner_role in owner_roles:
-                  cur.execute(
-                      f'GRANT "{owner_role}" TO cloud_admin '
-                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                  )
+              # Neon records cloud_admin as grantor without making it a
+              # member of the protected NOLOGIN owner roles.
               cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for owner_role in owner_roles:
                   cur.execute(
@@ -191,8 +179,6 @@ jobs:
                       "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                   )
               cur.execute("RESET SESSION AUTHORIZATION")
-              for owner_role in owner_roles:
-                  cur.execute(f'REVOKE "{owner_role}" FROM cloud_admin')
               cur.execute("SET SESSION AUTHORIZATION neondb_owner")
 
               for replay in (1, 2):
