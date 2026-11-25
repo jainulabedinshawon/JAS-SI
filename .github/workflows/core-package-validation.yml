@@ -4,24 +4,6 @@ name: JAS-SI Core Package Validation
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "tests/test_postgres_security_event_store_integration.py"
-      - "pyproject.toml"
-      - "LICENSE"
-      - "README.md"
-      - "src/**"
-      - ".github/workflows/core-package-validation.yml"
-
-  push:
-    branches: [main]
-    paths:
-      - "pyproject.toml"
-      - "LICENSE"
-      - "README.md"
-      - "src/**"
-      - ".github/workflows/core-package-validation.yml"
-
-  workflow_dispatch:
 
 permissions:
   contents: read
