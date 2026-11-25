@@ -54,8 +54,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname='neondb_owner'")
             if cur.fetchone() is None:
                 cur.execute("CREATE ROLE neondb_owner NOLOGIN CREATEDB CREATEROLE")
+            cur.execute("CREATE ROLE cloud_admin NOLOGIN CREATEROLE")
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-            # Match the Neon cloud_admin -> neondb_owner ADMIN memberships.
+            # Match Neon grant provenance: cloud_admin grants ADMIN option;
+            # neondb_owner later grants its SET-only owner-role memberships.
+            cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for managed_role in (
                 "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
             ):
@@ -63,6 +66,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     f'GRANT "{managed_role}" TO neondb_owner '
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
+            cur.execute("RESET SESSION AUTHORIZATION")
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
