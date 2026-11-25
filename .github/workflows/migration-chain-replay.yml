@@ -176,6 +176,13 @@ jobs:
                           f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
+              # The superuser fixture must delegate ADMIN OPTION to cloud_admin
+              # before cloud_admin can grant neondb_owner its ADMIN membership.
+              for owner_role in owner_roles:
+                  cur.execute(
+                      f'GRANT "{owner_role}" TO cloud_admin '
+                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                  )
               cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for owner_role in owner_roles:
                   cur.execute(
