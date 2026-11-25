@@ -48,6 +48,14 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
                 if cur.fetchone() is None:
                     cur.execute(f'CREATE ROLE "{role}" NOLOGIN')
+            # Match Neon migration execution: the bootstrap connection is
+            # administrative, while migrations execute as the non-superuser DB
+            # owner. RESET ROLE within SQL must return to neondb_owner.
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='neondb_owner'")
+            if cur.fetchone() is None:
+                cur.execute("CREATE ROLE neondb_owner NOLOGIN CREATEDB CREATEROLE")
+            cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
+            cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
             for name in (
@@ -68,11 +76,12 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261114_customer_usage_read_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
                 "20261119_general_runtime_customer_identity_acl.sql",
-                "20261122_customer_rate_limit_owner_boundary.sql",
                 "20261121_security_audit_writer_boundary.sql",
+                "20261122_customer_rate_limit_owner_boundary.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
                 cur.execute(migration_path.read_text(encoding="utf-8"))
+            cur.execute("RESET SESSION AUTHORIZATION")
             # The admin DSN is fixture-only; app traffic uses a dedicated NOINHERIT login.
             cls.login_role = "jas_si_identity_login_" + uuid.uuid4().hex
             cls.login_password = uuid.uuid4().hex + uuid.uuid4().hex
