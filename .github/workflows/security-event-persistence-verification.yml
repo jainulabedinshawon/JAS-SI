@@ -15,14 +15,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "tests/test_postgres_security_event_store_integration.py"
-      - "Dockerfile"
-      - "requirements.lock.txt"
-      - "src/jas_si_agent/**"
-      - ".github/workflows/security-event-persistence-verification.yml"
-      - "tests/test_security_event_store.py"
-      - "tests/test_rest_api.py"
 
 permissions:
   contents: read
