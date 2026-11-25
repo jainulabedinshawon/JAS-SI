@@ -62,11 +62,15 @@ $block$;
 GRANT USAGE ON SCHEMA public
     TO jas_si_customer_rate_limit_owner, jas_si_customer_runtime;
 
+-- PostgreSQL requires the new owner to have CREATE on the containing
+-- schema before ownership can be transferred. Grant it temporarily, then
+-- revoke it after the owner-bound SECURITY DEFINER routine is installed.
+GRANT CREATE ON SCHEMA public TO jas_si_customer_rate_limit_owner;
+
 -- Preserve existing rate-limit buckets while transferring ownership.
 ALTER TABLE public.jas_si_customer_rate_limits
     OWNER TO jas_si_customer_rate_limit_owner;
 
-GRANT CREATE ON SCHEMA public TO jas_si_customer_rate_limit_owner;
 SET LOCAL ROLE jas_si_customer_rate_limit_owner;
 
 CREATE OR REPLACE FUNCTION public.jas_si_customer_rate_limit_check(
