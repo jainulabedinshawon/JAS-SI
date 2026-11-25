@@ -29,3 +29,9 @@ class TestBillingCatalog(TestCase):
         response = TestClient(api.app).get("/plans")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["payment_status"], "not_connected")
+
+    def test_public_pricing_alias_is_preview_only(self):
+        response = TestClient(api.app).get("/pricing")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["payment_status"], "not_connected")
+        self.assertFalse(any(plan["purchasable"] for plan in response.json()["plans"] if plan["plan_id"] != "free"))
