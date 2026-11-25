@@ -67,9 +67,23 @@ GRANT USAGE ON SCHEMA public
 -- revoke it after the owner-bound SECURITY DEFINER routine is installed.
 GRANT CREATE ON SCHEMA public TO jas_si_customer_rate_limit_owner;
 
--- Preserve existing rate-limit buckets while transferring ownership.
-ALTER TABLE public.jas_si_customer_rate_limits
-    OWNER TO jas_si_customer_rate_limit_owner;
+-- Preserve existing rate-limit buckets while transferring ownership. On replay,
+-- the dedicated owner already owns this relation; avoid requiring the platform
+-- migration role to re-own an object it no longer owns.
+DO $transfer_owner$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relname='jas_si_customer_rate_limits'
+          AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles
+                             WHERE rolname='jas_si_customer_rate_limit_owner')
+    ) THEN
+        ALTER TABLE public.jas_si_customer_rate_limits
+            OWNER TO jas_si_customer_rate_limit_owner;
+    END IF;
+END
+$transfer_owner$;
 
 SET LOCAL ROLE jas_si_customer_rate_limit_owner;
 
