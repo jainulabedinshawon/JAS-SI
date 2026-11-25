@@ -137,13 +137,13 @@ jobs:
               # not customer migrations. Create them explicitly on the empty DB.
               for role in (
                   "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
-                  "neondb_owner", "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
+                  "neondb_owner", "cloud_admin", "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
                       cur.execute(
                           f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER '
-                          + ("CREATEDB CREATEROLE " if role == "neondb_owner" else "NOCREATEDB NOCREATEROLE ")
+                          + ("CREATEDB CREATEROLE " if role in ("neondb_owner", "cloud_admin") else "NOCREATEDB NOCREATEROLE ")
                           + "NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
 
@@ -151,13 +151,15 @@ jobs:
               # migration session identity. RESET ROLE inside migrations must
               # return to this role, not to the local superuser bootstrap login.
               cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-              # Neon grants the migration role ADMIN OPTION on service group
-              # roles so it can enforce their NOLOGIN/NOINHERIT attributes.
+              # Mirror Neon role administration: cloud_admin is the grantor
+              # of ADMIN memberships; neondb_owner grants SET-only membership.
+              cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for managed_role in ("jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"):
                   cur.execute(
                       f'GRANT "{managed_role}" TO neondb_owner '
                       "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                   )
+              cur.execute("RESET SESSION AUTHORIZATION")
               cur.execute("SET SESSION AUTHORIZATION neondb_owner")
 
               for replay in (1, 2):
