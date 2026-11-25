@@ -79,7 +79,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     f'ALTER TABLE IF EXISTS public."{table}" OWNER TO neondb_owner'
                 )
             cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_chain_state OWNER TO neondb_owner")
-            cur.execute("ALTER FUNCTION IF EXISTS public.jas_si_reject_usage_event_mutation() OWNER TO neondb_owner")
+            cur.execute("SELECT pg_catalog.to_regprocedure('public.jas_si_reject_usage_event_mutation()')")
+            if cur.fetchone()[0] is not None:
+                cur.execute("ALTER FUNCTION public.jas_si_reject_usage_event_mutation() OWNER TO neondb_owner")
             cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_events OWNER TO neondb_owner")
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for managed_role in (
