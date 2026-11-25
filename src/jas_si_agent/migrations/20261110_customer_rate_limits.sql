@@ -9,14 +9,32 @@ CREATE TABLE IF NOT EXISTS jas_si_customer_rate_limits (
     CONSTRAINT jas_si_customer_rate_count_positive CHECK (request_count > 0)
 );
 
-CREATE INDEX IF NOT EXISTS jas_si_customer_rate_limits_updated_idx
-    ON jas_si_customer_rate_limits (updated_at);
-
-DO $$
+-- This baseline migration runs before the dedicated-owner migration on
+-- first install, and is replayed after that ownership transfer in clean-chain
+-- idempotency tests. Skip DDL once the dedicated owner owns the relation.
+DO $migration$
+DECLARE
+    v_table_owner text;
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'jas_si_customer_runtime') THEN
+    SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      INTO v_table_owner
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='public' AND c.relname='jas_si_customer_rate_limits';
+
+    IF v_table_owner = 'jas_si_customer_rate_limit_owner' THEN
+        RETURN;
+    END IF;
+
+    IF v_table_owner IS DISTINCT FROM current_user THEN
+        RAISE EXCEPTION 'Unexpected owner % for customer rate-limit table during baseline migration', v_table_owner;
+    END IF;
+
+    EXECUTE 'CREATE INDEX IF NOT EXISTS jas_si_customer_rate_limits_updated_idx ON public.jas_si_customer_rate_limits (updated_at)';
+
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'jas_si_customer_runtime') THEN
         EXECUTE 'GRANT SELECT, INSERT, UPDATE ON TABLE public.jas_si_customer_rate_limits TO jas_si_customer_runtime';
         EXECUTE 'REVOKE DELETE, TRUNCATE ON TABLE public.jas_si_customer_rate_limits FROM jas_si_customer_runtime';
     END IF;
 END
-$$;
+$migration$;

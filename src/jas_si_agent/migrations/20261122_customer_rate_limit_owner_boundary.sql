@@ -67,9 +67,23 @@ GRANT USAGE ON SCHEMA public
 -- revoke it after the owner-bound SECURITY DEFINER routine is installed.
 GRANT CREATE ON SCHEMA public TO jas_si_customer_rate_limit_owner;
 
--- Preserve existing rate-limit buckets while transferring ownership.
-ALTER TABLE public.jas_si_customer_rate_limits
-    OWNER TO jas_si_customer_rate_limit_owner;
+-- Preserve existing rate-limit buckets while transferring ownership. On replay,
+-- the dedicated owner already owns this relation; avoid requiring the platform
+-- migration role to re-own an object it no longer owns.
+DO $transfer_owner$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relname='jas_si_customer_rate_limits'
+          AND c.relowner <> (SELECT oid FROM pg_catalog.pg_roles
+                             WHERE rolname='jas_si_customer_rate_limit_owner')
+    ) THEN
+        ALTER TABLE public.jas_si_customer_rate_limits
+            OWNER TO jas_si_customer_rate_limit_owner;
+    END IF;
+END
+$transfer_owner$;
 
 SET LOCAL ROLE jas_si_customer_rate_limit_owner;
 
@@ -162,6 +176,11 @@ GRANT EXECUTE ON FUNCTION public.jas_si_customer_rate_limit_check(bytea,integer,
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM jas_si_customer_rate_limit_owner;
 
+-- The original table grants were issued by neondb_owner. After ownership
+-- transfer, revoke them while acting as the new table owner; the old grantor
+-- no longer has the ownership authority required to revoke grants on this relation.
+SET LOCAL ROLE jas_si_customer_rate_limit_owner;
+
 -- No application role may inspect or mutate bucket state directly. The
 -- database-owned routine is the only permitted access path. Revoke legacy
 -- table and column grants from all application roles, including inherited
@@ -209,3 +228,6 @@ BEGIN
     END LOOP;
 END
 $assert_runtime_acl$;
+
+-- Do not leak the dedicated owner role into subsequent migrations or callers.
+RESET ROLE;

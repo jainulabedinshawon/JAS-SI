@@ -48,6 +48,85 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
                 if cur.fetchone() is None:
                     cur.execute(f'CREATE ROLE "{role}" NOLOGIN')
+            # Match Neon migration execution: the bootstrap connection is
+            # administrative, while migrations execute as the non-superuser DB
+            # owner. RESET ROLE within SQL must return to neondb_owner.
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='neondb_owner'")
+            if cur.fetchone() is None:
+                cur.execute("CREATE ROLE neondb_owner NOLOGIN CREATEDB CREATEROLE")
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='cloud_admin'")
+            if cur.fetchone() is None:
+                cur.execute("CREATE ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE")
+            # Match Neon's managed administrative role: cloud_admin is a
+            # superuser and can grant memberships without becoming a member.
+            cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
+            cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
+            cur.execute("SELECT pg_catalog.format('ALTER DATABASE %I OWNER TO neondb_owner', current_database())")
+            cur.execute(cur.fetchone()[0])
+            # Earlier integration suites share this CI database and may have
+            # created platform tables as their own connection role. The clean
+            # migration fixture must own every pre-existing table it replays;
+            # otherwise CREATE INDEX / ALTER TABLE fails before the migration
+            # under test is reached. This is test-only fixture normalization.
+            for table in (
+                "jas_si_tenants", "jas_si_api_keys", "jas_si_api_key_provisioning_runs",
+                "jas_si_usage_events", "jas_si_customer_accounts",
+                "jas_si_customer_auth_tokens", "jas_si_customer_sessions",
+                "jas_si_customer_rate_limits", "jas_si_audit_chain_state",
+                "jas_si_audit_events",
+            ):
+                cur.execute(
+                    f'ALTER TABLE IF EXISTS public."{table}" OWNER TO neondb_owner'
+                )
+            cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_chain_state OWNER TO neondb_owner")
+            cur.execute("SELECT pg_catalog.to_regprocedure('public.jas_si_reject_usage_event_mutation()')")
+            if cur.fetchone()[0] is not None:
+                cur.execute("ALTER FUNCTION public.jas_si_reject_usage_event_mutation() OWNER TO neondb_owner")
+            cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_events OWNER TO neondb_owner")
+            cur.execute("SET SESSION AUTHORIZATION cloud_admin")
+            for managed_role in (
+                "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
+            ):
+                cur.execute(
+                    f'GRANT "{managed_role}" TO neondb_owner '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
+            cur.execute("RESET SESSION AUTHORIZATION")
+            # Pre-create SECURITY DEFINER owner roles and mirror Neon:
+            # cloud_admin ADMIN grant + migration-created neondb_owner SET grant.
+            owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_api_key_auth_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
+            for owner_role in owner_roles:
+                cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (owner_role,))
+                if cur.fetchone() is None:
+                    cur.execute(
+                        f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                        "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+                    )
+            # Mirror Neon grant provenance: the superuser cloud_admin grants
+            # ADMIN membership directly to neondb_owner without becoming a
+            # member of the protected owner roles itself.
+            cur.execute("SET SESSION AUTHORIZATION cloud_admin")
+            for owner_role in owner_roles:
+                cur.execute(
+                    f'GRANT "{owner_role}" TO neondb_owner '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
+            cur.execute("RESET SESSION AUTHORIZATION")
+            cur.execute("SET SESSION AUTHORIZATION neondb_owner")
+            # Emit the exact catalog state before the identity migration's
+            # fail-closed membership assertion; this is diagnostic only.
+            cur.execute("""
+                SELECT granted.rolname, member.rolname, grantor.rolname,
+                       m.admin_option, m.inherit_option, m.set_option
+                  FROM pg_catalog.pg_auth_members m
+                  JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid
+                  JOIN pg_catalog.pg_roles member ON member.oid=m.member
+                  JOIN pg_catalog.pg_roles grantor ON grantor.oid=m.grantor
+                 WHERE granted.rolname='jas_si_customer_identity_owner'
+                    OR member.rolname='jas_si_customer_identity_owner'
+                 ORDER BY granted.rolname,member.rolname,grantor.rolname
+            """)
+            print("customer identity owner membership fixture:", cur.fetchall())
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
             for name in (
@@ -68,11 +147,15 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 "20261114_customer_usage_read_routines.sql",
                 "20261115_api_key_auth_boundary.sql",
                 "20261119_general_runtime_customer_identity_acl.sql",
-                "20261122_customer_rate_limit_owner_boundary.sql",
                 "20261121_security_audit_writer_boundary.sql",
+                "20261122_customer_rate_limit_owner_boundary.sql",
             ):
                 migration_path = ROOT / "src" / "jas_si_agent" / "migrations" / name
-                cur.execute(migration_path.read_text(encoding="utf-8"))
+                try:
+                    cur.execute(migration_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    raise RuntimeError(f"Customer identity migration failed: {name}") from exc
+            cur.execute("RESET SESSION AUTHORIZATION")
             # The admin DSN is fixture-only; app traffic uses a dedicated NOINHERIT login.
             cls.login_role = "jas_si_identity_login_" + uuid.uuid4().hex
             cls.login_password = uuid.uuid4().hex + uuid.uuid4().hex

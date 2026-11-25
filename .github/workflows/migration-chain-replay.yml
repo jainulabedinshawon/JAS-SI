@@ -29,17 +29,17 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_DB: jas_si_migration_replay
-          POSTGRES_USER: jas_si
+          POSTGRES_USER: cloud_admin
           POSTGRES_PASSWORD: test-only-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U jas_si -d jas_si_migration_replay"
+          --health-cmd "pg_isready -U cloud_admin -d jas_si_migration_replay"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      JAS_SI_MIGRATION_REPLAY_DATABASE_URL: postgresql://jas_si:test-only-password@localhost:5432/jas_si_migration_replay
+      JAS_SI_MIGRATION_REPLAY_DATABASE_URL: postgresql://cloud_admin:test-only-password@localhost:5432/jas_si_migration_replay
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -137,14 +137,63 @@ jobs:
               # not customer migrations. Create them explicitly on the empty DB.
               for role in (
                   "jas_si_runtime", "jas_si_provisioner", "jas_si_customer_runtime",
-                  "neondb_owner", "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
+                  "neondb_owner", "cloud_admin", "jas_si_agent_worker_login", "jas_si_agent_verifier_login",
               ):
                   cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (role,))
                   if cur.fetchone() is None:
                       cur.execute(
-                          f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOCREATEDB '
+                          f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER '
+                          + ("CREATEDB CREATEROLE " if role in ("neondb_owner", "cloud_admin") else "NOCREATEDB NOCREATEROLE ")
+                          + "NOREPLICATION NOBYPASSRLS NOINHERIT"
+                      )
+
+              # Match Neon: cloud_admin is the managed superuser grantor,
+              # while neondb_owner owns the public schema and runs migrations.
+              # RESET ROLE inside migrations must return to neondb_owner.
+              cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
+              cur.execute("ALTER DATABASE jas_si_migration_replay OWNER TO neondb_owner")
+              cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
+              cur.execute("SET SESSION AUTHORIZATION cloud_admin")
+              for managed_role in ("jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"):
+                  cur.execute(
+                      f'GRANT "{managed_role}" TO neondb_owner '
+                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                  )
+              cur.execute("RESET SESSION AUTHORIZATION")
+              # Pre-create database-owned SECURITY DEFINER principals and
+              # seed Neon's cloud_admin ADMIN grant before the migrations add
+              # neondb_owner's separate SET-only membership.
+              owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
+              for owner_role in owner_roles:
+                  cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (owner_role,))
+                  if cur.fetchone() is None:
+                      cur.execute(
+                          f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
+              # Neon records cloud_admin as grantor without making it a
+              # member of the protected NOLOGIN owner roles.
+              cur.execute("SET SESSION AUTHORIZATION cloud_admin")
+              for owner_role in owner_roles:
+                  cur.execute(
+                      f'GRANT "{owner_role}" TO neondb_owner '
+                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                  )
+              cur.execute("RESET SESSION AUTHORIZATION")
+              cur.execute("SET SESSION AUTHORIZATION neondb_owner")
+              # Emit membership provenance before fail-closed owner-role checks.
+              cur.execute("""
+                  SELECT granted.rolname, member.rolname, grantor.rolname,
+                         m.admin_option, m.inherit_option, m.set_option
+                    FROM pg_catalog.pg_auth_members m
+                    JOIN pg_catalog.pg_roles granted ON granted.oid=m.roleid
+                    JOIN pg_catalog.pg_roles member ON member.oid=m.member
+                    JOIN pg_catalog.pg_roles grantor ON grantor.oid=m.grantor
+                   WHERE granted.rolname='jas_si_customer_identity_owner'
+                      OR member.rolname='jas_si_customer_identity_owner'
+                   ORDER BY granted.rolname,member.rolname,grantor.rolname
+              """)
+              print("customer identity owner membership fixture:", cur.fetchall())
 
               for replay in (1, 2):
                   for name in migrations:
@@ -153,6 +202,7 @@ jobs:
                           raise SystemExit(f"Missing migration in canonical replay order: {name}")
                       cur.execute(path.read_text(encoding="utf-8"))
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
+              cur.execute("RESET SESSION AUTHORIZATION")
 
               # The customer email limiter must be isolated behind its dedicated
               # NOLOGIN owner routine after every clean replay. Catch drift before
