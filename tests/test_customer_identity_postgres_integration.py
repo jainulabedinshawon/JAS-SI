@@ -55,6 +55,14 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             if cur.fetchone() is None:
                 cur.execute("CREATE ROLE neondb_owner NOLOGIN CREATEDB CREATEROLE")
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
+            # Match the Neon cloud_admin -> neondb_owner ADMIN memberships.
+            for managed_role in (
+                "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
+            ):
+                cur.execute(
+                    f'GRANT "{managed_role}" TO neondb_owner '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
