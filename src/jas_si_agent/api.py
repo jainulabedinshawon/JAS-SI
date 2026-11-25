@@ -1321,6 +1321,12 @@ def public_plan_catalog() -> dict:
     return get_plan_catalog()
 
 
+@app.get("/pricing")
+def public_pricing_catalog() -> dict:
+    """Compatibility alias for the public pricing preview; checkout remains disabled."""
+    return get_plan_catalog()
+
+
 @app.get("/health")
 def health() -> dict:
     """Public liveness endpoint; never return secret configuration."""
