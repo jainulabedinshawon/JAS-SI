@@ -94,7 +94,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             cur.execute("RESET SESSION AUTHORIZATION")
             # Pre-create SECURITY DEFINER owner roles and mirror Neon:
             # cloud_admin ADMIN grant + migration-created neondb_owner SET grant.
-            owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
+            owner_roles = ["jas_si_customer_identity_owner","jas_si_customer_key_owner","jas_si_api_key_auth_owner","jas_si_audit_writer_owner","jas_si_customer_rate_limit_owner"]
             for owner_role in owner_roles:
                 cur.execute("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=%s", (owner_role,))
                 if cur.fetchone() is None:
