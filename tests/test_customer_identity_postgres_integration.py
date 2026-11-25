@@ -54,10 +54,19 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname='neondb_owner'")
             if cur.fetchone() is None:
                 cur.execute("CREATE ROLE neondb_owner NOLOGIN CREATEDB CREATEROLE")
-            cur.execute("CREATE ROLE cloud_admin NOLOGIN CREATEROLE")
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname='cloud_admin'")
+            if cur.fetchone() is None:
+                cur.execute("CREATE ROLE cloud_admin NOLOGIN CREATEROLE")
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-            # Match Neon grant provenance: cloud_admin grants ADMIN option;
-            # neondb_owner later grants its SET-only owner-role memberships.
+            # Bootstrap cloud_admin's ADMIN OPTION using the local
+            # administrative fixture, then preserve cloud_admin as grantor.
+            for managed_role in (
+                "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
+            ):
+                cur.execute(
+                    f'GRANT "{managed_role}" TO cloud_admin '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for managed_role in (
                 "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
