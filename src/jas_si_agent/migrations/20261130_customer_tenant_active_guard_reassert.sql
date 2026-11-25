@@ -1,5 +1,9 @@
 -- Restore the production tenant-status boundary on customer identity and usage routines.
 -- CREATE OR REPLACE preserves existing function ownership and ACLs.
+-- These routines are owned by the dedicated NOLOGIN identity owner.
+-- Reassert their bodies under that owner; neondb_owner has SET-only membership.
+SET LOCAL ROLE jas_si_customer_identity_owner;
+
 CREATE OR REPLACE FUNCTION public.customer_authenticate_session(p_session_digest bytea)
 RETURNS TABLE(account_id uuid, tenant_id uuid, email text, organization_name text, status text)
 LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog'
@@ -158,6 +162,8 @@ BEGIN
         WHERE e.tenant_id=v_tenant_id AND e.occurred_at>=v_month_start),0)::bigint;
 END;
 $function$;
+
+RESET ROLE;
 
 DO $assert$
 DECLARE v_name text; v_def text;
