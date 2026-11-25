@@ -151,6 +151,13 @@ jobs:
               # migration session identity. RESET ROLE inside migrations must
               # return to this role, not to the local superuser bootstrap login.
               cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
+              # Neon grants the migration role ADMIN OPTION on service group
+              # roles so it can enforce their NOLOGIN/NOINHERIT attributes.
+              for managed_role in ("jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"):
+                  cur.execute(
+                      f'GRANT "{managed_role}" TO neondb_owner '
+                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                  )
               cur.execute("SET SESSION AUTHORIZATION neondb_owner")
 
               for replay in (1, 2):
