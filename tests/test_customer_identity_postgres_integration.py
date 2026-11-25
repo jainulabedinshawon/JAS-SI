@@ -56,17 +56,11 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                 cur.execute("CREATE ROLE neondb_owner NOLOGIN CREATEDB CREATEROLE")
             cur.execute("SELECT 1 FROM pg_roles WHERE rolname='cloud_admin'")
             if cur.fetchone() is None:
-                cur.execute("CREATE ROLE cloud_admin NOLOGIN CREATEROLE")
+                cur.execute("CREATE ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE")
+            # Match Neon's managed administrative role: cloud_admin is a
+            # superuser and can grant memberships without becoming a member.
+            cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
-            # Bootstrap cloud_admin's ADMIN OPTION using the local
-            # administrative fixture, then preserve cloud_admin as grantor.
-            for managed_role in (
-                "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
-            ):
-                cur.execute(
-                    f'GRANT "{managed_role}" TO cloud_admin '
-                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                )
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for managed_role in (
                 "jas_si_customer_runtime", "jas_si_runtime", "jas_si_provisioner"
@@ -86,16 +80,9 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                         "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                     )
-            # Bootstrap ADMIN OPTION for cloud_admin before it grants the
-            # matching membership to neondb_owner, mirroring Neon provenance.
-            # Temporarily delegate ADMIN OPTION so cloud_admin can grant
-            # neondb_owner. Revoke the bootstrap membership before migrations:
-            # the production invariant forbids cloud_admin being an owner-role member.
-            for owner_role in owner_roles:
-                cur.execute(
-                    f'GRANT "{owner_role}" TO cloud_admin '
-                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
-                )
+            # Mirror Neon grant provenance: the superuser cloud_admin grants
+            # ADMIN membership directly to neondb_owner without becoming a
+            # member of the protected owner roles itself.
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for owner_role in owner_roles:
                 cur.execute(
@@ -103,8 +90,6 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
             cur.execute("RESET SESSION AUTHORIZATION")
-            for owner_role in owner_roles:
-                cur.execute(f'REVOKE "{owner_role}" FROM cloud_admin')
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
