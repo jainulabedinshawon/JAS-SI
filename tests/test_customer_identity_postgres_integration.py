@@ -63,8 +63,21 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
             cur.execute("SELECT pg_catalog.format('ALTER DATABASE %I OWNER TO neondb_owner', current_database())")
             cur.execute(cur.fetchone()[0])
-            # Existing shared PostgreSQL test tables may have been bootstrapped by jas_si.
-            # Transfer only these audit tables to the migration database owner.
+            # Earlier integration suites share this CI database and may have
+            # created platform tables as their own connection role. The clean
+            # migration fixture must own every pre-existing table it replays;
+            # otherwise CREATE INDEX / ALTER TABLE fails before the migration
+            # under test is reached. This is test-only fixture normalization.
+            for table in (
+                "jas_si_tenants", "jas_si_api_keys", "jas_si_api_key_provisioning_runs",
+                "jas_si_usage_events", "jas_si_customer_accounts",
+                "jas_si_customer_auth_tokens", "jas_si_customer_sessions",
+                "jas_si_customer_rate_limits", "jas_si_audit_chain_state",
+                "jas_si_audit_events",
+            ):
+                cur.execute(
+                    f'ALTER TABLE IF EXISTS public."{table}" OWNER TO neondb_owner'
+                )
             cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_chain_state OWNER TO neondb_owner")
             cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_events OWNER TO neondb_owner")
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
