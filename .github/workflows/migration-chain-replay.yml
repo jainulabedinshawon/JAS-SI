@@ -154,6 +154,76 @@ jobs:
                       cur.execute(path.read_text(encoding="utf-8"))
                   print(f"Migration pass {replay}: {len(migrations)} files applied")
 
+              # The customer email limiter must be isolated behind its dedicated
+              # NOLOGIN owner routine after every clean replay. Catch drift before
+              # any environment migration is considered safe to apply.
+              cur.execute("""
+                  SELECT
+                    NOT EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_roles
+                       WHERE rolname='jas_si_customer_rate_limit_owner'
+                         AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+                         AND NOT rolcreaterole AND NOT rolreplication
+                         AND NOT rolbypassrls AND NOT rolinherit
+                    )
+                    OR pg_catalog.pg_get_userbyid(
+                         (SELECT relowner FROM pg_catalog.pg_class
+                           WHERE oid='public.jas_si_customer_rate_limits'::regclass)
+                       ) <> 'jas_si_customer_rate_limit_owner'
+                    OR pg_catalog.pg_get_userbyid(
+                         (SELECT proowner FROM pg_catalog.pg_proc
+                           WHERE oid=pg_catalog.to_regprocedure(
+                             'public.jas_si_customer_rate_limit_check(bytea,integer,integer)'))
+                       ) <> 'jas_si_customer_rate_limit_owner'
+                    OR NOT EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_proc p
+                       WHERE p.oid=pg_catalog.to_regprocedure(
+                         'public.jas_si_customer_rate_limit_check(bytea,integer,integer)')
+                         AND p.prosecdef
+                         AND 'search_path=pg_catalog'=ANY(
+                           COALESCE(p.proconfig,ARRAY[]::text[]))
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM (VALUES ('jas_si_customer_runtime'),
+                                     ('jas_si_runtime'),
+                                     ('jas_si_provisioner')) roles(role_name)
+                        CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),
+                                           ('DELETE'),('TRUNCATE'),('REFERENCES'),
+                                           ('TRIGGER')) privileges(privilege)
+                       WHERE pg_catalog.has_table_privilege(
+                         role_name,'public.jas_si_customer_rate_limits',privilege)
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM (VALUES ('jas_si_customer_runtime'),
+                                     ('jas_si_runtime'),
+                                     ('jas_si_provisioner')) roles(role_name)
+                        CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),
+                                           ('REFERENCES')) privileges(privilege)
+                       WHERE pg_catalog.has_any_column_privilege(
+                         role_name,'public.jas_si_customer_rate_limits',privilege)
+                    )
+                    OR EXISTS (
+                      SELECT 1 FROM pg_catalog.aclexplode(
+                        COALESCE(
+                          (SELECT proacl FROM pg_catalog.pg_proc
+                            WHERE oid=pg_catalog.to_regprocedure(
+                              'public.jas_si_customer_rate_limit_check(bytea,integer,integer)')),
+                          pg_catalog.acldefault('f',
+                            (SELECT proowner FROM pg_catalog.pg_proc
+                              WHERE oid=pg_catalog.to_regprocedure(
+                                'public.jas_si_customer_rate_limit_check(bytea,integer,integer)')))
+                        )
+                      ) acl
+                      WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                    )
+              """)
+              if cur.fetchone()[0]:
+                  raise SystemExit(
+                      "Customer rate-limit owner/routine boundary is not least-privilege"
+                  )
+
               # Simulate dedicated login-to-capability SET ROLE memberships in
               # this disposable CI database; no credentials are provisioned.
               cur.execute(
