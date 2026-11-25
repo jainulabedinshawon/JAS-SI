@@ -61,6 +61,8 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
             # superuser and can grant memberships without becoming a member.
             cur.execute("ALTER ROLE cloud_admin LOGIN SUPERUSER CREATEDB CREATEROLE INHERIT BYPASSRLS")
             cur.execute("ALTER SCHEMA public OWNER TO neondb_owner")
+            cur.execute("SELECT pg_catalog.format('ALTER DATABASE %I OWNER TO neondb_owner', current_database())")
+            cur.execute(cur.fetchone()[0])
             # Existing shared PostgreSQL test tables may have been bootstrapped by jas_si.
             # Transfer only these audit tables to the migration database owner.
             cur.execute("ALTER TABLE IF EXISTS public.jas_si_audit_chain_state OWNER TO neondb_owner")
@@ -172,13 +174,13 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
         with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
             cur.execute("SELECT session_user, current_user")
             self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
-            cur.execute("RESET SESSION AUTHORIZATION")
+            cur.execute("RESET ROLE")
             cur.execute("SELECT session_user, current_user")
             self.assertEqual(cur.fetchone(), (self.login_role, "jas_si_customer_runtime"))
         self.assertFalse(PostgresCustomerIdentityStore(self.login_dsn, self.pepper).verify_schema())
         with self.assertRaises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(self.dsn) as conn, conn.cursor() as cur:
-                cur.execute("RESET SESSION AUTHORIZATION")
+                cur.execute("RESET ROLE")
                 cur.execute("SET ROLE jas_si_provisioner")
 
     def setUp(self):
@@ -1055,7 +1057,7 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                         cur.execute(f"SELECT * FROM public.{table} LIMIT 1")
                     cur.execute("ROLLBACK TO SAVEPOINT direct_identity_read_probe")
                     cur.execute("RELEASE SAVEPOINT direct_identity_read_probe")
-                    cur.execute("RESET SESSION AUTHORIZATION")
+                    cur.execute("RESET ROLE")
 
             for role in ("jas_si_runtime", "jas_si_provisioner"):
                 cur.execute(
