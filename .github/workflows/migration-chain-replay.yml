@@ -176,11 +176,14 @@ jobs:
                           f'CREATE ROLE "{owner_role}" NOLOGIN NOSUPERUSER NOCREATEDB '
                           "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
                       )
-              # The superuser fixture must delegate ADMIN OPTION to cloud_admin
-              # before cloud_admin can grant neondb_owner its ADMIN membership.
-              # cloud_admin (CREATEROLE) is the grantor of ADMIN membership
-              # directly to neondb_owner. Do not add cloud_admin as a member
-              # of the protected owner role: the migration rejects that path.
+              # Temporarily delegate ADMIN OPTION so cloud_admin can grant
+              # neondb_owner. Revoke bootstrap membership before migrations:
+              # production invariant forbids cloud_admin being an owner-role member.
+              for owner_role in owner_roles:
+                  cur.execute(
+                      f'GRANT "{owner_role}" TO cloud_admin '
+                      "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                  )
               cur.execute("SET SESSION AUTHORIZATION cloud_admin")
               for owner_role in owner_roles:
                   cur.execute(
@@ -188,6 +191,8 @@ jobs:
                       "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                   )
               cur.execute("RESET SESSION AUTHORIZATION")
+              for owner_role in owner_roles:
+                  cur.execute(f'REVOKE "{owner_role}" FROM cloud_admin')
               cur.execute("SET SESSION AUTHORIZATION neondb_owner")
 
               for replay in (1, 2):
