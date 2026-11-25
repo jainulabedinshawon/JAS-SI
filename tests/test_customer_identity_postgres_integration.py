@@ -88,9 +88,14 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     )
             # Bootstrap ADMIN OPTION for cloud_admin before it grants the
             # matching membership to neondb_owner, mirroring Neon provenance.
-            # cloud_admin (CREATEROLE) grants ADMIN membership directly to
-            # neondb_owner. Do not make cloud_admin a member of protected owner
-            # roles; the migration intentionally rejects that extra membership.
+            # Temporarily delegate ADMIN OPTION so cloud_admin can grant
+            # neondb_owner. Revoke the bootstrap membership before migrations:
+            # the production invariant forbids cloud_admin being an owner-role member.
+            for owner_role in owner_roles:
+                cur.execute(
+                    f'GRANT "{owner_role}" TO cloud_admin '
+                    "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
+                )
             cur.execute("SET SESSION AUTHORIZATION cloud_admin")
             for owner_role in owner_roles:
                 cur.execute(
@@ -98,6 +103,8 @@ class TestPostgresCustomerIdentity(unittest.TestCase):
                     "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE"
                 )
             cur.execute("RESET SESSION AUTHORIZATION")
+            for owner_role in owner_roles:
+                cur.execute(f'REVOKE "{owner_role}" FROM cloud_admin')
             cur.execute("SET SESSION AUTHORIZATION neondb_owner")
             # Build the same tenant/RLS foundation used by the customer
             # application before exercising its dedicated runtime role.
