@@ -65,6 +65,10 @@ The Main-branch clean replay workflow treats every canonical security and Agent 
 
 The mandatory security/agent sequence begins with the customer identity/API-key ACL and audit/rate-limit writer boundaries (20261119–20261122), continues through task scope, task store and worker lifecycle (20261123–20261124), then proceeds through usage scope, failure handling, evidence finalization, verifier claims, default ACLs, active-tenant guard and inconclusive/human-review lifecycle (20261125–20261201). The workflow's explicit ordered list is authoritative; do not infer applied migration state from filenames or table presence alone.
 
+## Agent host liveness and readiness verification
+
+The Worker and independent Verifier supervisors expose local `/health` liveness and `/ready` readiness endpoints. Liveness only confirms the process HTTP handler is responding. Readiness remains HTTP 503 until the host completes a successful database-backed poll; a later poll failure returns readiness to 503. The Main Docker Container Verification workflow exercises the Worker health server inside the locked application image, checks the not-ready-to-ready transition, and verifies the image health check. Unit tests separately cover Worker and Verifier supervisor state transitions. These checks do not prove that a live Render service is deployed or that a real Staging DSN is configured.
+
 ## Staging prerequisites
 
 Complete these in an isolated, disposable Neon staging branch — never against Production as part of this checklist:
