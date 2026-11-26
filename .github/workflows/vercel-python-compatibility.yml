@@ -5,6 +5,9 @@ on:
 
   push:
     paths:
+      - "README.md"
+      - "MASTER-ENGINEERING-DIRECTIVE.md"
+      - "docs/**"
       - "main.py"
       - ".python-version"
       - "requirements.txt"
@@ -18,6 +21,9 @@ on:
     branches:
       - main
     paths:
+      - "README.md"
+      - "MASTER-ENGINEERING-DIRECTIVE.md"
+      - "docs/**"
       - "main.py"
       - ".python-version"
       - "requirements.txt"
