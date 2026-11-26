@@ -55,33 +55,52 @@ In Platform-linked mode, JAS Platform is the only commerce/financial authority. 
 - Do not promise USD retention or a specific FX conversion outcome until the merchant account, payout method and receiving bank route have been verified. Foreign-exchange and tax obligations must be confirmed with the relevant bank/advisers.
 - Start with one-time purchases or fixed recurring plans supported by the selected provider; do not implement metered monetary billing until usage economics and provider reconciliation are proven.
 
-## Provider assessment (13 Nov 2026)
+## Provider assessment (26 Nov 2026)
 
-### Primary candidate: Paddle
+This is a public-document due-diligence snapshot, not a provider selection, merchant approval, payout confirmation, or authorization to activate an account. Re-check official terms before any application or integration.
 
-Paddle is the leading candidate for international SaaS because it acts as Merchant of Record, supports global checkout, subscriptions and tax handling, and documents Bangladesh (`BD`) in its supported-market table. Its published standard checkout fee is 5% + USD 0.50 per transaction. Payouts are monthly, with a configurable minimum threshold starting at USD 100, and use bank wire or Payoneer. USD is a supported payout currency; BDT is not in Paddle's published payout-currency list, so the actual Bangladesh receiving-bank route, conversion and fees must be verified before activation.
+### International candidate: Paddle
 
-Official references:
-- Supported countries and BD market: https://developer.paddle.com/concepts/sell/supported-countries-locales/
-- Supplier country restrictions: https://www.paddle.com/help/start/account-verification/which-countries-are-supported-by-paddle
-- Standard pricing: https://www.paddle.com/pricing
-- Payout timing/methods: https://www.paddle.com/help/start/intro-to-paddle/when-and-how-do-i-get-paid
-- Payout currencies and conversion margin: https://www.paddle.com/help/manage/get-paid/can-i-be-paid-in-my-local-currency
+Paddle remains the leading international candidate for a Bangladesh-based SaaS merchant. Its current official supported-country documentation lists Bangladesh (BD), and its supplier support page excludes a published set of unsupported countries that does not include Bangladesh. Paddle's published pay-as-you-go Checkout fee is 5% + USD 0.50 per transaction, with no monthly fee stated on its pricing page. Paddle provides Merchant-of-Record checkout, subscriptions, tax handling and buyer support.
 
-### Fallback candidate: Lemon Squeezy
-
-Lemon Squeezy's official supported-country page explicitly lists Bangladesh for bank payouts. Its documentation says transactions are processed in USD, supports localized price display, and converts bank payouts to the local currency at the mid-market rate at payout time. Payouts are scheduled twice monthly after a 13-day holding period. This is a viable fallback if Paddle onboarding or the actual Bangladesh payout route is not approved, but its payout conversion behavior may not satisfy a requirement to retain proceeds in USD.
+Payouts are made by wire transfer or Payoneer. The published minimum payout threshold starts at USD 100; bank/provider charges may still apply. Public eligibility does not establish that this specific business, legal entity, product, bank route or payout account will be approved. The actual Bangladesh receiving-bank route, any SWIFT/intermediary fees, FX conversion and settlement currency must be confirmed before selection.
 
 Official references:
-- Supported countries (Bangladesh bank payout): https://docs.lemonsqueezy.com/help/getting-started/supported-countries
-- Getting paid and payout schedule: https://docs.lemonsqueezy.com/help/getting-started/getting-paid
-- USD processing and payout conversion: https://docs.lemonsqueezy.com/help/payments/currencies
+- Supported countries and Bangladesh (BD): https://developer.paddle.com/concepts/sell/supported-countries-locales/
+- Supplier country eligibility: https://www.paddle.com/help/start/account-verification/which-countries-are-supported-by-paddle
+- Current Checkout pricing: https://www.paddle.com/pricing
+- Payout methods and threshold: https://www.paddle.com/help/manage/get-paid/when-and-how-do-i-get-paid
+- Payout fees: https://www.paddle.com/help/manage/get-paid/is-there-a-fee-taken-for-payouts
+- FX and payout currency: https://www.paddle.com/help/manage/get-paid/can-i-be-paid-in-my-local-currency
 
-### Stripe
+### Bangladesh local candidate: SSLCOMMERZ
 
-Do not make Stripe the default assumption for a Bangladesh-registered merchant. Bangladesh is not listed in Stripe's current supported business-account countries: https://stripe.com/global. A foreign-country Stripe account requires a genuine eligible legal entity, tax ID, physical location and bank account in that country; do not use nominee, borrowed or fabricated business details: https://support.stripe.com/questions/requirements-to-open-a-stripe-account-in-another-country.
+SSLCOMMERZ is a local hosted-gateway candidate with official API documentation for session initiation, IPN notification and server-side Order Validation API checks. Its currently published Basic package lists a non-refundable BDT 25,500 one-time setup fee, 2.5% per successful standard transaction and 3.5% for AMEX. These published charges make it incompatible with the current zero-cost activation constraint; no account or integration should be activated now.
 
-**Provider selection remains conditional.** These public documents establish candidate eligibility signals, not approval of this specific business, its legal entity, payout bank, product category or account. Do not create an account, submit an application, or configure credentials without the business owner's explicit choice and action.
+Before any future selection, confirm the merchant's eligibility, current contract/fees, supported payment channels and currencies, settlement schedule, refunds/disputes, recurring-payment capability and bank settlement details directly with SSLCOMMERZ. The public API flow requires validating the IPN with the Order Validation API; a browser redirect or IPN alone is not proof of settled payment.
+
+Official references:
+- Current pricing: https://sslcommerz.com/pricing/
+- Developer integration and IPN/Order Validation flow: https://developer.sslcommerz.com/
+
+### Removed from new-integration shortlist: Lemon Squeezy
+
+Lemon Squeezy's current official documentation states that it is no longer accepting new sign-ups and will shut down on 31 March 2027. Although its supported-country documentation lists Bangladesh bank payouts, it is not a viable new integration candidate for JAS-SI. Do not build a new adapter against a service that is winding down.
+
+Official references:
+- Getting paid / shutdown notice: https://docs.lemonsqueezy.com/help/getting-started/getting-paid
+- Supported countries / shutdown notice: https://docs.lemonsqueezy.com/help/getting-started/supported-countries
+- Currency behavior: https://docs.lemonsqueezy.com/help/payments/currencies
+
+### Not available as a Bangladesh-registered default: Stripe
+
+Bangladesh is not listed in Stripe's current supported business-account countries. Opening an account in another country requires a genuine eligible legal entity, tax ID, physical location, phone number, government-issued ID and physical bank account in that country. Do not use nominee, borrowed or fabricated business details.
+
+Official references:
+- Global availability: https://stripe.com/global
+- Requirements for an account in another country: https://support.stripe.com/questions/requirements-to-open-a-stripe-account-in-another-country
+
+**Current assessment:** Paddle is the international candidate to investigate first; SSLCOMMERZ is a possible Bangladesh-local candidate only if its setup and transaction costs become acceptable. Lemon Squeezy is removed because of its announced shutdown; Stripe is not an eligible default for a Bangladesh-registered merchant. No provider has been selected or approved. No merchant account, application, credential, sandbox/live transaction, production checkout or payment configuration is authorized by this assessment.
 
 ## Implementation sequence
 
