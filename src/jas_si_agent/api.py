@@ -86,9 +86,6 @@ from jas_si_agent.github_installations import is_valid_github_repository
 settings = Settings.from_env()
 
 app = FastAPI(
-
-# Capability deployments trust workload identity only from the ASGI TLS extension.
-app.add_middleware(ASGITLSClientCertificateMiddleware)
     title=settings.service_name,
     version="0.1.0",
     description=(
@@ -98,6 +95,9 @@ app.add_middleware(ASGITLSClientCertificateMiddleware)
         "Versioned API routes have a shared sliding-window rate limit."
     ),
 )
+
+# Capability deployments trust workload identity only from the ASGI TLS extension.
+app.add_middleware(ASGITLSClientCertificateMiddleware)
 
 api_key_header = APIKeyHeader(
     name="X-API-Key",
