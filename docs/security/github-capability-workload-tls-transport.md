@@ -36,3 +36,24 @@ by this code.
 
 ASGI TLS extension specification:
 https://asgi.readthedocs.io/en/latest/specs/tls.html
+
+## Optional application registry configuration
+
+The API may load a pinned workload identity map from
+`JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES`, encoded as JSON:
+
+```json
+{
+  "<lowercase-sha256-leaf-certificate-fingerprint>": {
+    "principal_id": "worker-east-1",
+    "role": "worker"
+  }
+}
+```
+
+The map is validated at startup and attached to application state only when
+configured. An absent map leaves the capability identity dependency fail-closed
+with HTTP 503. This configuration does not create broker routes, establish a
+trusted TLS listener, authorize database task leases or tenant/repository scope,
+or enable private-repository access. Do not configure it on the public Vercel
+deployment; use only a dedicated service behind a trusted mTLS listener.
