@@ -1,6 +1,10 @@
 """Unit tests for bounded and canonical task-store request validation."""
 
+import sys
 import unittest
+import uuid
+from types import ModuleType
+from unittest.mock import patch
 
 from jas_si_agent.agent_task_store import (
     AgentTaskIdempotencyConflict,
@@ -47,6 +51,52 @@ class TestAgentTaskStoreValidation(unittest.TestCase):
         for payload in (None, [], {"value": float("nan")}, {"value": object()}):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 self.store._validate_request(**{**self.valid(), "input_payload": payload})
+
+    def test_get_review_metadata_uses_tenant_scoped_database_routine(self):
+        cursor = type("Cursor", (), {
+            "__enter__": lambda self: self,
+            "__exit__": lambda self, *args: False,
+            "execute": lambda self, query, params: setattr(self, "call", (query, params)),
+            "fetchone": lambda self: (True, "INCONCLUSIVE", "EVIDENCE_MISSING"),
+        })()
+        connection = type("Connection", (), {
+            "__enter__": lambda self: self,
+            "__exit__": lambda self, *args: False,
+            "cursor": lambda self: cursor,
+        })()
+        psycopg = ModuleType("psycopg")
+        psycopg.connect = lambda dsn: connection
+        api_key_id, task_id, digest = uuid.uuid4(), uuid.uuid4(), b"x" * 32
+
+        with patch.dict(sys.modules, {"psycopg": psycopg}):
+            result = self.store.get_review_metadata(
+                api_key_id=api_key_id,
+                candidate_digest=digest,
+                task_id=task_id,
+            )
+
+        self.assertEqual(result, {
+            "review_required": True,
+            "verification_status": "INCONCLUSIVE",
+            "verification_reason_code": "EVIDENCE_MISSING",
+        })
+        query, params = cursor.call
+        self.assertIn("public.jas_si_agent_task_review_metadata(%s,%s,%s)", query)
+        self.assertEqual(params, (api_key_id, digest, task_id))
+
+    def test_get_review_metadata_rejects_invalid_identity_before_database_access(self):
+        for api_key_id, digest, task_id in (
+            ("not-a-uuid", b"x" * 32, uuid.uuid4()),
+            (uuid.uuid4(), b"short", uuid.uuid4()),
+            (uuid.uuid4(), b"x" * 32, "not-a-uuid"),
+        ):
+            with self.subTest(api_key_id=api_key_id, task_id=task_id):
+                with self.assertRaises(ValueError):
+                    self.store.get_review_metadata(
+                        api_key_id=api_key_id,
+                        candidate_digest=digest,
+                        task_id=task_id,
+                    )
 
     def test_rejects_payload_over_64_kib(self):
         with self.assertRaises(ValueError):
