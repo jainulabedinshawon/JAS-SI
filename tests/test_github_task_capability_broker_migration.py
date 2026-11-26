@@ -195,6 +195,24 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                     "SELECT * FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
                     ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
                 ).fetchone()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                worker.execute(
+                    "SELECT * FROM public.jas_si_github_installation_binding_resolve(%s,%s)",
+                    ("11111111-1111-4111-8111-111111111111","octo/repo"),
+                ).fetchone()
+        verifier_dsn = make_conninfo(dsn, user="jas_si_agent_verifier_login", password="verifier-test-secret")
+        with psycopg.connect(verifier_dsn) as verifier:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                verifier.execute(
+                    "SELECT * FROM public.jas_si_github_task_capability_resolve(%s,%s,'verifier',NULL,%s)",
+                    ("33333333-3333-4333-8333-333333333333","jas_si_agent_verifier_login",
+                     "44444444-4444-4444-8444-444444444444"),
+                ).fetchone()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                verifier.execute(
+                    "SELECT * FROM public.jas_si_github_installation_binding_resolve(%s,%s)",
+                    ("11111111-1111-4111-8111-111111111111","octo/repo"),
+                ).fetchone()
         with psycopg.connect(dsn) as admin:
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_worker','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
             self.assertFalse(admin.execute("SELECT has_function_privilege('jas_si_agent_verifier','public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)','EXECUTE')").fetchone()[0])
