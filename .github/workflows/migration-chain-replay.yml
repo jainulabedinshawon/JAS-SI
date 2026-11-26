@@ -134,6 +134,7 @@ jobs:
               "20261201_github_installation_binding.sql",
               "20261130a_general_runtime_default_acl_boundary.sql",
               "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
+              "20261215_github_task_capability_broker.sql",
           )
           missing_agent_runtime_migrations = [
               name for name in required_agent_runtime_migrations
