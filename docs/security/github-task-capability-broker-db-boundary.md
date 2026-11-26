@@ -13,12 +13,12 @@ The Worker and Independent Verifier must not obtain GitHub installation access b
 - The SECURITY DEFINER resolver is owned by the task-owner role and fixes search_path=pg_catalog.
 - A Worker lookup requires the persisted task to be running, the exact workload principal to own its unexpired lease, and the current lease fence to match.
 - A Verifier lookup requires the persisted task to be awaiting verification, the exact verifier principal to own its unexpired claim, and the claim token to match.
-- Both paths require an active tenant, a verified active GitHub installation and repository binding, a bounded repository-read task, a full 40-character commit SHA, and a bounded path list.
+- Both paths require an active tenant, a verified active GitHub installation and repository binding, a bounded repository-read task, a full 40-character commit SHA, and a path list of 1–10 non-empty relative strings, each at most 512 characters, with absolute paths, traversal segments, control characters, and backslashes rejected.
 - The old unscoped installation resolver is revoked from Worker and Verifier; the Broker does not receive that legacy resolver.
 
 ## Expanded negative-case verification
 
-The PostgreSQL integration test also checks that no capability is returned when the tenant is inactive, the installation or repository binding is inactive/unverified, the repository name does not match, the task type or state is wrong, the Worker lease or Verifier claim is expired, the commit SHA is malformed, or the path list is empty/oversized. Invalid role and null-argument combinations must raise the documented validation SQLSTATE. Fixture mutations are restored after each negative assertion so later replay and positive cases remain deterministic.
+The PostgreSQL integration test also checks that no capability is returned when the tenant is inactive, the installation or repository binding is inactive/unverified, the repository name does not match, the task type or state is wrong, the Worker lease or Verifier claim is expired, the commit SHA is malformed, or path entries are empty, non-string, oversized, absolute, contain traversal segments, control characters, or backslashes. Invalid role and null-argument combinations must raise the documented validation SQLSTATE. Fixture mutations are restored after each negative assertion so later replay and positive cases remain deterministic.
 
 These assertions are test coverage only. They do not imply that the migration has been applied to a live Neon branch or that a Broker runtime is deployed.
 
