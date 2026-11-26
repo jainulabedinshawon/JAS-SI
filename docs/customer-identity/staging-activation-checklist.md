@@ -59,6 +59,12 @@ The inspected Production environment does contain `JAS_SI_API_RATE_LIMIT_PEPPER`
 
 No secret values were decrypted or read during this audit.
 
+## Migration-chain integrity invariant (2026-11-26)
+
+The Main-branch clean replay workflow treats every canonical security and Agent Worker/Verifier migration as required input. Missing migration files must fail CI before SQL execution; they must never be silently skipped as an optional migration. The workflow replays the complete ordered chain twice from a clean PostgreSQL 16 database and then checks the resulting least-privilege boundaries. A green replay is evidence only for the exact workflow commit and migration files in that checkout; it is not evidence that a live Neon branch has been migrated or that a production runtime is deployed.
+
+The mandatory security/agent sequence begins with the customer identity/API-key ACL and audit/rate-limit writer boundaries (20261119–20261122), continues through task scope, task store and worker lifecycle (20261123–20261124), then proceeds through usage scope, failure handling, evidence finalization, verifier claims, default ACLs, active-tenant guard and inconclusive/human-review lifecycle (20261125–20261201). The workflow's explicit ordered list is authoritative; do not infer applied migration state from filenames or table presence alone.
+
 ## Staging prerequisites
 
 Complete these in an isolated, disposable Neon staging branch — never against Production as part of this checklist:
