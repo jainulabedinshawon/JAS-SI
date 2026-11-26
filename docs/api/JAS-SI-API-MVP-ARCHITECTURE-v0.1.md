@@ -84,6 +84,11 @@ The existing `001_create_audit_tables.sql` remains the audit-event persistence f
 
 The GitHub evidence route proves Git object/file integrity at the selected commit. It does not prove semantic correctness, task completion, or truth of an agent claim. `/v1/verify` treats caller-submitted evidence references as caller-submitted; it does not independently fetch them.
 
+### GitHub repository-read task input boundary
+
+The `github.read_repository` task type accepts exactly three input fields: `repository`, `commit_sha`, and `paths`. The API validates an owner/repository identifier, a full lowercase 40-character immutable commit SHA, and between 1 and 10 unique relative file paths (maximum 500 characters each). Absolute paths, traversal segments, backslashes, NUL bytes, duplicate paths, and unknown input fields are rejected with HTTP 422 before task persistence. This is request-shape validation only; it does not enable task submission or establish repository access. The task-submission switch remains fail-closed until the worker host is independently ready.
+
+
 ## Current implementation and activation status (2026-11-15)
 
 - The tenant-scoped API-key registry and database-owned authentication boundary are present in `main`; the current Production database catalog check confirms the runtime cannot directly read tenant or API-key tables.
