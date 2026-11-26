@@ -131,6 +131,7 @@ jobs:
               "20261128_agent_task_verifier_claims.sql",
               "20261129_agent_runtime_default_acl_boundary.sql",
               "20261130_customer_tenant_active_guard_reassert.sql",
+              "20261201_github_installation_binding.sql",
               "20261130a_general_runtime_default_acl_boundary.sql",
               "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
           )
@@ -578,4 +579,106 @@ jobs:
                       f"no_public_execute={no_public}"
                   )
               print(f"Verified {count} SECURITY DEFINER routines and runtime usage-table isolation")
+              from uuid import uuid4
+              # Exercise tenant-scoped GitHub installation resolution with real
+              # PostgreSQL roles, RLS, and separate tenant/repository fixtures.
+              tenant_a, tenant_b = uuid4(), uuid4()
+              installation_a, installation_b = 918349938, 918349939
+              repository_a = "jas-si-test/tenant-a"
+              repository_b = "jas-si-test/tenant-b"
+              cur.execute(
+                  "INSERT INTO public.jas_si_tenants(tenant_id,tenant_name) VALUES (%s,%s),(%s,%s)",
+                  (tenant_a, f"github-binding-a-{tenant_a.hex}",
+                   tenant_b, f"github-binding-b-{tenant_b.hex}"),
+              )
+              cur.execute("SET ROLE jas_si_agent_task_owner")
+              cur.execute(
+                  """INSERT INTO public.jas_si_github_app_installations(
+                       installation_id,tenant_id,account_login,status,verified_at
+                     ) VALUES
+                       (%s,%s,'jas-si-test','active',clock_timestamp()),
+                       (%s,%s,'jas-si-test','active',clock_timestamp())""",
+                  (installation_a,tenant_a,installation_b,tenant_b),
+              )
+              cur.execute(
+                  """INSERT INTO public.jas_si_github_app_installation_repositories(
+                       installation_id,tenant_id,repository_full_name,status,verified_at
+                     ) VALUES
+                       (%s,%s,%s,'active',clock_timestamp()),
+                       (%s,%s,%s,'active',clock_timestamp())""",
+                  (installation_a,tenant_a,repository_a,
+                   installation_b,tenant_b,repository_b),
+              )
+              cur.execute("RESET ROLE")
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_worker_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_verifier_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test")
+              conn.commit()
+              for login_role, capability_role in (
+                  ("jas_si_agent_worker_test","jas_si_agent_worker"),
+                  ("jas_si_agent_verifier_test","jas_si_agent_verifier"),
+              ):
+                  with psycopg.connect(dsn) as host_conn:
+                      with host_conn.cursor() as host_cur:
+                          host_cur.execute(f"SET SESSION AUTHORIZATION {login_role}")
+                          host_cur.execute(f"SET ROLE {capability_role}")
+                          host_cur.execute(
+                              """SELECT tenant_id,installation_id,repository_full_name
+                                   FROM public.jas_si_github_installation_binding_resolve(%s,%s)""",
+                              (tenant_a,repository_a),
+                          )
+                          own_binding = host_cur.fetchone()
+                          if own_binding != (tenant_a,installation_a,repository_a):
+                              raise SystemExit(
+                                  f"{capability_role} could not resolve its tenant's active repository: {own_binding!r}"
+                              )
+                          host_cur.execute(
+                              """SELECT tenant_id,installation_id,repository_full_name
+                                   FROM public.jas_si_github_installation_binding_resolve(%s,%s)""",
+                              (tenant_a,repository_b),
+                          )
+                          cross_tenant = host_cur.fetchone()
+                          if cross_tenant is not None:
+                              raise SystemExit(
+                                  f"{capability_role} resolved another tenant's repository: {cross_tenant!r}"
+                              )
+                          host_cur.execute("SAVEPOINT direct_binding_read_guard")
+                          try:
+                              host_cur.execute(
+                                  "SELECT installation_id FROM public.jas_si_github_app_installations"
+                              )
+                          except psycopg.Error as exc:
+                              if exc.sqlstate != "42501":
+                                  raise
+                              host_cur.execute("ROLLBACK TO SAVEPOINT direct_binding_read_guard")
+                          else:
+                              raise SystemExit(
+                                  f"{capability_role} retained direct installation-table SELECT"
+                              )
+                          host_cur.execute("RELEASE SAVEPOINT direct_binding_read_guard")
+                          host_cur.execute("SAVEPOINT direct_tenant_read_guard")
+                          try:
+                              host_cur.execute("SELECT tenant_id FROM public.jas_si_tenants")
+                          except psycopg.Error as exc:
+                              if exc.sqlstate != "42501":
+                                  raise
+                              host_cur.execute("ROLLBACK TO SAVEPOINT direct_tenant_read_guard")
+                          else:
+                              raise SystemExit(
+                                  f"{capability_role} retained direct tenant-table SELECT"
+                              )
+                          host_cur.execute("RELEASE SAVEPOINT direct_tenant_read_guard")
+                          host_cur.execute("RESET SESSION AUTHORIZATION")
+              print(
+                  "Verified Worker and Verifier tenant binding: own repository resolves, "
+                  "cross-tenant repository does not, and direct table reads are denied"
+              )
+
           PY
