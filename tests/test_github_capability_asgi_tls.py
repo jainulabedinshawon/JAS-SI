@@ -83,7 +83,7 @@ class ASGITLSClientCertificateMiddlewareTests(unittest.IsolatedAsyncioTestCase):
     async def test_malformed_pem_and_malformed_tls_extension_are_rejected(self):
         malformed = await self._run({
             "type": "http",
-            "extensions": {"tls": {"spec_version": "0.3", "client_cert_chain": ["not pem"]}},
+            "extensions": {"tls": {"client_cert_chain": ["not pem"]}},
         })
         malformed_extension = await self._run({
             "type": "http",
@@ -96,7 +96,6 @@ class ASGITLSClientCertificateMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         child = await self._run({
             "type": "http",
             "extensions": {"tls": {
-                "spec_version": "0.3",
                 "client_cert_chain": [self.pem] * 9,
             }},
         })
