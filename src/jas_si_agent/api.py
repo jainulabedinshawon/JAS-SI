@@ -25,7 +25,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from math import ceil
-from typing import Deque, Dict, Optional
+from typing import Deque, Dict, Literal, Optional
 
 from fastapi import (
     Depends,
@@ -458,8 +458,58 @@ class AgentTaskCreateRequest(BaseModel):
         extra = "forbid"
 
     task_type: str = Field(min_length=1, max_length=64)
-    input_payload: dict = Field(default_factory=dict)
+    input_payload: dict = Field(
+        default_factory=dict,
+        description=(
+            "JSON object bounded to 64 KiB by the durable store. For "
+            "github.read_repository, exactly repository (owner/name), commit_sha "
+            "(full lowercase 40-character immutable SHA), and paths (1-10 unique "
+            "safe relative paths, each at most 500 characters) are accepted. "
+            "Invalid values are rejected with HTTP 422 before persistence."
+        ),
+    )
     max_attempts: int = Field(default=3, ge=1, le=10)
+
+
+class AgentTaskResponse(BaseModel):
+    """Tenant-scoped persisted task with explicit verification/review state."""
+
+    task_id: uuid.UUID
+    task_type: str
+    status: Literal[
+        "queued", "running", "cancel_requested", "awaiting_verification",
+        "human_review_required", "succeeded", "failed", "cancelled",
+    ]
+    input_payload: dict
+    result_payload: Optional[dict]
+    error_code: Optional[str]
+    attempt_count: int
+    max_attempts: int
+    created_at: datetime
+    updated_at: datetime
+    completed_at: Optional[datetime]
+    verification_status: Literal["NOT_VERIFIED", "INCONCLUSIVE"]
+    review_required: bool
+    verification_reason_code: Optional[str]
+
+
+class AgentTaskSubmissionResponse(BaseModel):
+    task: AgentTaskResponse
+    created: bool
+    execution_status: Literal["queued_for_worker"]
+    note: str
+
+
+class AgentTaskGetResponse(BaseModel):
+    task: AgentTaskResponse
+    verification_status: Literal["NOT_VERIFIED", "INCONCLUSIVE"]
+    note: str
+
+
+class AgentTaskCancelResponse(BaseModel):
+    task_id: uuid.UUID
+    cancellation_requested: bool
+
 
 _GITHUB_REPOSITORY_READ_TASK = "github.read_repository"
 _GITHUB_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -1521,7 +1571,7 @@ def submit_agent_task(
     payload: AgentTaskCreateRequest,
     request: Request,
     event_store: SecurityEventStore = Depends(get_security_event_store),
-) -> dict:
+) -> AgentTaskSubmissionResponse:
     """Persist a metered task request; execution remains disabled without a ready worker host."""
     if getattr(request.app.state, "agent_task_submission_enabled", False) is not True:
         raise HTTPException(
@@ -1568,7 +1618,7 @@ def submit_agent_task(
     "/v1/agent/tasks/{task_id}",
     dependencies=[Depends(_require_api_key)],
 )
-def get_agent_task(task_id: str, request: Request) -> dict:
+def get_agent_task(task_id: str, request: Request) -> AgentTaskGetResponse:
     try:
         parsed_task_id = uuid.UUID(task_id)
     except (ValueError, TypeError):
@@ -1620,7 +1670,7 @@ def cancel_agent_task(
     task_id: str,
     request: Request,
     event_store: SecurityEventStore = Depends(get_security_event_store),
-) -> dict:
+ ) -> AgentTaskCancelResponse:
     try:
         parsed_task_id = uuid.UUID(task_id)
     except (ValueError, TypeError):
