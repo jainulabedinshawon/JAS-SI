@@ -22,7 +22,6 @@ _STATE_KEY = "verified_client_certificate_der"
 _MAX_CHAIN_LENGTH = 8
 _MAX_PEM_BYTES = 32_768
 _MAX_DER_BYTES = 16_384
-_SUPPORTED_SPEC_VERSIONS = frozenset({"0.2", "0.3"})
 
 
 def _client_certificate_der(scope: dict[str, Any]) -> bytes | None:
@@ -32,10 +31,6 @@ def _client_certificate_der(scope: dict[str, Any]) -> bytes | None:
         return None
     tls = extensions.get("tls")
     if not isinstance(tls, dict):
-        return None
-
-    spec_version = tls.get("spec_version", "0.2")
-    if not isinstance(spec_version, str) or spec_version not in _SUPPORTED_SPEC_VERSIONS:
         return None
 
     # ASGI TLS 0.2 reports failed peer verification explicitly. Version 0.3
