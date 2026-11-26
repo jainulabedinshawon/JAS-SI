@@ -692,7 +692,7 @@ components:
       properties:
         task_id: { type: string, format: uuid }
         task_type: { type: string }
-        status: { type: string, enum: [queued, running, cancel_requested, succeeded, failed, cancelled] }
+        status: { type: string, enum: [queued, running, cancel_requested, awaiting_verification, human_review_required, succeeded, failed, cancelled] }
         input_payload: { type: object }
         result_payload: { type: [object, 'null'] }
         error_code: { type: [string, 'null'] }
