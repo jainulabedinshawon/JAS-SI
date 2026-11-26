@@ -5,9 +5,15 @@ Python 3.10 compatible. Secrets must be supplied through the environment.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+from jas_si_agent.github_capability_identity import (
+    CertificateWorkloadIdentityRegistry,
+    WorkloadIdentity,
+)
 
 
 _MIN_HMAC_SECRET_BYTES = 32
@@ -112,6 +118,43 @@ def _read_optional_provider_id() -> Optional[str]:
     return value
 
 
+def _read_github_capability_workload_identities() -> Optional[CertificateWorkloadIdentityRegistry]:
+    raw = os.getenv("JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES must be valid JSON"
+        ) from None
+    if not isinstance(decoded, dict) or not decoded:
+        raise ValueError(
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES must be a non-empty object"
+        )
+    identities = {}
+    for fingerprint, item in decoded.items():
+        if not isinstance(item, dict) or set(item) != {"principal_id", "role"}:
+            raise ValueError(
+                "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES entries must contain principal_id and role"
+            )
+        try:
+            identities[fingerprint] = WorkloadIdentity(
+                principal_id=item["principal_id"],
+                role=item["role"],
+            )
+        except (TypeError, ValueError):
+            raise ValueError(
+                "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES contains an invalid identity"
+            ) from None
+    try:
+        return CertificateWorkloadIdentityRegistry(identities)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES contains an invalid certificate map"
+        ) from None
+
+
 @dataclass(frozen=True)
 class Settings:
     service_name: str = "JAS-SI API"
@@ -145,6 +188,7 @@ class Settings:
     customer_smtp_password: Optional[str] = field(default=None, repr=False)
     customer_smtp_sender: Optional[str] = None
     customer_public_base_url: str = "https://jas-si.vercel.app"
+    github_capability_workload_identities: Optional[CertificateWorkloadIdentityRegistry] = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -173,6 +217,7 @@ class Settings:
         api_rate_limit_pepper = _read_optional_api_rate_limit_pepper()
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
+        github_capability_workload_identities = _read_github_capability_workload_identities()
 
         if (hmac_secret is None) != (provider_id is None):
             raise ValueError(
@@ -225,4 +270,5 @@ class Settings:
             customer_public_base_url=os.getenv(
                 "JAS_SI_CUSTOMER_PUBLIC_URL", "https://jas-si.vercel.app"
             ).strip(),
+            github_capability_workload_identities=github_capability_workload_identities,
         )
