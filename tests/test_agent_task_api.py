@@ -53,6 +53,11 @@ class FakeTaskStore:
         )
         self.created = []
         self.cancelled = []
+        self.review_metadata = {
+            "review_required": False,
+            "verification_status": None,
+            "verification_reason_code": None,
+        }
 
     def create(self, **kwargs):
         self.created.append(kwargs)
@@ -61,6 +66,9 @@ class FakeTaskStore:
     def get(self, **kwargs):
         return self.task if kwargs["task_id"] == self.task.task_id else None
 
+
+    def get_review_metadata(self, **kwargs):
+        return dict(self.review_metadata)
 
     def cancel(self, **kwargs):
         self.cancelled.append(kwargs)
@@ -239,6 +247,36 @@ class TestAgentTaskAPI(TestCase):
             "/v1/agent/tasks/00000000-0000-0000-0000-000000000081"
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_get_task_returns_inconclusive_review_metadata_for_human_review(self):
+        self.store.task = self.store.task.__class__(
+            **{**self.store.task.__dict__, "status": "human_review_required"}
+        )
+        self.store.review_metadata = {
+            "review_required": True,
+            "verification_status": "INCONCLUSIVE",
+            "verification_reason_code": "EVIDENCE_MISSING",
+        }
+        response = self.client.get(
+            "/v1/agent/tasks/00000000-0000-0000-0000-000000000080"
+        )
+        self.assertEqual(response.status_code, 200)
+        task = response.json()["task"]
+        self.assertTrue(task["review_required"])
+        self.assertEqual(task["verification_status"], "INCONCLUSIVE")
+        self.assertEqual(task["verification_reason_code"], "EVIDENCE_MISSING")
+        self.assertEqual(response.json()["verification_status"], "INCONCLUSIVE")
+
+    def test_get_task_marks_non_review_state_as_not_verified(self):
+        response = self.client.get(
+            "/v1/agent/tasks/00000000-0000-0000-0000-000000000080"
+        )
+        self.assertEqual(response.status_code, 200)
+        task = response.json()["task"]
+        self.assertFalse(task["review_required"])
+        self.assertEqual(task["verification_status"], "NOT_VERIFIED")
+        self.assertIsNone(task["verification_reason_code"])
+
 
 
 
