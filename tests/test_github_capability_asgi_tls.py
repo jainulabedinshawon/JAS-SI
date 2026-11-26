@@ -56,7 +56,7 @@ class ASGITLSClientCertificateMiddlewareTests(unittest.IsolatedAsyncioTestCase):
     async def test_tls_03_peer_leaf_is_attached_to_request_state(self):
         child = await self._run({
             "type": "http",
-            "extensions": {"tls": {"spec_version": "0.3", "client_cert_chain": [self.pem]}},
+            "extensions": {"tls": {"client_cert_chain": [self.pem]}},
             "state": {"request_id": "req-1"},
         })
         self.assertEqual(child["state"]["verified_client_certificate_der"], self.der)
@@ -66,7 +66,6 @@ class ASGITLSClientCertificateMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         child = await self._run({
             "type": "http",
             "extensions": {"tls": {
-                "spec_version": "0.2",
                 "client_cert_chain": [self.pem],
                 "client_cert_error": "certificate verify failed",
             }},
@@ -81,17 +80,17 @@ class ASGITLSClientCertificateMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertNotIn("verified_client_certificate_der", child["state"])
 
-    async def test_malformed_pem_and_unsupported_extension_are_rejected(self):
+    async def test_malformed_pem_and_malformed_tls_extension_are_rejected(self):
         malformed = await self._run({
             "type": "http",
             "extensions": {"tls": {"spec_version": "0.3", "client_cert_chain": ["not pem"]}},
         })
-        unsupported = await self._run({
+        malformed_extension = await self._run({
             "type": "http",
-            "extensions": {"tls": {"spec_version": "9.9", "client_cert_chain": [self.pem]}},
+            "extensions": {"tls": "not-a-tls-extension-dictionary"},
         })
         self.assertNotIn("verified_client_certificate_der", malformed["state"])
-        self.assertNotIn("verified_client_certificate_der", unsupported["state"])
+        self.assertNotIn("verified_client_certificate_der", malformed_extension["state"])
 
     async def test_excessive_chain_is_rejected(self):
         child = await self._run({
