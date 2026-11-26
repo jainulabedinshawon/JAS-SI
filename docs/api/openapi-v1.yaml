@@ -144,7 +144,7 @@ paths:
       description: >-
         Metered task persistence only. Submission is fail-closed (503) until a
         Worker host is independently ready. A queued task is not an executed
-        action or verified outcome. Requires agent:tasks:write.
+        action or verified outcome. Requires agent:tasks:write. For github.read_repository, invalid repository/commit/path input returns 422 before persistence.
       parameters:
         - in: header
           name: Idempotency-Key
@@ -680,7 +680,11 @@ components:
         task_type: { type: string, minLength: 1, maxLength: 64 }
         input_payload:
           type: object
-          description: JSON object bounded to 64 KiB by the durable store
+          description: >-
+            JSON object bounded to 64 KiB by the durable store. For
+            github.read_repository, exactly repository (owner/name), commit_sha
+            (full lowercase 40-character SHA), and paths (1-10 unique safe
+            relative paths, each at most 500 characters) are accepted.
         max_attempts: { type: integer, minimum: 1, maximum: 10, default: 3 }
     AgentTask:
       type: object
