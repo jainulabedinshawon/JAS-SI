@@ -40,6 +40,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
+from jas_si_agent.github_capability_identity import CertificateWorkloadIdentityRegistry
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
@@ -98,6 +99,14 @@ app = FastAPI(
 
 # Capability deployments trust workload identity only from the ASGI TLS extension.
 app.add_middleware(ASGITLSClientCertificateMiddleware)
+
+if isinstance(
+    settings.github_capability_workload_identities,
+    CertificateWorkloadIdentityRegistry,
+):
+    app.state.github_capability_identity_registry = (
+        settings.github_capability_workload_identities
+    )
 
 api_key_header = APIKeyHeader(
     name="X-API-Key",
