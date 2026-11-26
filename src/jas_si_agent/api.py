@@ -1508,6 +1508,8 @@ def _agent_task_response(task) -> dict:
         "updated_at": task.updated_at.isoformat(),
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "verification_status": "NOT_VERIFIED",
+        "review_required": False,
+        "verification_reason_code": None,
     }
 
 @app.post(
@@ -1583,10 +1585,29 @@ def get_agent_task(task_id: str, request: Request) -> dict:
         raise HTTPException(status_code=503, detail="Agent task retrieval is unavailable") from None
     if task is None:
         raise HTTPException(status_code=404, detail="Agent task not found")
+    try:
+        review_metadata = store.get_review_metadata(
+            api_key_id=api_key_id,
+            candidate_digest=candidate_digest,
+            task_id=parsed_task_id,
+        )
+    except (AgentTaskStoreError, ValueError):
+        raise HTTPException(status_code=503, detail="Agent task review metadata is unavailable") from None
+
+    response = _agent_task_response(task)
+    response.update(review_metadata)
+    if response["review_required"] is True:
+        response["verification_status"] = "INCONCLUSIVE"
+    else:
+        response["verification_status"] = "NOT_VERIFIED"
     return {
-        "task": _agent_task_response(task),
-        "verification_status": "NOT_VERIFIED",
-        "note": "Task persistence state is not independent verification of reality.",
+        "task": response,
+        "verification_status": response["verification_status"],
+        "note": (
+            "Independent verification was inconclusive; human review is required."
+            if response["review_required"]
+            else "Task persistence state is not independent verification of reality."
+        ),
     }
 
 

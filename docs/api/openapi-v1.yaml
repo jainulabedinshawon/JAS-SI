@@ -688,11 +688,11 @@ components:
         max_attempts: { type: integer, minimum: 1, maximum: 10, default: 3 }
     AgentTask:
       type: object
-      required: [task_id, task_type, status, input_payload, result_payload, error_code, attempt_count, max_attempts, created_at, updated_at, completed_at, verification_status]
+      required: [task_id, task_type, status, input_payload, result_payload, error_code, attempt_count, max_attempts, created_at, updated_at, completed_at, verification_status, review_required, verification_reason_code]
       properties:
         task_id: { type: string, format: uuid }
         task_type: { type: string }
-        status: { type: string, enum: [queued, running, cancel_requested, succeeded, failed, cancelled] }
+        status: { type: string, enum: [queued, running, cancel_requested, awaiting_verification, human_review_required, succeeded, failed, cancelled] }
         input_payload: { type: object }
         result_payload: { type: [object, 'null'] }
         error_code: { type: [string, 'null'] }
@@ -701,7 +701,9 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         completed_at: { type: [string, 'null'], format: date-time }
-        verification_status: { type: string, const: NOT_VERIFIED }
+        verification_status: { type: string, enum: [NOT_VERIFIED, INCONCLUSIVE] }
+        review_required: { type: boolean }
+        verification_reason_code: { type: [string, 'null'] }
     AgentTaskSubmissionResponse:
       type: object
       required: [task, created, execution_status, note]
@@ -715,7 +717,7 @@ components:
       required: [task, verification_status, note]
       properties:
         task: { $ref: '#/components/schemas/AgentTask' }
-        verification_status: { type: string, const: NOT_VERIFIED }
+        verification_status: { type: string, enum: [NOT_VERIFIED, INCONCLUSIVE] }
         note: { type: string }
     AgentTaskCancelResponse:
       type: object

@@ -235,6 +235,37 @@ class PostgresAgentTaskStore:
         except Exception as exc:
             raise AgentTaskStoreError("Unable to retrieve agent task") from exc
 
+    def get_review_metadata(
+        self, *, api_key_id: uuid.UUID, candidate_digest: bytes,
+        task_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Return only tenant-authorized, sanitized verifier review metadata."""
+        if not isinstance(api_key_id, uuid.UUID) or not isinstance(task_id, uuid.UUID):
+            raise ValueError("API key and task identifiers must be UUIDs")
+        if not isinstance(candidate_digest, bytes) or len(candidate_digest) != 32:
+            raise ValueError("candidate_digest must be 32 bytes")
+        try:
+            import psycopg
+
+            with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT review_required,verification_status,verification_reason_code
+                       FROM public.jas_si_agent_task_review_metadata(%s,%s,%s)""",
+                    (api_key_id, candidate_digest, task_id),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise AgentTaskStoreError("Task review metadata is unavailable")
+            return {
+                "review_required": bool(row[0]),
+                "verification_status": row[1],
+                "verification_reason_code": row[2],
+            }
+        except (ValueError, AgentTaskStoreError):
+            raise
+        except Exception as exc:
+            raise AgentTaskStoreError("Unable to retrieve task review metadata") from exc
+
     def cancel(
         self, *, api_key_id: uuid.UUID, candidate_digest: bytes,
         task_id: uuid.UUID,
