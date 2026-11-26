@@ -28,7 +28,6 @@ from math import ceil
 from typing import Deque, Dict, Literal, Optional
 
 from fastapi import (
-from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
     Depends,
     FastAPI,
     HTTPException,
@@ -40,6 +39,7 @@ from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMidd
 )
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
+from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
