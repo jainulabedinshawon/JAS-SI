@@ -214,10 +214,88 @@ jobs:
           )
           PY
 
+      - name: Start isolated Agent Worker readiness endpoint
+        run: |
+          docker run -d \
+            --name jas-si-worker-health \
+            -p 127.0.0.1:18002:8000 \
+            jas-si-api:ci \
+            python -c "import time; from jas_si_agent.agent_host_health import AgentHostHealthServer, AgentHostHealthState; state=AgentHostHealthState(); server=AgentHostHealthServer(state); server.start(); time.sleep(3); state.mark_success(); time.sleep(3600)"
+
+      - name: Verify Worker liveness and fail-closed readiness transition
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          base = "http://127.0.0.1:18002"
+
+          def get(path):
+              try:
+                  with urllib.request.urlopen(base + path, timeout=3) as response:
+                      return response.status, json.load(response)
+              except urllib.error.HTTPError as error:
+                  return error.code, json.load(error)
+
+          deadline = time.monotonic() + 15
+          while time.monotonic() < deadline:
+              status, payload = get("/health")
+              if status == 200 and payload.get("status") == "ok":
+                  break
+              time.sleep(0.2)
+          else:
+              raise AssertionError("Worker liveness endpoint did not become healthy")
+
+          deadline = time.monotonic() + 5
+          observed_not_ready = False
+          while time.monotonic() < deadline:
+              status, payload = get("/ready")
+              if status == 503 and payload.get("status") == "not_ready":
+                  observed_not_ready = True
+                  break
+              if status == 200 and payload.get("status") == "ready":
+                  # The initial transition may have completed before the first probe.
+                  break
+              time.sleep(0.1)
+
+          deadline = time.monotonic() + 15
+          while time.monotonic() < deadline:
+              status, payload = get("/ready")
+              if status == 200 and payload.get("status") == "ready":
+                  break
+              time.sleep(0.2)
+          else:
+              raise AssertionError("Worker readiness did not follow successful poll")
+
+          if observed_not_ready:
+              print("PASS: /ready failed closed with 503 before the first successful poll.")
+          else:
+              print("PASS: /ready reached ready after the simulated successful poll.")
+          print("PASS: Worker container /health and /ready endpoints respond correctly.")
+          PY
+
+          for i in $(seq 1 45); do
+            health="$(docker inspect jas-si-worker-health --format '{{.State.Health.Status}}')"
+            if [ "${health}" = "healthy" ]; then
+              break
+            fi
+            if [ "${health}" = "unhealthy" ]; then
+              docker logs jas-si-worker-health
+              exit 1
+            fi
+            sleep 2
+          done
+          test "$(docker inspect jas-si-worker-health --format '{{.State.Health.Status}}')" = "healthy"
+
       - name: Show container health results
         if: always()
         run: |
-          for name in jas-si-disabled jas-si-enabled; do
+          for name in jas-si-disabled jas-si-enabled jas-si-worker-health; do
             if docker container inspect "${name}" >/dev/null 2>&1; then
               docker inspect "${name}" \
                 --format '{{.Name}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' \
@@ -230,8 +308,9 @@ jobs:
         run: |
           docker logs jas-si-disabled || true
           docker logs jas-si-enabled || true
+          docker logs jas-si-worker-health || true
 
       - name: Clean up containers
         if: always()
         run: |
-          docker rm -f jas-si-disabled jas-si-enabled || true
+          docker rm -f jas-si-disabled jas-si-enabled jas-si-worker-health || true
