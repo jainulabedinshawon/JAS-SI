@@ -190,6 +190,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             self.assertIsNone(invalid_claim)
         worker_dsn = make_conninfo(dsn, user="jas_si_agent_worker_login", password="worker-test-secret")
         with psycopg.connect(worker_dsn) as worker:
+            worker.execute("SET ROLE jas_si_agent_worker")
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 worker.execute(
                     "SELECT * FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
@@ -202,6 +203,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 ).fetchone()
         verifier_dsn = make_conninfo(dsn, user="jas_si_agent_verifier_login", password="verifier-test-secret")
         with psycopg.connect(verifier_dsn) as verifier:
+            verifier.execute("SET ROLE jas_si_agent_verifier")
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 verifier.execute(
                     "SELECT * FROM public.jas_si_github_task_capability_resolve(%s,%s,'verifier',NULL,%s)",
