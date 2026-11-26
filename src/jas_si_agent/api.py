@@ -39,6 +39,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
+from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
 from pydantic import BaseModel, Field
 
 from jas_si_agent.config import Settings
@@ -94,6 +95,9 @@ app = FastAPI(
         "Versioned API routes have a shared sliding-window rate limit."
     ),
 )
+
+# Capability deployments trust workload identity only from the ASGI TLS extension.
+app.add_middleware(ASGITLSClientCertificateMiddleware)
 
 api_key_header = APIKeyHeader(
     name="X-API-Key",
