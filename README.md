@@ -709,6 +709,11 @@ The table below describes the research status conservatively. Update it only whe
 
 This table is a status summary, not a substitute for checking the latest GitHub Actions results, commits, artifacts, and protocol acceptance criteria.
 
+### Product runtime engineering note
+
+The durable Agent Task API, worker/verifier components, and database lifecycle are present in the repository, but their existence does not establish a live customer execution service. The task-submission gate defaults to disabled and must remain fail-closed until worker readiness and the independent verifier path are operationally verified. The `github.read_repository` request contract rejects malformed or unbounded repository/commit/path input before persistence; this is input validation, not proof of execution, evidence collection, or verified completion. Current status for this validation change: IMPLEMENTED in the focused branch; TESTED and deployment verification remain pending CI and runtime evidence.
+
+
 ## 32. 🏛️ Repository Governance
 
 When project references conflict, follow the repository's documented authority order.
