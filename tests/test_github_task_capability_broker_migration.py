@@ -188,6 +188,109 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 ("33333333-3333-4333-8333-333333333333","jas_si_agent_verifier_login","55555555-5555-4555-8555-555555555555"),
             ).fetchone()
             self.assertIsNone(invalid_claim)
+
+            worker_lookup = (
+                "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',4,NULL)",
+                ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
+            )
+
+            def assert_worker_denied(update_sql: str, reset_sql: str) -> None:
+                with psycopg.connect(dsn) as fixture:
+                    fixture.execute(update_sql)
+                    fixture.commit()
+                try:
+                    self.assertIsNone(broker.execute(*worker_lookup).fetchone())
+                finally:
+                    with psycopg.connect(dsn) as fixture:
+                        fixture.execute(reset_sql)
+                        fixture.commit()
+
+            # Tenant, installation, and repository trust must all be active
+            # and independently verified before a task capability is returned.
+            assert_worker_denied(
+                "UPDATE public.jas_si_tenants SET status='suspended' WHERE tenant_id='11111111-1111-4111-8111-111111111111'",
+                "UPDATE public.jas_si_tenants SET status='active' WHERE tenant_id='11111111-1111-4111-8111-111111111111'",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_github_app_installations SET status='suspended' WHERE installation_id=123",
+                "UPDATE public.jas_si_github_app_installations SET status='active' WHERE installation_id=123",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_github_app_installations SET verified_at=NULL WHERE installation_id=123",
+                "UPDATE public.jas_si_github_app_installations SET verified_at=now() WHERE installation_id=123",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_github_app_installation_repositories SET status='suspended' WHERE installation_id=123",
+                "UPDATE public.jas_si_github_app_installation_repositories SET status='active' WHERE installation_id=123",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_github_app_installation_repositories SET verified_at=NULL WHERE installation_id=123",
+                "UPDATE public.jas_si_github_app_installation_repositories SET verified_at=now() WHERE installation_id=123",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_github_app_installation_repositories SET repository_full_name='octo/other' WHERE installation_id=123",
+                "UPDATE public.jas_si_github_app_installation_repositories SET repository_full_name='octo/repo' WHERE installation_id=123",
+            )
+
+            # Task type/state, lease expiry, commit identity, and bounded paths
+            # are all part of the capability predicate.
+            assert_worker_denied(
+                "UPDATE public.jas_si_agent_tasks SET task_type='github.write_repository' WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                "UPDATE public.jas_si_agent_tasks SET task_type='github.read_repository' WHERE task_id='22222222-2222-4222-8222-222222222222'",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_agent_tasks SET status='queued' WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                "UPDATE public.jas_si_agent_tasks SET status='running' WHERE task_id='22222222-2222-4222-8222-222222222222'",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_agent_tasks SET lease_expires_at=now()-interval '1 second' WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                "UPDATE public.jas_si_agent_tasks SET lease_expires_at=now()+interval '5 minutes' WHERE task_id='22222222-2222-4222-8222-222222222222'",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{commit_sha}','\"not-a-sha\"'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{commit_sha}','\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}','[]'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}','[\"README.md\"]'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
+            )
+            assert_worker_denied(
+                "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}','[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\",\"j\",\"k\"]'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}','[\"README.md\"]'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
+            )
+
+            with self.assertRaises(psycopg.errors.InvalidParameterValue):
+                broker.execute(
+                    "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',NULL,NULL)",
+                    ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
+                ).fetchone()
+            with self.assertRaises(psycopg.errors.InvalidParameterValue):
+                broker.execute(
+                    "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'operator',4,NULL)",
+                    ("22222222-2222-4222-8222-222222222222","jas_si_agent_worker_login"),
+                ).fetchone()
+
+            # Verifier claims expire independently of Worker leases.
+            with psycopg.connect(dsn) as fixture:
+                fixture.execute(
+                    "UPDATE public.jas_si_agent_tasks SET verifier_lease_expires_at=now()-interval '1 second' "
+                    "WHERE task_id='33333333-3333-4333-8333-333333333333'"
+                )
+                fixture.commit()
+            try:
+                expired_claim = broker.execute(
+                    "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'verifier',NULL,%s)",
+                    ("33333333-3333-4333-8333-333333333333","jas_si_agent_verifier_login",
+                     "44444444-4444-4444-8444-444444444444"),
+                ).fetchone()
+                self.assertIsNone(expired_claim)
+            finally:
+                with psycopg.connect(dsn) as fixture:
+                    fixture.execute(
+                        "UPDATE public.jas_si_agent_tasks SET verifier_lease_expires_at=now()+interval '5 minutes' "
+                        "WHERE task_id='33333333-3333-4333-8333-333333333333'"
+                    )
+                    fixture.commit()
         worker_dsn = make_conninfo(dsn, user="jas_si_agent_worker_login", password="worker-test-secret")
         with psycopg.connect(worker_dsn, autocommit=True) as worker:
             worker.execute("SET ROLE jas_si_agent_worker")
