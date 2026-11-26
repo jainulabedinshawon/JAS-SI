@@ -134,6 +134,7 @@ jobs:
               "20261201_github_installation_binding.sql",
               "20261130a_general_runtime_default_acl_boundary.sql",
               "20261201_agent_task_verifier_inconclusive_lifecycle.sql",
+              "20261215_github_task_capability_broker.sql",
           )
           missing_agent_runtime_migrations = [
               name for name in required_agent_runtime_migrations
@@ -621,64 +622,32 @@ jobs:
               )
               cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test")
               conn.commit()
-              for login_role, capability_role in (
-                  ("jas_si_agent_worker_test","jas_si_agent_worker"),
-                  ("jas_si_agent_verifier_test","jas_si_agent_verifier"),
-              ):
-                  with psycopg.connect(dsn) as host_conn:
-                      with host_conn.cursor() as host_cur:
-                          host_cur.execute(f"SET SESSION AUTHORIZATION {login_role}")
-                          host_cur.execute(f"SET ROLE {capability_role}")
-                          host_cur.execute(
-                              """SELECT tenant_id,installation_id,repository_full_name
-                                   FROM public.jas_si_github_installation_binding_resolve(%s,%s)""",
-                              (tenant_a,repository_a),
-                          )
-                          own_binding = host_cur.fetchone()
-                          if own_binding != (tenant_a,installation_a,repository_a):
-                              raise SystemExit(
-                                  f"{capability_role} could not resolve its tenant's active repository: {own_binding!r}"
-                              )
-                          host_cur.execute(
-                              """SELECT tenant_id,installation_id,repository_full_name
-                                   FROM public.jas_si_github_installation_binding_resolve(%s,%s)""",
-                              (tenant_a,repository_b),
-                          )
-                          cross_tenant = host_cur.fetchone()
-                          if cross_tenant is not None:
-                              raise SystemExit(
-                                  f"{capability_role} resolved another tenant's repository: {cross_tenant!r}"
-                              )
-                          host_cur.execute("SAVEPOINT direct_binding_read_guard")
-                          try:
-                              host_cur.execute(
-                                  "SELECT installation_id FROM public.jas_si_github_app_installations"
-                              )
-                          except psycopg.Error as exc:
-                              if exc.sqlstate != "42501":
-                                  raise
-                              host_cur.execute("ROLLBACK TO SAVEPOINT direct_binding_read_guard")
-                          else:
-                              raise SystemExit(
-                                  f"{capability_role} retained direct installation-table SELECT"
-                              )
-                          host_cur.execute("RELEASE SAVEPOINT direct_binding_read_guard")
-                          host_cur.execute("SAVEPOINT direct_tenant_read_guard")
-                          try:
-                              host_cur.execute("SELECT tenant_id FROM public.jas_si_tenants")
-                          except psycopg.Error as exc:
-                              if exc.sqlstate != "42501":
-                                  raise
-                              host_cur.execute("ROLLBACK TO SAVEPOINT direct_tenant_read_guard")
-                          else:
-                              raise SystemExit(
-                                  f"{capability_role} retained direct tenant-table SELECT"
-                              )
-                          host_cur.execute("RELEASE SAVEPOINT direct_tenant_read_guard")
-                          host_cur.execute("RESET SESSION AUTHORIZATION")
+              # The task-scoped Broker migration deliberately removes the
+              # legacy unscoped resolver from Worker and Verifier. Verify the
+              # new least-privilege contract here; the dedicated Broker
+              # PostgreSQL integration workflow exercises valid task lookups.
+              for capability_role in ("jas_si_agent_worker","jas_si_agent_verifier"):
+                  if cur.execute(
+                      "SELECT pg_catalog.has_function_privilege(%s,"
+                      "'public.jas_si_github_installation_binding_resolve(uuid,text)',"
+                      "'EXECUTE') OR pg_catalog.has_function_privilege(%s,"
+                      "'public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)',"
+                      "'EXECUTE')",
+                      (capability_role,capability_role),
+                  ).fetchone()[0]:
+                      raise SystemExit(
+                          f"{capability_role} retained direct GitHub capability resolver access"
+                      )
+              if not cur.execute(
+                  "SELECT pg_catalog.has_function_privilege("
+                  "'jas_si_agent_capability_broker',"
+                  "'public.jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)',"
+                  "'EXECUTE')"
+              ).fetchone()[0]:
+                  raise SystemExit("Dedicated Broker role cannot execute task-scoped capability resolver")
               print(
-                  "Verified Worker and Verifier tenant binding: own repository resolves, "
-                  "cross-tenant repository does not, and direct table reads are denied"
+                  "Verified task-scoped GitHub capability boundary: Broker-only resolver; "
+                  "Worker and Verifier direct resolver access denied"
               )
 
           PY
