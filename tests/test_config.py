@@ -18,6 +18,43 @@ from jas_si_agent.config import Settings
 
 
 class TestTrustedAnchorEnvironmentConfig(unittest.TestCase):
+    def test_github_capability_workload_identity_registry_is_optional(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings.from_env()
+        self.assertIsNone(settings.github_capability_workload_identities)
+
+    def test_github_capability_workload_identity_registry_is_loaded(self) -> None:
+        import json
+        fingerprint = "a" * 64
+        env = {
+            "JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES": json.dumps({
+                fingerprint: {"principal_id": "worker-east-1", "role": "worker"}
+            })
+        }
+        with patch.dict(os.environ, env, clear=True):
+            settings = Settings.from_env()
+        self.assertIsNotNone(settings.github_capability_workload_identities)
+        identity = settings.github_capability_workload_identities._identities[fingerprint]
+        self.assertEqual(identity.principal_id, "worker-east-1")
+        self.assertEqual(identity.role, "worker")
+
+    def test_invalid_github_capability_workload_identity_config_fails_closed(self) -> None:
+        invalid_values = [
+            "{not-json",
+            "[]",
+            '{"' + ("z" * 64) + '":{"principal_id":"worker-east-1","role":"worker"}}',
+            '{"' + ("a" * 64) + '":{"principal_id":"worker-east-1","role":"admin"}}',
+            '{"' + ("a" * 64) + '":{"principal_id":"worker-east-1"}}',
+        ]
+        for value in invalid_values:
+            with self.subTest(value=value), patch.dict(
+                os.environ,
+                {"JAS_SI_GITHUB_CAPABILITY_WORKLOAD_IDENTITIES": value},
+                clear=True,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.from_env()
+
     def test_missing_anchor_credentials_are_allowed(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings.from_env()
