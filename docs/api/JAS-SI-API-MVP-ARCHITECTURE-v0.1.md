@@ -84,6 +84,11 @@ The existing `001_create_audit_tables.sql` remains the audit-event persistence f
 
 The GitHub evidence route proves Git object/file integrity at the selected commit. It does not prove semantic correctness, task completion, or truth of an agent claim. `/v1/verify` treats caller-submitted evidence references as caller-submitted; it does not independently fetch them.
 
+### Tenant-scoped human-review metadata
+
+The `GET /v1/agent/tasks/{task_id}` route reads the task through the tenant-scoped task routine and then calls the database-owned `jas_si_agent_task_review_metadata` routine using the same API-key ID, candidate digest, and task ID. It exposes only the sanitized review flag, `INCONCLUSIVE` status, and bounded reason code when the persisted task has reached `human_review_required`. A normal task remains `NOT_VERIFIED`; this metadata does not claim a successful outcome. Missing or unauthorized review metadata fails closed with HTTP 503 rather than silently omitting the review state.
+
+
 ### GitHub repository-read task input boundary
 
 The `github.read_repository` task type accepts exactly three input fields: `repository`, `commit_sha`, and `paths`. The API validates an owner/repository identifier, a full lowercase 40-character immutable commit SHA, and between 1 and 10 unique relative file paths (maximum 500 characters each). Absolute paths, traversal segments, backslashes, NUL bytes, duplicate paths, and unknown input fields are rejected with HTTP 422 before task persistence. This is request-shape validation only; it does not enable task submission or establish repository access. The task-submission switch remains fail-closed until the worker host is independently ready.
