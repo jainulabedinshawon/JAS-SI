@@ -189,7 +189,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             ).fetchone()
             self.assertIsNone(invalid_claim)
         worker_dsn = make_conninfo(dsn, user="jas_si_agent_worker_login", password="worker-test-secret")
-        with psycopg.connect(worker_dsn) as worker:
+        with psycopg.connect(worker_dsn, autocommit=True) as worker:
             worker.execute("SET ROLE jas_si_agent_worker")
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 worker.execute(
@@ -202,7 +202,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                     ("11111111-1111-4111-8111-111111111111","octo/repo"),
                 ).fetchone()
         verifier_dsn = make_conninfo(dsn, user="jas_si_agent_verifier_login", password="verifier-test-secret")
-        with psycopg.connect(verifier_dsn) as verifier:
+        with psycopg.connect(verifier_dsn, autocommit=True) as verifier:
             verifier.execute("SET ROLE jas_si_agent_verifier")
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 verifier.execute(
