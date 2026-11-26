@@ -9,6 +9,9 @@ on:
       - feat/jas-si-agent-authorization-tests
       - fix/shared-api-rate-limiter-v1
     paths:
+      - "README.md"
+      - "MASTER-ENGINEERING-DIRECTIVE.md"
+      - "docs/**"
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
       - "docs/security/**"
@@ -22,6 +25,9 @@ on:
       - feat/customer-identity-onboarding-v1
       - fix/shared-api-rate-limiter-v1
     paths:
+      - "README.md"
+      - "MASTER-ENGINEERING-DIRECTIVE.md"
+      - "docs/**"
       - "src/jas_si_agent/**"
       - "tests/test_*.py"
       - "docs/security/**"

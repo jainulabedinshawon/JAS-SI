@@ -720,6 +720,15 @@ When project references conflict, follow the repository's documented authority o
 5. Individual workflow results and artifacts as evidence of what was tested.
 6. Informal notes and proposals, which cannot silently override frozen references.
 
+### Implementation and documentation synchronization
+
+Implementation and documentation are delivered together. Changes to APIs, database schemas, security boundaries, runtime behavior, deployment, product capabilities or verified status must update the affected README, architecture/ADR, migration, API/SDK, security, operations or customer documentation in the same focused change.
+
+Documentation must reflect the current implementation and its evidence—not planned behavior. Keep PLANNED, IMPLEMENTED, TESTED, INTEGRATED, STAGING VERIFIED, PRODUCTION VERIFIED, COMPLETE, BLOCKED and NOT VERIFIED distinct. A merged PR, passing CI or READY deployment alone does not establish feature completion. Record relevant evidence and limitations, avoid duplicate documents, and never include secrets or customer data.
+
+The binding process is defined in [Master Engineering Directive §13.1](MASTER-ENGINEERING-DIRECTIVE.md#131-implementation-and-documentation-synchronization).
+
+
 A newer commit does not automatically supersede a frozen methodological decision. Changes must be explicit, justified, reviewed, and traceable.
 
 ## 33. 🧠 Final Research Position
