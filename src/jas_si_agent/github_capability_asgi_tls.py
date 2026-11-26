@@ -33,8 +33,8 @@ def _client_certificate_der(scope: dict[str, Any]) -> bytes | None:
     if not isinstance(tls, dict):
         return None
 
-    # ASGI TLS 0.2 reports failed peer verification explicitly. Version 0.3
-    # removes this field; deployments must use TLS CERT_REQUIRED.
+    # Reject an explicit TLS peer-verification error. The TLS listener must
+    # still enforce CERT_REQUIRED before dispatching the request.
     verification_error = tls.get("client_cert_error")
     if verification_error not in (None, ""):
         return None
