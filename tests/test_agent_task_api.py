@@ -155,6 +155,26 @@ class TestAgentTaskAPI(TestCase):
         else:
             api.app.dependency_overrides[api._require_api_key] = self.old_override
 
+    def test_openapi_exposes_github_task_input_and_review_response_contract(self):
+        schema = api.app.openapi()
+        request_schema = schema["components"]["schemas"]["AgentTaskCreateRequest"]
+        input_description = request_schema["properties"]["input_payload"]["description"]
+        self.assertIn("github.read_repository", input_description)
+        self.assertIn("full lowercase 40-character immutable SHA", input_description)
+        self.assertIn("HTTP 422", input_description)
+
+        task_schema = schema["components"]["schemas"]["AgentTaskResponse"]
+        self.assertIn("review_required", task_schema["properties"])
+        self.assertIn("verification_reason_code", task_schema["properties"])
+        self.assertIn("human_review_required", task_schema["properties"]["status"]["enum"])
+        self.assertEqual(
+            task_schema["properties"]["verification_status"]["enum"],
+            ["NOT_VERIFIED", "INCONCLUSIVE"],
+        )
+
+        get_schema = schema["paths"]["/v1/agent/tasks/{task_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        self.assertEqual(get_schema["$ref"], "#/components/schemas/AgentTaskGetResponse")
+
     def test_submit_task_reserves_one_metered_unit_and_persists_tenant_scoped_task(self):
         response = self.client.post(
             "/v1/agent/tasks",

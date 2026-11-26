@@ -84,6 +84,9 @@ The existing `001_create_audit_tables.sql` remains the audit-event persistence f
 
 The GitHub evidence route proves Git object/file integrity at the selected commit. It does not prove semantic correctness, task completion, or truth of an agent claim. `/v1/verify` treats caller-submitted evidence references as caller-submitted; it does not independently fetch them.
 
+The live FastAPI `/openapi.json` contract includes explicit request/response schemas for Agent Tasks. The `github.read_repository` input description documents its immutable commit and bounded safe-path contract; the task response schema includes `review_required`, `verification_status`, and the sanitized nullable reason code. These schemas document API behavior but do not prove worker activation or deployed database readiness.
+
+
 ### Tenant-scoped human-review metadata
 
 The `GET /v1/agent/tasks/{task_id}` route reads the task through the tenant-scoped task routine and then calls the database-owned `jas_si_agent_task_review_metadata` routine using the same API-key ID, candidate digest, and task ID. It exposes only the sanitized review flag, `INCONCLUSIVE` status, and bounded reason code when the persisted task has reached `human_review_required`. A normal task remains `NOT_VERIFIED`; this metadata does not claim a successful outcome. Missing or unauthorized review metadata fails closed with HTTP 503 rather than silently omitting the review state.
