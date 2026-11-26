@@ -115,8 +115,18 @@ BEGIN
      WHERE q.task_id=p_task_id
        AND q.task_type='github.read_repository'
        AND q.input_payload->>'commit_sha' ~ '^[0-9a-f]{40}$'
-       AND pg_catalog.jsonb_typeof(q.input_payload->'paths')='array'
-       AND pg_catalog.jsonb_array_length(q.input_payload->'paths') BETWEEN 1 AND 10
+       AND CASE
+             WHEN pg_catalog.jsonb_typeof(q.input_payload->'paths') <> 'array' THEN false
+             ELSE pg_catalog.jsonb_array_length(q.input_payload->'paths') BETWEEN 1 AND 10
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM pg_catalog.jsonb_array_elements(q.input_payload->'paths') AS path_item(value)
+                    WHERE pg_catalog.jsonb_typeof(path_item.value) <> 'string'
+                       OR pg_catalog.length(path_item.value #>> '{}') NOT BETWEEN 1 AND 512
+                       OR (path_item.value #>> '{}') ~ '(^/|(^|/)\\.\\.?(/|$)|[[:cntrl:]])'
+                       OR pg_catalog.position(pg_catalog.chr(92) IN (path_item.value #>> '{}')) > 0
+               )
+           END
        AND t.status='active'
        AND i.status='active' AND i.verified_at IS NOT NULL
        AND r.status='active' AND r.verified_at IS NOT NULL
