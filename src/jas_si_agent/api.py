@@ -28,6 +28,7 @@ from math import ceil
 from typing import Deque, Dict, Literal, Optional
 
 from fastapi import (
+from jas_si_agent.github_capability_asgi_tls import ASGITLSClientCertificateMiddleware
     Depends,
     FastAPI,
     HTTPException,
@@ -85,6 +86,9 @@ from jas_si_agent.github_installations import is_valid_github_repository
 settings = Settings.from_env()
 
 app = FastAPI(
+
+# Capability deployments trust workload identity only from the ASGI TLS extension.
+app.add_middleware(ASGITLSClientCertificateMiddleware)
     title=settings.service_name,
     version="0.1.0",
     description=(
