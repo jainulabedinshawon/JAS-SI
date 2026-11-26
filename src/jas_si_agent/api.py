@@ -1670,7 +1670,7 @@ def cancel_agent_task(
     task_id: str,
     request: Request,
     event_store: SecurityEventStore = Depends(get_security_event_store),
- ) -> AgentTaskCancelResponse:
+) -> AgentTaskCancelResponse:
     try:
         parsed_task_id = uuid.UUID(task_id)
     except (ValueError, TypeError):
