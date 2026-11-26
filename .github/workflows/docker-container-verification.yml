@@ -220,7 +220,7 @@ jobs:
             --name jas-si-worker-health \
             -p 127.0.0.1:18002:8000 \
             jas-si-api:ci \
-            python -c "import time; from jas_si_agent.agent_host_health import AgentHostHealthServer, AgentHostHealthState; state=AgentHostHealthState(); server=AgentHostHealthServer(state); server.start(); time.sleep(3); state.mark_success(); time.sleep(3600)"
+            python -u -c "import time; from jas_si_agent.agent_host_health import AgentHostHealthServer, AgentHostHealthState; state=AgentHostHealthState(); server=AgentHostHealthServer(state); server.start(); time.sleep(5); state.mark_success(); time.sleep(3600)"
 
       - name: Verify Worker liveness and fail-closed readiness transition
         shell: bash
@@ -237,46 +237,50 @@ jobs:
 
           def get(path):
               try:
-                  with urllib.request.urlopen(base + path, timeout=3) as response:
+                  with urllib.request.urlopen(base + path, timeout=2) as response:
                       return response.status, json.load(response)
               except urllib.error.HTTPError as error:
                   return error.code, json.load(error)
+              except (ConnectionError, OSError, TimeoutError, urllib.error.URLError):
+                  # Container port publication and the HTTP server thread can
+                  # become reachable a fraction after docker run returns.
+                  return None, None
 
           deadline = time.monotonic() + 15
           while time.monotonic() < deadline:
               status, payload = get("/health")
               if status == 200 and payload.get("status") == "ok":
                   break
-              time.sleep(0.2)
+              time.sleep(0.1)
           else:
               raise AssertionError("Worker liveness endpoint did not become healthy")
 
-          deadline = time.monotonic() + 5
-          observed_not_ready = False
+          deadline = time.monotonic() + 3
           while time.monotonic() < deadline:
               status, payload = get("/ready")
               if status == 503 and payload.get("status") == "not_ready":
-                  observed_not_ready = True
                   break
               if status == 200 and payload.get("status") == "ready":
-                  # The initial transition may have completed before the first probe.
-                  break
+                  raise AssertionError(
+                      "Worker became ready before the simulated successful poll"
+                  )
               time.sleep(0.1)
+          else:
+              raise AssertionError(
+                  "Worker did not expose fail-closed 503 readiness before successful poll"
+              )
 
           deadline = time.monotonic() + 15
           while time.monotonic() < deadline:
               status, payload = get("/ready")
               if status == 200 and payload.get("status") == "ready":
                   break
-              time.sleep(0.2)
+              time.sleep(0.1)
           else:
               raise AssertionError("Worker readiness did not follow successful poll")
 
-          if observed_not_ready:
-              print("PASS: /ready failed closed with 503 before the first successful poll.")
-          else:
-              print("PASS: /ready reached ready after the simulated successful poll.")
-          print("PASS: Worker container /health and /ready endpoints respond correctly.")
+          print("PASS: /health is live; /ready is 503 before first successful poll.")
+          print("PASS: /ready becomes 200 only after the successful poll.")
           PY
 
           for i in $(seq 1 45); do
