@@ -1,6 +1,6 @@
 # GitHub Task Capability Broker — Database Boundary
 
-**Status:** Implemented on an integration branch; exact-head CI and review pending. Not deployed to staging or production.
+**Status:** Implemented on the main-based integration branch and exact-head CI validated. Independent code review and Broker runtime integration remain pending. A read-only Neon inspection on 2026-11-26 found the matching task-scoped resolver and NOLOGIN capability role already present in Staging; Production does not contain them. This PR did not apply a database migration.
 
 ## Purpose
 
@@ -25,3 +25,16 @@ The canonical full migration replay workflow also includes this migration so tha
 ## Operational boundary
 
 This migration does not create login credentials, TLS listeners, Render services, certificates, or production identities. It does not activate the Worker, Verifier, or Broker runtime. Staging and production application remain separate authorization and deployment gates.
+
+
+## Live database boundary observation (2026-11-26)
+
+Read-only catalog inspection of Neon project `odd-violet-93299575` found:
+
+- Staging contains `jas_si_github_task_capability_resolve(uuid,name,text,bigint,uuid)`, owned by `jas_si_agent_task_owner`, SECURITY DEFINER, with fixed `search_path=pg_catalog`.
+- The resolver is executable by `jas_si_agent_capability_broker`; Worker and Verifier capability roles cannot execute it; PUBLIC has no EXECUTE grant.
+- The capability role is NOLOGIN, non-superuser, non-inheriting, and not BYPASSRLS. Its only observed membership is the Neon-managed `neondb_owner` ADMIN-only membership (no SET/INHERIT).
+- No dedicated Broker LOGIN role was present in Staging, so this catalog evidence does **not** establish that a Broker process can connect or that mTLS identity mapping is live.
+- Production has no Broker capability role or task-scoped resolver.
+
+These observations are catalog state only. No migration, DDL, DML, login creation, credential injection, service deployment, or task execution was performed during this inspection.
