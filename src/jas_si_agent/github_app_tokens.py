@@ -226,6 +226,73 @@ class TenantGitHubInstallationBindingResolver(Protocol):
         """Resolve an already verified installation/repository binding."""
 
 
+class PostgresTenantGitHubInstallationBindingResolver:
+    """Resolve only active verified bindings through the DB-owned routine.
+
+    The supplied DSN must be a dedicated Worker or Verifier login that is a
+    member of exactly its own capability role. This adapter never reads the
+    installation mapping tables directly.
+    """
+
+    def __init__(self, database_dsn: str) -> None:
+        if not isinstance(database_dsn, str) or not database_dsn.strip():
+            raise ValueError("A dedicated agent-host database DSN is required")
+        self._database_dsn = database_dsn
+
+    def resolve(
+        self, *, tenant_id: UUID, repository: str
+    ) -> TenantGitHubInstallationBinding | None:
+        if not isinstance(tenant_id, UUID):
+            raise GitHubAppTokenError("Authenticated tenant identity is required")
+        if not is_valid_github_repository(repository):
+            raise GitHubAppTokenError("Repository identifier is invalid")
+        try:
+            import psycopg
+
+            with psycopg.connect(self._database_dsn, connect_timeout=5) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT tenant_id,installation_id,repository_full_name
+                             FROM public.jas_si_github_installation_binding_resolve(%s,%s)""",
+                        (tenant_id, repository),
+                    )
+                    row = cursor.fetchone()
+        except Exception:
+            raise GitHubAppTokenError(
+                "Tenant GitHub installation binding lookup failed"
+            ) from None
+        if row is None:
+            return None
+        try:
+            return TenantGitHubInstallationBinding(
+                tenant_id=row[0],
+                installation_id=row[1],
+                repository=row[2],
+            )
+        except Exception:
+            raise GitHubAppTokenError(
+                "Tenant GitHub installation binding result is invalid"
+            ) from None
+
+
+def build_github_app_tenant_credential_provider(
+    *, database_dsn: str, app_id: int, private_key_path: str
+) -> "GitHubAppTenantCredentialProvider":
+    """Build a host-local provider from injected, non-user-controlled config."""
+    resolver = PostgresTenantGitHubInstallationBindingResolver(database_dsn)
+    issuer = GitHubAppInstallationTokenIssuer(
+        GitHubAppTokenSettings(
+            app_id=app_id,
+            private_key_path=private_key_path,
+        )
+    )
+    return GitHubAppTenantCredentialProvider(
+        binding_resolver=resolver,
+        token_issuer=issuer,
+    )
+
+
+
 class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
     """Bridge trusted tenant-installation records to short-lived App tokens.
 
@@ -290,6 +357,8 @@ __all__ = [
     "GitHubAppTenantCredentialProvider",
     "TenantGitHubInstallationBinding",
     "TenantGitHubInstallationBindingResolver",
+    "PostgresTenantGitHubInstallationBindingResolver",
+    "build_github_app_tenant_credential_provider",
     "GitHubAppTokenError",
     "GitHubAppTokenSettings",
     "IssuedGitHubInstallationToken",
