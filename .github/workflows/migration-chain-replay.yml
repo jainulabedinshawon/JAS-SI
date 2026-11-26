@@ -610,9 +610,20 @@ jobs:
                    installation_b,tenant_b,repository_b),
               )
               cur.execute("RESET ROLE")
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_worker_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute("GRANT jas_si_agent_worker TO jas_si_agent_worker_test")
+              cur.execute(
+                  "CREATE ROLE jas_si_agent_verifier_test LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+              )
+              cur.execute("GRANT jas_si_agent_verifier TO jas_si_agent_verifier_test")
+              conn.commit()
               for login_role, capability_role in (
-                  ("jas_si_agent_worker_login","jas_si_agent_worker"),
-                  ("jas_si_agent_verifier_login","jas_si_agent_verifier"),
+                  ("jas_si_agent_worker_test","jas_si_agent_worker"),
+                  ("jas_si_agent_verifier_test","jas_si_agent_verifier"),
               ):
                   with psycopg.connect(dsn) as host_conn:
                       with host_conn.cursor() as host_cur:
