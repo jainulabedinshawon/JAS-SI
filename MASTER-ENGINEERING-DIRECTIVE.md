@@ -1,6 +1,6 @@
 # JAS-SI — Master Engineering, Product & SaaS Execution Directive
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Binding execution directive; implementation and release status must always be evidence-based.  
 **Scope:** Research integrity, core engineering, product delivery, standalone SaaS, security, operations and commercial readiness.
 
@@ -256,6 +256,31 @@ Maintain a concise execution report containing:
 - Next highest-value task.
 
 Do not repeatedly ask the user to restate this directive. Ask only when a genuine decision, missing secret, external account action or approval is required. Never claim access to an external service that has not been verified.
+
+## 13.1 Implementation and documentation synchronization
+
+Implementation and documentation are one delivery unit. When a code, schema, API, security, runtime, deployment, product, or operational change alters project behavior or its verified status, update the directly affected documentation in the same focused change or pull request.
+
+At minimum, assess the following sources and update only those affected:
+- `README.md`: current product/research scope, supported capabilities, setup, routes, and accurate high-level status.
+- Architecture documents and ADRs: component boundaries, ownership, trust boundaries, dependencies, and decisions.
+- Database/migration documentation: schema, roles, grants, RLS, migration order, rollback and recovery notes.
+- API/OpenAPI/SDK documentation: request/response contracts, authentication, errors, limits, and examples.
+- Deployment and operations guides: required configuration names, runtime topology, health checks, observability, and recovery.
+- Security and threat-model documentation: changed attack surfaces, authorization boundaries, secrets handling, and regression controls.
+- Product/customer documentation: onboarding, plan availability, quotas, limitations, support and commercial status.
+
+Documentation must describe the implementation that exists, not the implementation that is merely planned. Keep these states distinct: PLANNED, IMPLEMENTED, TESTED, INTEGRATED, STAGING VERIFIED, PRODUCTION VERIFIED, COMPLETE, BLOCKED and NOT VERIFIED. Never promote a status based only on a merged PR, green CI, or READY deployment.
+
+For each delivery:
+1. Identify the authoritative source for the behavior being changed.
+2. Search for existing documentation and update it rather than creating duplicates.
+3. Include the relevant commit, PR, test or deployment evidence where useful and safe.
+4. State limitations and unverified environments explicitly.
+5. Review code, tests, configuration and documentation together before merge.
+6. Do not copy secrets, customer data, private environment values or sensitive operational details into documentation.
+
+If no documentation change is warranted, record the reason in the PR description. Documentation drift is a defect; do not silently leave conflicting instructions or status claims.
 
 ## 14. Final binding instruction
 
