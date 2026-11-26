@@ -163,6 +163,59 @@ class TestAgentTaskAPI(TestCase):
         self.assertEqual(self.store.created[0]["idempotency_key"], "customer-task-001")
         self.assertEqual(self.events.events[-1]["event_type"], "agent_task_submitted")
 
+    def test_github_repository_read_task_accepts_only_bounded_immutable_input(self):
+        payload = {
+            "task_type": "github.read_repository",
+            "input_payload": {
+                "repository": "example/project",
+                "commit_sha": "a" * 40,
+                "paths": ["README.md", "src/main.py"],
+            },
+        }
+        response = self.client.post("/v1/agent/tasks", json=payload)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.store.created[-1]["input_payload"], payload["input_payload"])
+
+    def test_github_repository_read_task_rejects_malformed_or_unbounded_input(self):
+        base = {
+            "task_type": "github.read_repository",
+            "input_payload": {
+                "repository": "example/project",
+                "commit_sha": "a" * 40,
+                "paths": ["README.md"],
+            },
+        }
+        invalid_inputs = []
+        missing_sha = dict(base["input_payload"])
+        missing_sha.pop("commit_sha")
+        invalid_inputs.append(missing_sha)
+        invalid_inputs.append(dict(base["input_payload"], commit_sha="not-a-full-sha"))
+        invalid_inputs.append(dict(base["input_payload"], paths=["../secrets.txt"]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["/etc/passwd"]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["a\\\\b"]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["\x00"]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["x" * 501]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["."]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["a\\\\b"]))
+        invalid_inputs.append(dict(base["input_payload"], paths=["README.md", "README.md"]))
+        invalid_inputs.append(dict(base["input_payload"], paths=[f"file-{i}.txt" for i in range(11)]))
+        invalid_inputs.append(dict(base["input_payload"], command="arbitrary"))
+        invalid_inputs.append(dict(base["input_payload"], repository="example/../private"))
+
+        for input_payload in invalid_inputs:
+            with self.subTest(input_payload=input_payload):
+                response = self.client.post(
+                    "/v1/agent/tasks",
+                    json=dict(base, input_payload=input_payload),
+                )
+                self.assertEqual(response.status_code, 422)
+
+        self.assertEqual(self.store.created, [])
+        self.assertFalse(
+            any(event.get("event_type") == "agent_task_submitted" for event in self.events.events)
+        )
+
+
     def test_task_submission_is_rejected_when_worker_host_is_not_ready(self):
         api.app.state.agent_task_submission_enabled = False
 
