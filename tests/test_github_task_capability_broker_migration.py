@@ -259,6 +259,30 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}','[\"README.md\"]'::jsonb) WHERE task_id='22222222-2222-4222-8222-222222222222'",
             )
 
+            for invalid_paths in (
+                '[1]',
+                '[""]',
+                '["../secrets.txt"]',
+                '["a\\\\b"]',
+                '["' + ('a' * 513) + '"]',
+            ):
+                with psycopg.connect(dsn) as fixture:
+                    fixture.execute(
+                        "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}',%s::jsonb) "
+                        "WHERE task_id='22222222-2222-4222-8222-222222222222'",
+                        (invalid_paths,),
+                    )
+                    fixture.commit()
+                try:
+                    self.assertIsNone(broker.execute(*worker_lookup).fetchone())
+                finally:
+                    with psycopg.connect(dsn) as fixture:
+                        fixture.execute(
+                            "UPDATE public.jas_si_agent_tasks SET input_payload=jsonb_set(input_payload,'{paths}','[\"README.md\"]'::jsonb) "
+                            "WHERE task_id='22222222-2222-4222-8222-222222222222'"
+                        )
+                        fixture.commit()
+
             with self.assertRaises(psycopg.errors.InvalidParameterValue):
                 broker.execute(
                     "SELECT 1 FROM public.jas_si_github_task_capability_resolve(%s,%s,'worker',NULL,NULL)",
