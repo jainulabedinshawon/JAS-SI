@@ -124,7 +124,7 @@ BEGIN
                     WHERE pg_catalog.jsonb_typeof(path_item.value) <> 'string'
                        OR pg_catalog.length(path_item.value #>> '{}') NOT BETWEEN 1 AND 512
                        OR (path_item.value #>> '{}') ~ '(^/|(^|/)[.][.]?(/|$)|[[:cntrl:]])'
-                       OR pg_catalog.position(pg_catalog.chr(92) IN (path_item.value #>> '{}')) > 0
+                       OR pg_catalog.strpos(path_item.value #>> '{}',pg_catalog.chr(92)) > 0
                )
            END
        AND t.status='active'
