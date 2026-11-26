@@ -17,12 +17,11 @@ for configuring the TLS listener. A capability service must:
    dispatch; and
 4. pin the leaf certificate fingerprint to one workload principal and role.
 
-ASGI TLS extension 0.2 exposes client_cert_error, which the adapter rejects
-when non-empty. Extension 0.3 removes that field; deployments using 0.3 must
-enforce verification at the TLS listener with CERT_REQUIRED. If TLS is
-terminated upstream and the ASGI server does not expose the TLS extension,
-the adapter deliberately supplies no identity. Do not copy a client
-certificate into an HTTP header to work around this limitation.
+The ASGI TLS extension exposes client_cert_error, which the adapter rejects
+when non-empty. Deployments must still enforce verification at the TLS listener
+with CERT_REQUIRED; the adapter deliberately supplies no identity when TLS is
+terminated upstream and the ASGI server does not expose the TLS extension. Do
+not copy a client certificate into an HTTP header to work around this limitation.
 
 ## Current deployment boundary
 
