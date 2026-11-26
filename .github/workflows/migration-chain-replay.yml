@@ -579,6 +579,7 @@ jobs:
                       f"no_public_execute={no_public}"
                   )
               print(f"Verified {count} SECURITY DEFINER routines and runtime usage-table isolation")
+              from uuid import uuid4
               # Exercise tenant-scoped GitHub installation resolution with real
               # PostgreSQL roles, RLS, and separate tenant/repository fixtures.
               tenant_a, tenant_b = uuid4(), uuid4()
