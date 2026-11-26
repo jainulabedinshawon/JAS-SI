@@ -16,6 +16,12 @@ The Worker and Independent Verifier must not obtain GitHub installation access b
 - Both paths require an active tenant, a verified active GitHub installation and repository binding, a bounded repository-read task, a full 40-character commit SHA, and a bounded path list.
 - The old unscoped installation resolver is revoked from Worker and Verifier; the Broker does not receive that legacy resolver.
 
+## Expanded negative-case verification
+
+The PostgreSQL integration test also checks that no capability is returned when the tenant is inactive, the installation or repository binding is inactive/unverified, the repository name does not match, the task type or state is wrong, the Worker lease or Verifier claim is expired, the commit SHA is malformed, or the path list is empty/oversized. Invalid role and null-argument combinations must raise the documented validation SQLSTATE. Fixture mutations are restored after each negative assertion so later replay and positive cases remain deterministic.
+
+These assertions are test coverage only. They do not imply that the migration has been applied to a live Neon branch or that a Broker runtime is deployed.
+
 ## Verification
 
 The migration integration test checks clean replay/idempotency, approved-style SET-only Broker membership, Worker and Verifier principal matching, stale lease fencing, invalid claim rejection, and denial of direct Worker/Verifier execution.
