@@ -142,7 +142,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             # task-owner policies make the minimal persisted lookup available.
         from psycopg.conninfo import make_conninfo
         broker_dsn = make_conninfo(dsn, user="jas_si_agent_broker_login_test", password="broker-test-secret")
-        with psycopg.connect(broker_dsn) as broker:
+        with psycopg.connect(broker_dsn, autocommit=True) as broker:
             # Login role has SET-only membership: explicitly enter the Broker
             # capability role; inherited execution is intentionally forbidden.
             broker.execute("SET ROLE jas_si_agent_capability_broker")
