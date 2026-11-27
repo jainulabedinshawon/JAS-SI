@@ -285,3 +285,32 @@ This continuation refreshed repository, PR, deployment, Neon branch, and Render 
 ### Execution outcome
 
 This audit was read-only except for this documentation update on the existing PR #156 branch. No production migration, database write, service creation, deployment trigger, secret operation, or PR merge was performed.
+
+
+## Exact-head CI and billing implementation inspection — 2026-11-27
+
+### Documentation branch verification
+
+The latest documentation branch head is `8cf32e16101dc837bcb5b5eaef477ce76febcb73`. A fresh GitHub workflow query now returns seven PR workflows, all completed successfully at that exact SHA:
+
+- Core Package Validation — success
+- Vercel Python 3.12 Compatibility — success
+- Agent Authorization Tests — success
+- Post-Merge Security Verification — success
+- Security Event Persistence Verification — success
+- Docker Container Verification — success
+- Dependency Lock Verification — success
+
+This is exact-head CI evidence for the documentation branch; it is not a merge or production verification.
+
+### Billing code-to-infrastructure status
+
+A current Main read of `src/jas_si_agent/billing_core.py` (blob SHA `87a6d9b2d8aa50732f8af18c6e75832389bed6c9`) confirms the module explicitly describes itself as an in-memory domain/test foundation, with no database, network, payment-provider, or credential handling.
+
+The file contains domain primitives for immutable order snapshots, payment/order amount-currency matching, allowed state transitions, and an in-memory credit ledger with idempotency support. Its own module/class documentation explicitly states that the in-memory ledger is not durable, not multi-process safe, and requires transactional PostgreSQL persistence, row-level concurrency control, durable audit, and tenant authorization for production.
+
+**Classification:** billing domain foundation is IMPLEMENTED in source and covered by existing CI/domain tests where applicable; a production payment adapter, durable financial ledger, provider event verification, reconciliation, refunds/disputes, and entitlement enforcement are NOT VERIFIED by this source file. No claim of integrated or staging-verified billing is made.
+
+### Runtime priority remains unchanged
+
+PR #80 remains the root durable-task integration blocker; its diverged/non-mergeable state prevents safe progression of stacked PRs #91–#93. Render still reports no services. No migration, deployment, payment account, credential, or financial operation was performed.
