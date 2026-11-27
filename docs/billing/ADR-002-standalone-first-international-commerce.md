@@ -155,3 +155,18 @@ Keep Starter, Pro, and Enterprise non-purchasable until provider approval, sandb
 ## Consequences
 
 This decision preserves standalone commercial independence while retaining a clean future JAS Platform linking path. It replaces the previous single-owner assumption with an explicit per-tenant authority boundary. It does not activate payments, set paid prices, or claim commercial readiness.
+
+
+## bKash PRA decision update — 27 Nov 2026
+
+This addendum supersedes the earlier PRA candidate language in the 26 Nov provider assessment above. The project owner received a direct written response from bKash customer support after asking about SaaS subscriptions and API-based payment collection. The support response stated:
+
+- PRA is intended for micro/small retail and f-commerce and is **not appropriate for automated SaaS subscription collection**; bKash recommended a Regular Merchant Account or Payment Gateway for this use case.
+- PRA does not provide the official Tokenized Checkout / Merchant API, Developer Sandbox, or production API credentials needed for JAS-SI's intended integration.
+- PRA does not provide official server-to-server transaction verification or automated payment webhook/callback for this SaaS flow. SMS-reader or manual-notification workarounds are not acceptable as independent verification.
+- The support response indicated a new unused SIM registered to the same NID may be eligible for PRA registration, but that account eligibility does not authorize SaaS commerce or create API access.
+- The support response quoted receive limits of BDT 30,000 per transaction/day and BDT 500,000 per month, with wallet settlement; these terms, charges, and withdrawal rules remain subject to current bKash confirmation and do not change the SaaS decision.
+
+**JAS-SI decision:** Do not open or use PRA as the business payment collection channel for SaaS. Keep the user's personal bKash account separate. For Bangladesh customers, evaluate a Regular bKash Merchant Account or an officially approved gateway only after written confirmation of SaaS/digital-service acceptance, API/Sandbox access, server-side verification, webhook contract, settlement, fees, and required business documents. No account application, credential, production checkout, or payment collection is authorized by this assessment.
+
+This provider-specific written response is stronger than the earlier inference from public PRA pages and must be reflected in all future payment architecture, provider comparison, onboarding, and commercial readiness documents. Paid plans remain non-purchasable until the common verified-payment activation gate is passed.
