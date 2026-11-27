@@ -150,7 +150,7 @@ class PostgresGitHubCapabilityBroker:
                         or len(path) > 512
                         or path.startswith("/")
                         or "\\" in path
-                        or "\x00" in path
+                        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in path)
                         or any(part in {"", ".", ".."} for part in path.split("/"))
                         for path in paths
                     ):
