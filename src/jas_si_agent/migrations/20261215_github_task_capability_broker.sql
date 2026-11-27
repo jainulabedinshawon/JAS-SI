@@ -24,7 +24,7 @@ BEGIN
         JOIN pg_catalog.pg_roles grantor_role ON grantor_role.oid=m.grantor
         WHERE m.roleid=v_role.oid
           AND NOT (
-              (login_role.rolname LIKE 'jas_si_agent_broker_login%'
+              (login_role.rolname IN ('jas_si_agent_broker_login','jas_si_agent_broker_login_test')
                AND login_role.rolcanlogin AND NOT login_role.rolinherit
                AND NOT login_role.rolsuper AND NOT login_role.rolcreatedb
                AND NOT login_role.rolcreaterole AND NOT login_role.rolreplication
