@@ -228,3 +228,29 @@ A second read-only pass inspected table ACLs, RLS policy catalog, function ACLs 
 ### Security assessment correction
 
 The earlier shorthand “seven RLS-disabled tables” remains factually correct, but must not be interpreted as evidence that ordinary application roles can directly read those tables. The catalog currently shows a restricted function-mediated access design. The remaining gap is defense-in-depth, missing customer-runtime LOGIN/configuration in Production, and absence of complete end-to-end runtime proof. No DDL, DML, grant, role, policy, secret, or migration was changed in this review.
+
+
+## Agent runtime dependency and PR readiness review — 2026-11-27
+
+A fresh GitHub read-only review checked PR #80 and its stacked runtime dependents #91–#93 against the current Main branch.
+
+### Durable Agent Task Store PR #80
+
+- PR #80 remains Open and Draft. Its current head is `1dd2d0cc2e854f18c414e39393629b65057854db`; its recorded base SHA is `9625905db7a8f9ffab151995e4b8a475b0de405a`.
+- Main is currently `a561acf101137fa92e0fc50da4e06fc63edc0dda`. The comparison reports a diverged history: PR #80 is 234 commits ahead and 44 commits behind Main, with the old SHA as merge base. GitHub currently reports the PR as not mergeable.
+- No PR-triggered workflow runs and no combined commit statuses were returned for the current PR #80 head. This is absence of CI evidence, not a passing result.
+- PR #80 contains durable task storage, worker and verifier lifecycle adapters, multiple migrations, API routes, Render worker/verifier declarations and integration tests. It is a substantial stacked implementation, not a small isolated change.
+- The migration replay workflow explicitly includes the future-dated `20261201_agent_task_verifier_inconclusive_lifecycle.sql`. The migration's retry-exhaustion-to-human-review behavior is aligned with fail-closed verification, but its date and inclusion order must be reviewed as part of canonical migration sequencing before any merge.
+- The PR's Render manifest declares Worker and Verifier services only; it does not establish that either service has been deployed or that a Broker runtime exists.
+
+### Stacked dependents
+
+- PR #91 targets `feat/durable-agent-task-store-v1` (PR #80's branch).
+- PR #92 targets PR #91's branch.
+- PR #93 targets PR #92's branch.
+- Each dependent is therefore blocked on reconciling and validating the root PR #80 against current Main. Their individual branch-level mergeability does not make them independently mergeable to Main.
+- Do not retarget or merge the dependents directly to Main, and do not treat their branch mergeability as evidence that the entire stack is ready.
+
+### Current decision
+
+PR #80 and #91–#93 remain unmerged and Draft. The next safe engineering action is a controlled reconciliation of the root task-store branch with current Main, followed by exact-head CI (including clean PostgreSQL migration replay and agent-task tests), security review of the complete diff, and renewed dependent-branch checks. No branch rebase/force-push, migration, database write, deployment, or PR merge was performed during this audit.
