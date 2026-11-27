@@ -12,6 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from jas_si_agent.github_capability_identity import WorkloadIdentity
 from jas_si_agent.github_capability_broker import (
     GitHubCapabilityBrokerError,
     PostgresGitHubCapabilityBroker,
@@ -58,6 +59,8 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
     def setUp(self):
         self.task_id = uuid4()
         self.tenant_id = uuid4()
+        self.identity = WorkloadIdentity("worker.staging.instance-1", "worker")
+        self.verifier_identity = WorkloadIdentity("verifier.staging.instance-1", "verifier")
         self.claim_token = uuid4()
         self.expires_at = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
         self.row = (
@@ -85,8 +88,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             )
             result = broker.resolve(
                 task_id=self.task_id,
-                principal_id="worker.staging.instance-1",
-                role="worker",
+                identity=self.identity,
                 lease_fence=7,
             )
 
@@ -113,8 +115,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             ):
                 broker.resolve(
                     task_id=self.task_id,
-                    principal_id="worker.staging.instance-1",
-                    role="worker",
+                    identity=self.identity,
                     lease_fence=7,
                 )
 
@@ -130,8 +131,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             )
             result = broker.resolve(
                 task_id=self.task_id,
-                principal_id="verifier.staging.instance-1",
-                role="verifier",
+                identity=self.verifier_identity,
                 verifier_claim_token=self.claim_token,
             )
         self.assertEqual(result.capability_role, "verifier")
@@ -147,8 +147,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         with self.assertRaises(GitHubCapabilityBrokerError):
             broker.resolve(
                 task_id=self.task_id,
-                principal_id="w" * 64,
-                role="worker",
+                identity=WorkloadIdentity("w" * 64, "worker"),
                 lease_fence=7,
             )
 
