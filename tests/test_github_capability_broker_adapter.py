@@ -205,3 +205,35 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         self.assertNotIn("postgres://", str(raised.exception))
 
 
+
+    def test_rejects_resolver_row_with_wrong_role_or_fence(self):
+        wrong_role = self.row[:4] + ("verifier",) + self.row[5:]
+        wrong_fence = self.row[:5] + (8,) + self.row[6:]
+        for row in (wrong_role, wrong_fence):
+            connection = _Connection(row)
+            with patch("jas_si_agent.github_capability_broker.psycopg.connect", return_value=connection):
+                broker = PostgresGitHubCapabilityBroker(
+                    "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+                )
+                with self.assertRaisesRegex(GitHubCapabilityBrokerError, "metadata is invalid"):
+                    broker.resolve(task_id=self.task_id, identity=self.identity, lease_fence=7)
+
+    def test_rejects_control_characters_in_persisted_paths(self):
+        row = self.row[:9] + (["src/\\x01secret.py"],)
+        connection = _Connection(row)
+        with patch("jas_si_agent.github_capability_broker.psycopg.connect", return_value=connection):
+            broker = PostgresGitHubCapabilityBroker(
+                "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+            )
+            with self.assertRaisesRegex(GitHubCapabilityBrokerError, "path scope is invalid"):
+                broker.resolve(task_id=self.task_id, identity=self.identity, lease_fence=7)
+
+    def test_rejects_naive_expiration_timestamp(self):
+        row = self.row[:7] + (datetime(2026, 11, 22, 12, 0),) + self.row[8:]
+        connection = _Connection(row)
+        with patch("jas_si_agent.github_capability_broker.psycopg.connect", return_value=connection):
+            broker = PostgresGitHubCapabilityBroker(
+                "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+            )
+            with self.assertRaisesRegex(GitHubCapabilityBrokerError, "metadata is invalid"):
+                broker.resolve(task_id=self.task_id, identity=self.identity, lease_fence=7)
