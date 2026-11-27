@@ -44,6 +44,33 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         self.assertNotIn("password", sql)
         self.assertNotIn("grant jas_si_agent_capability_broker to jas_si_agent_worker", sql)
 
+    def test_task_owner_tenant_select_scope_is_column_limited(self):
+        scope_migration = (
+            ROOT / "src" / "jas_si_agent" / "migrations"
+            / "20261216_agent_task_owner_tenant_select_scope.sql"
+        )
+        sql = scope_migration.read_text(encoding="utf-8").lower()
+        self.assertIn(
+            "revoke select on table public.jas_si_tenants",
+            sql,
+        )
+        self.assertIn(
+            "grant select (tenant_id, status) on table public.jas_si_tenants",
+            sql,
+        )
+        self.assertIn(
+            "has_table_privilege(",
+            sql,
+        )
+        self.assertIn(
+            "has_column_privilege(",
+            sql,
+        )
+        self.assertIn(
+            "task owner has unexpected tenant column select",
+            sql,
+        )
+
     @unittest.skipUnless(os.getenv("JAS_SI_BROKER_MIGRATION_TEST_DSN"), "PostgreSQL migration integration DSN not configured")
     def test_clean_schema_migration_replays_and_acl_is_broker_only(self):
         import psycopg
