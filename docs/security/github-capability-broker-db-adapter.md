@@ -19,12 +19,14 @@ The adapter accepts only the immutable `WorkloadIdentity` value produced by the 
 
 - Main base: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
 - Main-aligned Broker integration commit: `614d4aa4cb6fc0ec9e881f37ebf21842e212b28c`.
-- The branch is 18 commits ahead and 0 behind Main; the integration commit has Main as its first parent.
-- Exact-head push CI for `614d4aa4cb6fc0ec9e881f37ebf21842e212b28c`: 3/3 workflows successful:
+- At documentation update commit `328a0f8a9c3fb26746a82f101d2d15c8c214fb39`, the branch is 19 commits ahead and 0 behind Main; the merge base is the current Main SHA.
+- Exact-head CI for current branch head `328a0f8a9c3fb26746a82f101d2d15c8c214fb39`: all 3 required workflow families passed (Broker Adapter Tests, Post-Merge Security Verification, Python 3.12 Runtime Compatibility). The exact-head check-run inventory also reports all returned checks completed successfully.
+- Earlier integration commit `614d4aa4cb6fc0ec9e881f37ebf21842e212b28c` also passed its 3/3 workflow set:
   - GitHub Capability Broker Adapter Tests — run `46028849292`; focused adapter test step passed.
   - Post-Merge Security Verification — run `46028849523`; Python 3.10 compilation and complete discovered unit-test suite passed.
   - Vercel Runtime Compatibility (Python 3.12) — run `46028849354`; compilation, FastAPI entrypoint validation, and complete unit-test suite passed.
 - Regression coverage includes actual U+0001, U+001F, and U+007F characters (not escaped backslash text).
+- Latest read-only review on 2026-11-27 confirms the resolver is Broker-role-only on Staging, the dedicated Broker LOGIN is absent, and no Staging task/evidence rows exist. These are database catalog observations, not a successful live adapter connection.
 
 ## Staging and completion boundary
 
