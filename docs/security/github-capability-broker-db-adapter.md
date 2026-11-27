@@ -17,16 +17,19 @@ The adapter accepts only the immutable `WorkloadIdentity` value produced by the 
 
 ## Current branch and CI evidence — 2026-11-27
 
-- Main base: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
-- Main-aligned Broker integration commit: `614d4aa4cb6fc0ec9e881f37ebf21842e212b28c`.
-- At documentation update commit `328a0f8a9c3fb26746a82f101d2d15c8c214fb39`, the branch is 19 commits ahead and 0 behind Main; the merge base is the current Main SHA.
-- Exact-head CI for current branch head `328a0f8a9c3fb26746a82f101d2d15c8c214fb39`: all 3 required workflow families passed (Broker Adapter Tests, Post-Merge Security Verification, Python 3.12 Runtime Compatibility). The exact-head check-run inventory also reports all returned checks completed successfully.
-- Earlier integration commit `614d4aa4cb6fc0ec9e881f37ebf21842e212b28c` also passed its 3/3 workflow set:
-  - GitHub Capability Broker Adapter Tests — run `46028849292`; focused adapter test step passed.
-  - Post-Merge Security Verification — run `46028849523`; Python 3.10 compilation and complete discovered unit-test suite passed.
-  - Vercel Runtime Compatibility (Python 3.12) — run `46028849354`; compilation, FastAPI entrypoint validation, and complete unit-test suite passed.
-- Regression coverage includes actual U+0001, U+001F, and U+007F characters (not escaped backslash text).
-- Latest read-only review on 2026-11-27 confirms the resolver is Broker-role-only on Staging, the dedicated Broker LOGIN is absent, and no Staging task/evidence rows exist. These are database catalog observations, not a successful live adapter connection.
+- Main SHA observed during this audit: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
+- Current branch head at the time of this review: `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`.
+- GitHub compare against current `main`: 20 commits ahead, 0 behind; merge base equals current Main SHA.
+- Exact-head CI for `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`: 11 returned check-run records completed successfully across two push attempts; all 11 concluded `success`. They cover 8 distinct check names: Security Verification (Python 3.10), JSONL Recovery, Vercel Runtime Compatibility (Python 3.12), Docker Container Verification, Dependency Lock Verification, Broker Adapter Unit Tests, Agent Unit Tests (Python 3.10), and Wheel Build and Install.
+- Latest full security job `46030799738` ran 1,121 discovered tests; 109 were skipped and the job concluded successfully. The skipped tests must not be represented as executed.
+- The optional PostgreSQL migration/adapter integration test is gated by `JAS_SI_BROKER_MIGRATION_TEST_DSN`. The Broker adapter CI job does not configure that DSN; therefore these CI results do not prove a live Broker database connection or execute that optional integration test.
+- The adapter test job `46030799702` completed successfully. Python 3.10 security verification, Python 3.12 runtime compatibility, Docker verification, dependency lock, JSONL recovery, and wheel build/install checks also completed successfully.
+- Exact-head evidence is CI evidence only. It does not establish Staging integration, deployed Broker runtime, private-repository task execution, or independent end-to-end verification.
+
+## Evidence correction history
+
+An earlier version of this document referred to head `328a0f8a9c3fb26746a82f101d2d15c8c214fb39` and 19 commits ahead. That is stale: the current branch head is `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`, and the current comparison is 20 ahead / 0 behind. The older 3/3 CI statement applied to an earlier commit and is not the current evidence summary.
+
 
 ## Staging and completion boundary
 
