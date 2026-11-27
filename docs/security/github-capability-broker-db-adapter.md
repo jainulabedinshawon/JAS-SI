@@ -17,18 +17,18 @@ The adapter accepts only the immutable `WorkloadIdentity` value produced by the 
 
 ## Current branch and CI evidence — 2026-11-27
 
-- Main SHA observed during this audit: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
-- Current branch head at the time of this review: `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`.
-- GitHub compare against current `main`: 20 commits ahead, 0 behind; merge base equals current Main SHA.
-- Exact-head CI for `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`: 11 returned check-run records completed successfully across two push attempts; all 11 concluded `success`. They cover 8 distinct check names: Security Verification (Python 3.10), JSONL Recovery, Vercel Runtime Compatibility (Python 3.12), Docker Container Verification, Dependency Lock Verification, Broker Adapter Unit Tests, Agent Unit Tests (Python 3.10), and Wheel Build and Install.
-- Latest full security job `46030799738` ran 1,121 discovered tests; 109 were skipped and the job concluded successfully. The skipped tests must not be represented as executed.
-- The optional PostgreSQL migration/adapter integration test is gated by `JAS_SI_BROKER_MIGRATION_TEST_DSN`. The Broker adapter CI job does not configure that DSN; therefore these CI results do not prove a live Broker database connection or execute that optional integration test.
-- The adapter test job `46030799702` completed successfully. Python 3.10 security verification, Python 3.12 runtime compatibility, Docker verification, dependency lock, JSONL recovery, and wheel build/install checks also completed successfully.
-- Exact-head evidence is CI evidence only. It does not establish Staging integration, deployed Broker runtime, private-repository task execution, or independent end-to-end verification.
+- Main SHA observed: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
+- The Broker adapter source/tests were reviewed at implementation commit `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`. This evidence correction was committed as `1eafc32fb27d4f1d3091ce16966d7568eb4169da`.
+- At the evidence-correction commit, comparison against current Main was 21 commits ahead, 0 behind; merge base equaled Main.
+- Exact-head CI for evidence-correction commit `1eafc32fb27d4f1d3091ce16966d7568eb4169da`: 11 returned check-run records across two push attempts; all 11 completed successfully. Eight distinct check names passed: Security Verification (Python 3.10), JSONL Recovery, Vercel Runtime Compatibility (Python 3.12), Docker Container Verification, Dependency Lock Verification, Broker Adapter Unit Tests, Agent Unit Tests (Python 3.10), and Wheel Build and Install.
+- Latest full security run `46032264550` ran 1,121 discovered tests; 109 were skipped and the job passed. Skipped tests are not counted as executed.
+- Latest Broker adapter unit-test run `46032264643` passed. Python 3.12 compatibility run `46032264648` also passed.
+- The optional PostgreSQL migration/adapter integration test is gated by `JAS_SI_BROKER_MIGRATION_TEST_DSN`. The Broker adapter CI job does not configure that DSN; therefore these checks do not prove a live Broker DB connection or execute that optional integration test.
+- The check evidence above is attached to the exact commit shown; a subsequent documentation-only commit must be independently checked before being described as exact-head CI verified.
 
 ## Evidence correction history
 
-An earlier version of this document referred to head `328a0f8a9c3fb26746a82f101d2d15c8c214fb39` and 19 commits ahead. That is stale: the current branch head is `f0226532f0693481aa9b3dc2f1c26aee96ae7da4`, and the current comparison is 20 ahead / 0 behind. The older 3/3 CI statement applied to an earlier commit and is not the current evidence summary.
+Earlier versions cited head `328a0f8...` and then `f0226532...` as current. Those values became stale as documentation commits advanced the branch. Always use the Git ref's current head and query check runs for that exact SHA before making a current CI claim.
 
 
 ## Staging and completion boundary
