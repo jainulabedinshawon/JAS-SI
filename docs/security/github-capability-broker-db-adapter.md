@@ -76,3 +76,22 @@ The following is a new live audit snapshot; the historical 2026-11-27 observatio
 - The PR metadata reports 10 changed files while the current compare response enumerates 8 files; reconcile this discrepancy against GitHub's authoritative PR file list before merge. Do not infer the exact diff inventory from either count alone.
 
 **Current decision:** Keep Draft. Do not merge until exact PR file inventory, full required-check inventory, and independent review are reconciled. Broker LOGIN/connection, mandatory-mTLS listener, private repository proxy, Worker/Verifier runtime wiring, E2E, and Production verification remain **NOT VERIFIED**.
+
+
+## Live evidence refresh — 2026-11-28 (UTC+6), after documentation commit
+
+This snapshot supersedes the preceding branch-head snapshot; older entries remain historical.
+
+- Main remains `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
+- Current adapter branch head: `48a6ccb2a22824ed278af43c0c9fdc0d6db08ace`.
+- Current compare: 31 commits ahead / 0 behind; merge base is Main.
+- Exact-head workflow query for `48a6ccb...` returned 14 PR-triggered workflow runs, all `completed/success`.
+- Broker Adapter run `46068485803` was inspected at job level: `broker-adapter-unit-tests` succeeded; its combined adapter + workload identity test step succeeded.
+- The workflow endpoint returns its first page only; 14 successes are not a complete required-check inventory.
+- PR #153 is Open. The issue payload did not expose an authoritative `changed_files` count or a `draft` field. The compare endpoint enumerates eight changed paths. An earlier report mentioned ten PR files; because the current available PR payload does not expose the file-list endpoint, that discrepancy is **UNRESOLVED**, not explained.
+- No submitted PR reviews were returned.
+- Neon Staging read-only assertions remain: Task Owner table-wide tenant SELECT=false; `tenant_id`/ `status` SELECT=true; Broker resolver EXECUTE=true; Worker/Verifier EXECUTE=false.
+- Render workspace returned an empty service inventory.
+- Vercel Production deployment `dpl_8X3FLYpTRKw41qDE7Joo57brBozQ` is READY and points to Main SHA above.
+
+**Decision:** Keep PR #153 unmerged and Draft status unconfirmed (the issue payload omits the draft field). Do not claim complete merge-gate verification. Broker LOGIN/connection, mandatory-mTLS listener, repository-read proxy, Worker/Verifier runtime wiring, full E2E, and Production runtime verification remain **NOT VERIFIED**. No infrastructure, credentials, database grants, or Production settings were changed in this audit.
