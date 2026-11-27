@@ -1,9 +1,24 @@
 # JAS-SI Customer Onboarding — Staging Activation Checklist
 
-**Status (2026-11-14): onboarding code is merged and deployed; live customer activation is blocked by missing dedicated runtime credentials and SMTP configuration.**  
+**Latest read-only live audit: 2026-11-27 (Main `c79fe635aadee07cb5aa35302394102cb64a74a1`).** This section supersedes the dated environment snapshots below; older snapshots remain as historical evidence.
+
+## Latest live state (2026-11-27)
+
+- Vercel Production deployment `dpl_Eb8r56vftwiF8EUbBZax3Te8VtdZ` is `READY` and its Git commit matches Main `c79fe635aadee07cb5aa35302394102cb64a74a1`.
+- The read-only Vercel environment inventory contains `JAS_SI_CUSTOMER_DATABASE_URL`, `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`, and `JAS_SI_CUSTOMER_TOKEN_PEPPER` with target `preview` and no `gitBranch` restriction. They are therefore Preview-wide rather than restricted to one named Preview branch. The audit did not decrypt any values. This scope is broader than the exact-branch restriction required by the staging procedure below; do not assume untrusted Preview builds are isolated. Review Vercel fork/deployment protection before using these secrets with any Preview build.
+- No `JAS_SI_CUSTOMER_SMTP_HOST`, `JAS_SI_CUSTOMER_SMTP_PORT`, `JAS_SI_CUSTOMER_SMTP_USERNAME`, `JAS_SI_CUSTOMER_SMTP_PASSWORD`, `JAS_SI_CUSTOMER_SMTP_SENDER`, or `JAS_SI_CUSTOMER_PUBLIC_URL` variable appears in the current project environment inventory.
+- Neon Staging contains the dedicated LOGIN principals `jas_si_customer_identity_login` and `jas_si_customer_key_login`, each separate from its corresponding NOLOGIN runtime role. A read-only role-scoped check confirmed each login can assume only its corresponding runtime role with `SET ROLE`; direct customer-table SELECT remains denied. This proves database role configuration only, not that the Vercel Preview application actually connects with these DSNs or completes a customer journey.
+- Neon Production contains the NOLOGIN customer runtime/owner roles but does not contain `jas_si_customer_identity_login` or `jas_si_customer_key_login`. The three customer-specific Vercel variables above are not targeted to Production.
+- The API code fails closed when the customer DSN/pepper is absent and verifies the effective `current_user`, `session_user`, role membership, and database routine boundary. The actual Preview DSN connection and email/session/API-key journey were not independently exercised in this audit.
+- Production route probes for `/health`, `/customer`, `/plans`, and `/openapi.json` could not be completed with the available inspection tools. Do not treat deployment `READY` or the absence of recent runtime error logs as route-health or customer-journey evidence.
+- No Vercel variables, Neon roles, database schemas, customer records, or Production settings were changed.
+
+This is a read-only infrastructure snapshot. Preview-wide customer secrets should not be considered safe for arbitrary branch builds until the deployment/fork trust boundary is confirmed and the variables are restricted to the intended trusted Preview branch. Production customer onboarding remains disabled.
+
+**Historical status (2026-11-14): onboarding code was merged and deployed; live customer activation was blocked by missing dedicated runtime credentials and SMTP configuration.**  
 This checklist is an operator handoff. It is not authorization to change Vercel, Neon, Production, payment settings, or customer data.
 
-## Current Production evidence (2026-11-14)
+## Historical Production evidence (2026-11-14)
 
 Customer onboarding code from PR #36 is merged into `main` (merge commit `d5f68af0cb31f834472202ec1dea77994b9be81c`). The current Production deployment is READY at commit `e55bc006658647a97ce9e69c7f8fa62b70e9a660` (deployment `dpl_EY8AsWXwyvEFeRABTnPUoWdkqBZQ`).
 
@@ -19,7 +34,7 @@ A read-only Production Vercel environment metadata check found no `JAS_SI_CUSTOM
 
 No secrets were decrypted. No customer registration request, email, or test account was created during these checks.
 
-### Current Preview configuration snapshot (2026-11-15)
+### Historical Preview configuration snapshot (2026-11-15)
 
 Read-only Vercel metadata now shows the dedicated customer identity DSN, customer API-key DSN, and customer session pepper scoped to Preview only. No customer SMTP host/sender/credential variables are configured. These partial Preview settings do not establish that email verification or login works. Production still has none of the dedicated customer identity/key variables. Do not enable customer signup or invite customers until SMTP, role boundaries, the complete journey, and independent staging checks pass.
 
