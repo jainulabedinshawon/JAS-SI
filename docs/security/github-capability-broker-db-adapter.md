@@ -6,7 +6,7 @@ This Main-based integration slice adds the PostgreSQL task-scoped capability res
 
 ## Authorization contract
 
-The adapter accepts only the immutable `WorkloadIdentity` value produced by the existing TLS certificate pin registry. Callers must not construct this from request headers, JSON, or caller-supplied principal/role fields. The HTTP/mTLS layer is not part of this PR; therefore this adapter is not yet exposed to a network service.
+The adapter accepts only the immutable `WorkloadIdentity` value produced by the existing TLS certificate pin registry. Python values are not cryptographic capabilities by themselves: the caller must be the server-side `require_authenticated_workload` dependency, and must never construct or deserialize identity from request-controlled data. Callers must not construct this from request headers, JSON, or caller-supplied principal/role fields. The HTTP/mTLS layer is not part of this PR; therefore this adapter is not yet exposed to a network service.
 
 - Require PostgreSQL TLS hostname verification (`sslmode=verify-full`).
 - Accept only the dedicated `jas_si_agent_broker_login` database session identity.
@@ -17,7 +17,7 @@ The adapter accepts only the immutable `WorkloadIdentity` value produced by the 
 
 ## Completion status
 
-- Adapter and focused unit tests: proposed in this PR; not yet CI-tested.
+- Adapter and focused unit tests: implemented in the Draft PR; the latest exact-head workflow has not yet appeared in GitHub Actions.
 - Database migration: present on Main; Staging catalog status is tracked separately.
 - API route, mTLS server, token-free repository read, Worker/Verifier wiring, and live E2E: not included in this slice and remain unverified.
 - No credentials, Render services, paid resources, or Production settings are created or changed.
