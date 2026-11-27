@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "src" / "jas_si_agent" / "migrations" / "20261215_github_task_capability_broker.sql"
+TENANT_SCOPE_MIGRATION = ROOT / "src" / "jas_si_agent" / "migrations" / "20261216_agent_task_owner_tenant_select_scope.sql"
 
 
 class CapabilityBrokerMigrationContractTests(unittest.TestCase):
@@ -121,6 +122,7 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
         CREATE POLICY repo_taskowner_read ON public.jas_si_github_app_installation_repositories FOR SELECT TO jas_si_agent_task_owner USING(true);
         """
         migration = MIGRATION.read_text(encoding="utf-8")
+        tenant_scope_migration = TENANT_SCOPE_MIGRATION.read_text(encoding="utf-8")
         with psycopg.connect(dsn) as admin:
             admin.execute(schema)
             admin.commit()
@@ -128,6 +130,19 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
                 admin.execute(migration)
             with admin.transaction():
                 admin.execute(migration)  # Idempotency/replay check.
+            with admin.transaction():
+                admin.execute(tenant_scope_migration)
+            with admin.transaction():
+                admin.execute(tenant_scope_migration)  # Corrective migration replay check.
+            self.assertFalse(
+                admin.execute("SELECT has_table_privilege('jas_si_agent_task_owner','public.jas_si_tenants','SELECT')").fetchone()[0]
+            )
+            self.assertTrue(
+                admin.execute("SELECT has_column_privilege('jas_si_agent_task_owner','public.jas_si_tenants','tenant_id','SELECT')").fetchone()[0]
+            )
+            self.assertTrue(
+                admin.execute("SELECT has_column_privilege('jas_si_agent_task_owner','public.jas_si_tenants','status','SELECT')").fetchone()[0]
+            )
             # Model Neon-managed ownership: cloud_admin grants neondb_owner
             # ADMIN OPTION on the newly-created capability role, without SET/INHERIT.
             admin.execute("CREATE ROLE cloud_admin SUPERUSER LOGIN PASSWORD 'cloud-admin-test-secret'")
@@ -155,7 +170,6 @@ class CapabilityBrokerMigrationContractTests(unittest.TestCase):
             admin.execute("GRANT jas_si_agent_capability_broker TO jas_si_agent_broker_login_test WITH ADMIN FALSE, INHERIT FALSE, SET TRUE")
             with admin.transaction():
                 admin.execute(migration)  # Recheck after approved-style login membership exists.
-            self.assertTrue(admin.execute("SELECT has_table_privilege('jas_si_agent_task_owner','public.jas_si_tenants','SELECT')").fetchone()[0])
             admin.execute("INSERT INTO public.jas_si_tenants VALUES ('11111111-1111-4111-8111-111111111111','active')")
             admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','github.read_repository','running',%s,'jas_si_agent_worker_login',now()+interval '5 minutes',4,NULL,NULL,NULL,0)", ('{"repository":"octo/repo","commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","paths":["README.md"]}',))
             admin.execute("INSERT INTO public.jas_si_agent_tasks VALUES ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111','github.read_repository','awaiting_verification',%s,NULL,NULL,0,'jas_si_agent_verifier_login','44444444-4444-4444-8444-444444444444',now()+interval '5 minutes',1)", ('{"repository":"octo/repo","commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","paths":["src/main.py"]}',))
