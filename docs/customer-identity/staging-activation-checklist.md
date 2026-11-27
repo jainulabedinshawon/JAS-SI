@@ -147,3 +147,54 @@ This checklist does not authorize:
 - Payment-provider activation, charges, refunds, or live paid entitlements.
 
 Those actions require a separate review and explicit approval. If a staging migration fails, stop, preserve logs/state, and use a reviewed recovery plan validated on a disposable database; do not improvise destructive rollback SQL.
+
+
+## Master directive live-audit correction — 2026-11-27
+
+This read-only audit snapshot supersedes conflicting earlier status statements. No secret values were decrypted.
+
+### Current infrastructure evidence
+
+- Main: `a561acf101137fa92e0fc50da4e06fc63edc0dda`.
+- Vercel Production deployment `dpl_Kr2gGNMt6qXbnPtR2Pjb6etwtNqv` is READY on that Main SHA.
+- Vercel Preview deployment `dpl_4wqihcCG7kwPadEVddb86EawbR3G` is READY on `feat/github-oauth-state-pkce-contract-v1`, SHA `2cf4caca96508b7c79699ccd50410ec18bdca4b8`. This proves deployment build, not runtime readiness.
+- Production and Preview runtime log queries for the latest 30 minutes returned no records; health remains unverified.
+- Preview customer database, customer API-key database, token pepper, and GitHub webhook database variables are Preview-only and branch-scoped to the inspected branch. Production-targeted customer DB/API-key DSNs and customer token pepper were not found. Secret values were not read.
+- Render service inventory is empty. No Worker, Verifier, Broker, or reconciler service is deployed.
+
+### GitHub PR state
+
+- PR #100: Open, Draft, Mergeable; head `2cf4caca96508b7c79699ccd50410ec18bdca4b8`, base branch `feat/github-installation-user-ownership-proof-v1`. It is 288 commits ahead / 0 behind its base at comparison time. Historical PR narrative is not live runtime evidence.
+- PR #153: Open, Draft, Mergeable; head `6a25b4758cd8192b6c5d5ec66bc7326f86c1e5c1`; 17 commits ahead / 2 behind Main at comparison time. Do not merge without dependency/rebase review and exact-head checks.
+- PR #156: Open, Draft, Mergeable; head `fa9049be9bc9c6dc777543529df75f674c735eef`. Seven exact-head workflow runs were independently retrieved in this audit and all completed successfully (Dependency Lock, Vercel Python 3.12 Compatibility, Core Package Validation, Post-Merge Security Verification, Docker Container Verification, Agent Authorization Tests, Security Event Persistence Verification). No merge was performed.
+- Main combined status reports Vercel success. PR #100 combined status reports Vercel success only; this is not equivalent to all workflow tests passing.
+
+### Neon read-only catalog
+
+Project `odd-violet-93299575`:
+- Staging `br-wandering-bonus-b32u1xg2`: 18 application tables, 7 with RLS disabled.
+- Production `br-silent-moon-b3mwkv8u`: 11 application tables, 7 with RLS disabled.
+- Staging has Worker and Verifier LOGIN principals and their separate NOLOGIN capability roles. Memberships are SET-only (`inherit_option=false`, `set_option=true`).
+- Staging GitHub webhook LOGIN is a member of `jas_si_runtime` with both inheritance and SET disabled; reconciler LOGIN has SET-only membership in its dedicated capability role.
+- No dedicated Broker LOGIN exists. Production has no Worker, Verifier, Broker, GitHub webhook, or reconciler LOGIN principals.
+- Staging RLS-disabled tables: `jas_si_api_rate_limits`, `jas_si_customer_accounts`, `jas_si_customer_auth_tokens`, `jas_si_customer_rate_limits`, `jas_si_customer_sessions`, `jas_si_github_oauth_attempts`, `jas_si_usage_events`.
+- Production RLS-disabled tables: `jas_si_api_key_provisioning_runs`, `jas_si_api_rate_limits`, `jas_si_customer_accounts`, `jas_si_customer_auth_tokens`, `jas_si_customer_rate_limits`, `jas_si_customer_sessions`, `jas_si_usage_events`.
+- Both branches report `protected=false`. RLS-disabled status is a hardening gap, not standalone proof of cross-tenant exposure. No role, grant, schema, policy, data, or credential was changed.
+
+### Billing and commercial status
+
+- Main `billing_core.py` is an in-memory domain/test foundation, not a durable production ledger.
+- Main `billing_catalog.py` keeps Starter, Pro, Enterprise non-purchasable; payment status is `not_connected`.
+- Neither Neon branch contains payment, ledger, subscription, refund/dispute, or entitlement tables.
+- Durable provider verification, append-only ledger, reconciliation, and entitlement enforcement are not established. Paid plans must remain non-purchasable.
+
+### Completion status
+
+- Vercel Preview build: READY; runtime database readiness: UNVERIFIED.
+- GitHub OAuth/webhook/installation lifecycle: NOT STAGING VERIFIED.
+- Worker/Verifier/Broker runtime: NOT DEPLOYED.
+- Tenant RLS hardening: INCOMPLETE.
+- Durable payment/billing: NOT IMPLEMENTED as an integrated system.
+- Paid Commercial Launch: BLOCKED.
+
+No Production operation, migration, credential change, paid resource, financial transaction, customer action, or PR merge was performed.
