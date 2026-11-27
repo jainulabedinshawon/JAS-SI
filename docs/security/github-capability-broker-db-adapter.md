@@ -42,3 +42,11 @@ Earlier versions cited head `328a0f8...` and then `f0226532...` as current. Thos
 ## Completion status
 
 Adapter implementation and focused regression tests: **IMPLEMENTED + TESTED (exact-head CI)**. Main branch integration: **BRANCH-ALIGNED**. Staging integration: **BLOCKED / NOT VERIFIED**. Production verification: **NOT IMPLEMENTED**.
+
+## Additional least-privilege finding — 2026-11-27
+
+A deeper read-only Neon Staging privilege inspection found that `jas_si_agent_task_owner` had table-wide SELECT on `public.jas_si_tenants`. The six visible columns (`tenant_id`, `tenant_name`, `status`, `created_at`, `updated_at`, `provisioning_lock_version`) were all readable by this NOLOGIN SECURITY DEFINER owner role. Worker and Verifier had no tenant SELECT. The installation-binding migration had intentionally granted only `tenant_id` and `status`, but the later Broker migration broadened that to table-wide SELECT. The resolver only needs tenant identity and active status; the broader grant was unnecessary.
+
+A corrective migration, `20261216_agent_task_owner_tenant_select_scope.sql`, has been added on this Draft PR branch. It revokes table-wide SELECT, restores only `tenant_id` and `status` column SELECT, and fails closed if any other tenant column remains readable. The canonical clean migration replay workflow now includes the corrective migration, and the migration contract test asserts its narrow grant.
+
+**Important:** This correction is IMPLEMENTED on the PR branch only. It has not been applied to Neon Staging or Production. Exact-head CI and clean migration replay must pass before considering a separately authorized Staging application. No database privilege was changed by this review.
