@@ -13,6 +13,8 @@ from uuid import UUID
 
 from jas_si_agent.github_capability_identity import WorkloadIdentity
 
+import re
+
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
@@ -124,13 +126,28 @@ class PostgresGitHubCapabilityBroker:
                     row = cursor.fetchone()
                     if row is None:
                         return None
+                    if not isinstance(row, (tuple, list)) or len(row) != 10:
+                        raise GitHubCapabilityBrokerError("Persisted task capability metadata is invalid")
+                    if (
+                        row[0] != task_id
+                        or not isinstance(row[1], UUID)
+                        or isinstance(row[2], bool)
+                        or not isinstance(row[2], int)
+                        or row[2] < 1
+                        or not isinstance(row[3], str)
+                        or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", row[3])
+                        or row[4] != role
+                        or (role == "worker" and row[5] != lease_fence)
+                        or (role == "verifier" and row[6] != verifier_claim_token)
+                    ):
+                        raise GitHubCapabilityBrokerError("Persisted task capability metadata is invalid")
                     paths: Any = row[9]
                     if not isinstance(paths, list) or not 1 <= len(paths) <= 10:
                         raise GitHubCapabilityBrokerError("Persisted repository path scope is invalid")
                     if any(
                         not isinstance(path, str)
                         or not path
-                        or len(path) > 500
+                        or len(path) > 512
                         or path.startswith("/")
                         or "\\" in path
                         or "\x00" in path
@@ -140,6 +157,8 @@ class PostgresGitHubCapabilityBroker:
                         raise GitHubCapabilityBrokerError("Persisted repository path scope is invalid")
                     if (
                         not isinstance(row[7], datetime)
+                        or row[7].tzinfo is None
+                        or row[7].utcoffset() is None
                         or not isinstance(row[8], str)
                         or len(row[8]) != 40
                         or any(char not in "0123456789abcdef" for char in row[8])
