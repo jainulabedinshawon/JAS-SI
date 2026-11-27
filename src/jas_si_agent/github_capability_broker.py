@@ -34,7 +34,15 @@ class ResolvedGitHubTaskCapability:
 
 
 class PostgresGitHubCapabilityBroker:
-    """Use a dedicated Broker login and the narrow SECURITY DEFINER resolver."""
+    """Use a dedicated Broker login and the narrow SECURITY DEFINER resolver.
+
+    SECURITY CONTRACT: ``identity`` must come directly from the server-side
+    ``require_authenticated_workload`` dependency after the TLS ingress has
+    validated the client certificate chain and the pinned identity registry
+    has matched its leaf fingerprint. Never construct or deserialize this
+    object from request fields. This adapter is an internal capability API;
+    it must not be mounted directly as an HTTP endpoint.
+    """
 
     def __init__(self, database_url: str, *, connect_timeout: int = 5) -> None:
         if not isinstance(database_url, str) or not database_url.strip():
