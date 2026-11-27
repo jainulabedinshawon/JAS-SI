@@ -41,7 +41,7 @@ Earlier versions cited head `328a0f8...` and then `f0226532...` as current. Thos
 
 ## Completion status
 
-Adapter implementation and focused regression tests: **IMPLEMENTED + TESTED (exact-head CI)**. Main branch integration: **BRANCH-ALIGNED**. Staging integration: **BLOCKED / NOT VERIFIED**. Production verification: **NOT IMPLEMENTED**.
+Adapter implementation and focused regression tests: **IMPLEMENTED + TESTED (exact-head CI)**. Main branch integration: **BRANCH-ALIGNED**. Staging least-privilege correction: **APPLIED + INDEPENDENTLY VERIFIED**. Broker login/connection and runtime integration: **BLOCKED / NOT VERIFIED**. Production verification: **NOT IMPLEMENTED**.
 
 ## Additional least-privilege finding — 2026-11-27
 
@@ -49,4 +49,13 @@ A deeper read-only Neon Staging privilege inspection found that `jas_si_agent_ta
 
 A corrective migration, `20261216_agent_task_owner_tenant_select_scope.sql`, has been added on this Draft PR branch. It revokes table-wide SELECT, restores only `tenant_id` and `status` column SELECT, and fails closed if any other tenant column remains readable. The canonical clean migration replay workflow now includes the corrective migration, and the migration contract test asserts its narrow grant.
 
-**Important:** This correction is IMPLEMENTED on the PR branch only. It has not been applied to Neon Staging or Production. Exact-head CI and clean migration replay must pass before considering a separately authorized Staging application. No database privilege was changed by this review.
+**Staging application update — 2026-11-27:** Following explicit user approval for this Staging-only corrective action, the exact corrective SQL above was applied to Neon Staging branch `br-wandering-bonus-b32u1xg2` in one database transaction. A subsequent independent catalog query confirmed:
+- Task Owner table-wide SELECT: `false`.
+- Task Owner column SELECT for `tenant_id`: `true`.
+- Task Owner column SELECT for `status`: `true`.
+- Unexpected additional Tenant columns readable: `NULL` (none).
+- Broker capability role EXECUTE on task-scoped resolver: `true`.
+- Worker and Verifier EXECUTE on that resolver: both `false`.
+- Dedicated Broker LOGIN: still absent.
+
+This establishes the least-privilege correction as **STAGING APPLIED + INDEPENDENTLY VERIFIED**. The SQL transaction returned successfully and its in-transaction assertions passed. Production was not changed. No dedicated Broker credential was created, no runtime was deployed, and no live Broker connection was tested. Neon does not expose a migration-history row for this direct SQL application in this workflow; the repository migration remains the canonical replay record.
