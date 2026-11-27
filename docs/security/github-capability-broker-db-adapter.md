@@ -17,7 +17,7 @@ The adapter accepts only the immutable `WorkloadIdentity` value produced by the 
 
 ## Completion status
 
-- Adapter and focused unit tests: implemented in the Draft PR; the latest exact-head workflow has not yet appeared in GitHub Actions.
+- Adapter and focused unit tests: implemented; exact-head CI at commit `7ef06a7523e3b2302d3e108bde1f21c07801d604` passed all 8 reported workflows, including the dedicated adapter tests and full unit suite. Any later commit requires fresh exact-head checks.
 - Database migration: present on Main; Staging catalog status is tracked separately.
 - API route, mTLS server, token-free repository read, Worker/Verifier wiring, and live E2E: not included in this slice and remain unverified.
 - No credentials, Render services, paid resources, or Production settings are created or changed.
