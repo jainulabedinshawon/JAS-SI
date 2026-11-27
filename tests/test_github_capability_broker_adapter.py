@@ -219,14 +219,16 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
                     broker.resolve(task_id=self.task_id, identity=self.identity, lease_fence=7)
 
     def test_rejects_control_characters_in_persisted_paths(self):
-        row = self.row[:9] + (["src/\\x01secret.py"],)
-        connection = _Connection(row)
-        with patch("jas_si_agent.github_capability_broker.psycopg.connect", return_value=connection):
-            broker = PostgresGitHubCapabilityBroker(
-                "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
-            )
-            with self.assertRaisesRegex(GitHubCapabilityBrokerError, "path scope is invalid"):
-                broker.resolve(task_id=self.task_id, identity=self.identity, lease_fence=7)
+        for control in (chr(1), chr(31), chr(127)):
+            with self.subTest(control=ord(control)):
+                row = self.row[:9] + ([f"src/{control}secret.py"],)
+                connection = _Connection(row)
+                with patch("jas_si_agent.github_capability_broker.psycopg.connect", return_value=connection):
+                    broker = PostgresGitHubCapabilityBroker(
+                        "postgresql://broker:secret@db.example.test/db?sslmode=verify-full"
+                    )
+                    with self.assertRaisesRegex(GitHubCapabilityBrokerError, "path scope is invalid"):
+                        broker.resolve(task_id=self.task_id, identity=self.identity, lease_fence=7)
 
     def test_rejects_naive_expiration_timestamp(self):
         row = self.row[:7] + (datetime(2026, 11, 22, 12, 0),) + self.row[8:]
