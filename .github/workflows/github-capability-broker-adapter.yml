@@ -1,0 +1,30 @@
+name: GitHub Capability Broker Adapter Tests
+
+on:
+  pull_request:
+    paths:
+      - "src/jas_si_agent/github_capability_broker.py"
+      - "tests/test_github_capability_broker_adapter.py"
+      - ".github/workflows/github-capability-broker-adapter.yml"
+  push:
+    branches:
+      - "integrate/github-capability-broker-db-adapter-main-20261127"
+
+permissions:
+  contents: read
+
+jobs:
+  broker-adapter-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install minimal adapter dependency
+        run: python -m pip install -e ".[dev]"
+      - name: Run isolated Broker adapter tests
+        run: python -m pytest tests/test_github_capability_broker_adapter.py -q
