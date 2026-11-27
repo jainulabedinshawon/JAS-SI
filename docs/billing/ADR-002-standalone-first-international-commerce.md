@@ -116,6 +116,32 @@ Official references:
 
 **Current assessment:** Paddle is the international candidate to investigate first, subject to merchant onboarding and payout approval. For Bangladesh, bKash PRA is a low-setup-cost candidate worth confirming with bKash, but SaaS-category eligibility, API/webhook access, server-side verification, recurring billing and the BDT 500,000 monthly receive cap must be resolved; SSLCOMMERZ remains a paid hosted-gateway alternative whose setup fee conflicts with the current zero-cost activation constraint. Lemon Squeezy is removed because of its announced shutdown; Stripe is not an eligible default for a Bangladesh-registered merchant. No provider has been selected or approved. No merchant account, application, credential, sandbox/live transaction, production checkout or payment configuration is authorized by this assessment.
 
+## User-approved provider evaluation priorities (27 Nov 2026)
+
+This section records the project owner's current evaluation order. These are **provider candidates and work priorities, not approved merchant accounts, connected integrations, or authorization for payment collection**. Reconfirm provider terms, country/business eligibility, fees, settlement routes, and technical access before onboarding.
+
+1. **Paddle — international SaaS subscription candidate.** Confirm seller onboarding eligibility for this Bangladesh-based business, product acceptance, KYC, payout method, receiving-bank route, FX, fees, refunds/disputes, subscription lifecycle events, and sandbox access. Public country support is not merchant approval.
+2. **Payoneer — international B2B invoice/receivables candidate.** Confirm account eligibility, business receiving/payment-request access, fees, withdrawal route, and API/Checkout eligibility separately. Do not treat a Payoneer receiving account or invoice request as a general self-serve SaaS subscription checkout. Checkout API access is a separate approval question.
+3. **bKash — Bangladesh local candidate.** Confirm PRA or Merchant eligibility for software/SaaS, written business-category approval, API credentials, raw-body webhook/signature contract, server-to-server transaction validation, settlement, refunds/disputes, recurring support, and current limits. PRA eligibility must not be inferred from personal-account eligibility.
+4. **Nagad — Bangladesh local candidate.** Confirm Merchant onboarding, accepted SaaS business category, official API documentation, server-side transaction verification, webhook authenticity/replay controls, settlement, fees, refunds/disputes, and recurring-payment support. No API or merchant capability is assumed until documented by Nagad.
+5. **EBL Visa Debit — expense-payment method only.** The owner's card is linked to an EBL Savings Account, but its passport is expired and no passport endorsement is currently in place. Passport re-issue and EBL confirmation of permitted international e-commerce/business expense use, quota, recurring charges, FX and transaction limits remain prerequisites. This card is not a customer-payment gateway and must not be represented as one.
+6. **Fasset — deferred.** Do not make it a primary checkout or treasury dependency at this stage. Reconsider only after business/jurisdiction eligibility, regulatory and bank acceptability, product scope, pricing, and fiat-only settlement are independently confirmed.
+
+### Shared payment implementation contract
+
+All approved providers must use one provider-neutral JAS-SI payment boundary:
+- immutable order and price snapshots; integer minor-unit amounts and explicit ISO-4217 currency;
+- provider-specific webhook authentication over raw request bytes, bounded timestamps, replay protection, and durable idempotent event intake;
+- server-to-server transaction verification wherever the provider exposes it; webhook or redirect alone is not final proof;
+- verification of merchant/account, provider transaction/event IDs, order/customer/tenant binding, amount, currency, product, and lifecycle status;
+- append-only financial events with reversal/adjustment entries rather than deletion, plus settlement and provider-event reconciliation;
+- separate, atomic/idempotent entitlement activation and revocation, including refund, partial refund, dispute, chargeback, reversal, cancellation, and failed renewal;
+- customer-visible payment history and invoice/receipt only when supported by verified records.
+
+### Commercial activation gate
+
+Keep Starter, Pro, and Enterprise non-purchasable until provider approval, sandbox validation, durable ledger, independent verification, reconciliation, refund/dispute handling, entitlement activation/revocation, tenant isolation, and quota enforcement have passed staging verification. Free Launch remains distinct from Paid Commercial Launch. No provider onboarding, credential creation, live transaction, production migration, or paid service activation is authorized by this evaluation order.
+
 ## Implementation sequence
 
 1. Keep paid catalogue entries non-purchasable while the commerce authority and provider account are unverified.
