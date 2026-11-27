@@ -198,3 +198,33 @@ Project `odd-violet-93299575`:
 - Paid Commercial Launch: BLOCKED.
 
 No Production operation, migration, credential change, paid resource, financial transaction, customer action, or PR merge was performed.
+
+
+## Follow-up database authorization review — 2026-11-27
+
+A second read-only pass inspected table ACLs, RLS policy catalog, function ACLs and selected SECURITY DEFINER function bodies on both Neon branches.
+
+### Customer table access boundary
+
+- The following customer-related tables have RLS disabled and no row policies in either branch: `jas_si_customer_accounts`, `jas_si_customer_auth_tokens`, `jas_si_customer_sessions`, `jas_si_customer_rate_limits`, `jas_si_api_rate_limits`, and `jas_si_usage_events`. Staging additionally has RLS disabled on `jas_si_github_oauth_attempts`; Production does not contain that table.
+- Despite RLS being disabled, the inspected application roles `jas_si_customer_runtime` and broad `jas_si_runtime` have no direct SELECT privilege on these customer tables. Customer Runtime also has no direct INSERT or UPDATE privilege on the inspected account/session/token tables.
+- Direct account, token and session table SELECT is granted to the NOLOGIN `jas_si_customer_identity_owner` capability role; that is not a customer-facing LOGIN identity. The customer rate-limit tables are owned by their NOLOGIN dedicated owner role. `neondb_owner` retains owner-level privileges.
+- The inspected customer-facing SECURITY DEFINER routines are owned by dedicated NOLOGIN owner roles, set `search_path=pg_catalog`, and are not executable by PUBLIC. The Customer Runtime capability role has EXECUTE on the intended session and customer identity routines, while API-key issuance/list/revocation routines are separately owned by `jas_si_customer_key_owner` and not executable by Customer Runtime in the catalog.
+- `customer_authenticate_session` validates a non-null 32-byte session digest, unrevoked/unexpired session, active account and active tenant. `customer_usage_events` and `customer_usage_summary` derive tenant identity from the authenticated session and constrain usage queries by that tenant. `customer_api_key_issue/list/revoke` similarly derive tenant identity from an active session before accessing API-key records.
+- These checks reduce the immediate direct-table exposure concern, but RLS remains a defense-in-depth gap and must not be dismissed. Future RLS enablement requires explicit per-owner policies and regression testing of every SECURITY DEFINER routine; enabling RLS without understanding function owners and FORCE RLS behavior could break legitimate flows or create accidental bypasses.
+
+### Runtime principal readiness
+
+- Staging has `jas_si_customer_runtime` as NOLOGIN, plus separate NOLOGIN identity/key/rate-limit owner roles. It does not have a dedicated customer-runtime LOGIN principal in the inspected role set.
+- Production likewise has only the NOLOGIN `jas_si_customer_runtime` capability role and NOLOGIN owner roles; no customer-runtime LOGIN principal was present.
+- Staging has GitHub webhook and reconciler LOGIN principals, both NOINHERIT and non-privileged; Production has neither.
+- The GitHub task capability Broker role is present in Staging as NOLOGIN; no Broker LOGIN is present. Production has neither the Broker capability role nor Broker LOGIN.
+
+### Migration-history limitation
+
+- No application migration/version ledger table was found in either Neon branch by read-only table inventory. This does not mean migrations were not applied; it means the current live database cannot independently prove the ordered migration history from a conventional migration ledger.
+- The live schema, role, grant and function catalogs are direct current-state evidence. CI migration replay is separate evidence and must not be presented as proof that the exact chain was applied to live Staging or Production.
+
+### Security assessment correction
+
+The earlier shorthand “seven RLS-disabled tables” remains factually correct, but must not be interpreted as evidence that ordinary application roles can directly read those tables. The catalog currently shows a restricted function-mediated access design. The remaining gap is defense-in-depth, missing customer-runtime LOGIN/configuration in Production, and absence of complete end-to-end runtime proof. No DDL, DML, grant, role, policy, secret, or migration was changed in this review.
