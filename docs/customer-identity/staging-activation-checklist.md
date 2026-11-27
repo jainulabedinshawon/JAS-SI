@@ -254,3 +254,34 @@ A fresh GitHub read-only review checked PR #80 and its stacked runtime dependent
 ### Current decision
 
 PR #80 and #91–#93 remain unmerged and Draft. The next safe engineering action is a controlled reconciliation of the root task-store branch with current Main, followed by exact-head CI (including clean PostgreSQL migration replay and agent-task tests), security review of the complete diff, and renewed dependent-branch checks. No branch rebase/force-push, migration, database write, deployment, or PR merge was performed during this audit.
+
+
+## Continuation audit — live infrastructure and billing evidence (2026-11-27, evening Bangladesh time)
+
+This continuation refreshed repository, PR, deployment, Neon branch, and Render service evidence.
+
+### Repository and PR state
+
+- Main remains at `a561acf101137fa92e0fc50da4e06fc63edc0dda`; the latest repository commit search returned this SHA.
+- Main's combined status currently reports the Vercel check as successful. This is not a complete repository-wide CI matrix.
+- PR #156 is Open/Draft at `0c5154acaf52d43e64b9208fa7c3f17eec22108e`; all seven returned PR workflows completed successfully at that exact head.
+- PR #157 (bKash PRA SaaS exclusion) is Open/Draft, based on current Main, and reports mergeable. Its exact head is `d6be92827406f2bc9e7cf0621f9b23f4351dda13`; all seven returned PR workflows completed successfully at that exact head. The PR remains Draft and was not merged.
+- PR #80 remains Open/Draft and non-mergeable; head `1dd2d0cc2e854f18c414e39393629b65057854db`, base SHA `9625905db7a8f9ffab151995e4b8a475b0de405a`. The #91–#93 stacked dependency chain remains rooted on this branch. No merge/rebase/force-push was attempted.
+- PR #153 remains Draft; it is based on an older Broker prerequisite commit and is not evidence of an integrated or deployed Broker.
+
+### Deployment and database
+
+- Vercel production deployment is READY at Main SHA `a561acf101137fa92e0fc50da4e06fc63edc0dda`. This confirms deployment of that commit only; it does not establish Agent, customer-authenticated API, billing, or production end-to-end readiness.
+- Neon project `odd-violet-93299575` currently reports staging branch `br-wandering-bonus-b32u1xg2` READY and production branch `br-silent-moon-b3mwkv8u` READY. Neither branch is protected in the current branch metadata.
+- Read-only catalog counts returned 18 `jas_si_*` base tables in staging and 11 in production. Counts alone do not prove migration-chain consistency, RLS safety, runtime principal readiness, or payment readiness.
+- Render workspace `tea-dbpl9vmi0phs73cc9b0g` returned an empty service list. Worker, Verifier, and Broker remain NOT DEPLOYED / NOT VERIFIED.
+
+### Billing provider evidence
+
+- PR #157 records the owner-provided written bKash support decision: PRA is not the SaaS API collection route; evaluate only a Regular Merchant Account or officially approved gateway with SaaS acceptance and server-side verification confirmed.
+- No provider account, credentials, payment collection, paid service, or production checkout was activated.
+- Durable append-only payment ledger, verified provider events, reconciliation, refund/dispute lifecycle, and entitlement enforcement remain NOT IMPLEMENTED / NOT STAGING VERIFIED. Paid plans remain non-purchasable.
+
+### Execution outcome
+
+This audit was read-only except for this documentation update on the existing PR #156 branch. No production migration, database write, service creation, deployment trigger, secret operation, or PR merge was performed.
