@@ -59,3 +59,20 @@ A corrective migration, `20261216_agent_task_owner_tenant_select_scope.sql`, has
 - Dedicated Broker LOGIN: still absent.
 
 This establishes the least-privilege correction as **STAGING APPLIED + INDEPENDENTLY VERIFIED**. The SQL transaction returned successfully and its in-transaction assertions passed. Production was not changed. No dedicated Broker credential was created, no runtime was deployed, and no live Broker connection was tested. Neon does not expose a migration-history row for this direct SQL application in this workflow; the repository migration remains the canonical replay record.
+
+
+## Evidence refresh — 2026-11-28 (UTC+6)
+
+The following is a new live audit snapshot; the historical 2026-11-27 observations above are retained as history and must not be interpreted as the current branch head.
+
+- Current Main SHA: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`.
+- Current adapter integration branch head at this audit: `2cb57bc408b6cc780fe1d06fa2309230866043e1`.
+- Current compare: 30 commits ahead / 0 behind; merge base equals Main.
+- Exact-head workflow query returned 14 PR-triggered runs, all completed successfully. The endpoint returns only its first page and is not a complete required-check inventory.
+- Broker Adapter workflow run `46066428921`, job `broker-adapter-unit-tests`, executed both `tests/test_github_capability_broker_adapter.py` and `tests/test_github_capability_identity.py`; the combined test step completed successfully.
+- A read-only Neon Staging recheck confirmed Task Owner table-wide tenant SELECT=false; `tenant_id` and `status` column SELECT=true; Broker resolver EXECUTE=true; Worker and Verifier resolver EXECUTE=false.
+- Render workspace service inventory returned no services. The referenced Vercel Production deployment remains READY on Main SHA above.
+- The current PR remains Draft. No submitted review or inline review thread was returned by the review endpoints.
+- The PR metadata reports 10 changed files while the current compare response enumerates 8 files; reconcile this discrepancy against GitHub's authoritative PR file list before merge. Do not infer the exact diff inventory from either count alone.
+
+**Current decision:** Keep Draft. Do not merge until exact PR file inventory, full required-check inventory, and independent review are reconciled. Broker LOGIN/connection, mandatory-mTLS listener, private repository proxy, Worker/Verifier runtime wiring, E2E, and Production verification remain **NOT VERIFIED**.
