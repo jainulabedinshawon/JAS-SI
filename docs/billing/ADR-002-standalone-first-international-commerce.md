@@ -73,6 +73,20 @@ Official references:
 - Payout fees: https://www.paddle.com/help/manage/get-paid/is-there-a-fee-taken-for-payouts
 - FX and payout currency: https://www.paddle.com/help/manage/get-paid/can-i-be-paid-in-my-local-currency
 
+### Bangladesh local candidate: bKash Personal Retail Account (PRA)
+
+bKash's official PRA documentation describes PRA as a business account for micro/small retail and f-commerce businesses. It permits receiving customer payments through a PRA QR, the bKash Payment Gateway, or USSD. The published receive-payment limits are BDT 30,000 per transaction, BDT 30,000 per day, and BDT 500,000 per month; limits and terms may change.
+
+bKash's official online-business page says a business without a trade licence may open a PRA and register interest in its online payment system. The PRA onboarding requirements include an NID, a mobile number registered to that NID with no prior bKash account, and proof of SIM ownership. The same NID may already be used for a personal bKash account, but a previously used bKash number cannot be converted to PRA.
+
+**JAS-SI eligibility is not yet established.** The public PRA description focuses on micro/small retail and f-commerce goods/services. It does not explicitly confirm that a software/SaaS subscription business is an accepted PRA business category, nor does it establish that an individual PRA receives production API credentials, webhook access, automated server-to-server transaction verification, recurring billing, or settlement capabilities appropriate for SaaS. Obtain written confirmation from bKash before relying on PRA for JAS-SI checkout. Treat QR/USSD/manual receipt as collection methods only; do not activate paid entitlements from screenshots, SMS, customer claims, or browser redirects.
+
+The published BDT 500,000 monthly receive limit is a material scale constraint. Confirm current limits, fees, eligible business category, Payment Gateway/API access, server-side transaction query/validation, settlement route, refunds/disputes, and recurring-payment support directly with bKash. No PRA account, merchant application, API credential, or payment configuration is created or approved by this assessment.
+
+Official references:
+- PRA description, requirements, payment channels and limits: https://www.bkash.com/en/page/personal-retail-account
+- bKash online-business registration and PRA option without a trade licence: https://www.bkash.com/en/business/online-business
+
 ### Bangladesh local candidate: SSLCOMMERZ
 
 SSLCOMMERZ is a local hosted-gateway candidate with official API documentation for session initiation, IPN notification and server-side Order Validation API checks. Its currently published Basic package lists a non-refundable BDT 25,500 one-time setup fee, 2.5% per successful standard transaction and 3.5% for AMEX. These published charges make it incompatible with the current zero-cost activation constraint; no account or integration should be activated now.
@@ -100,7 +114,7 @@ Official references:
 - Global availability: https://stripe.com/global
 - Requirements for an account in another country: https://support.stripe.com/questions/requirements-to-open-a-stripe-account-in-another-country
 
-**Current assessment:** Paddle is the international candidate to investigate first; SSLCOMMERZ is a possible Bangladesh-local candidate only if its setup and transaction costs become acceptable. Lemon Squeezy is removed because of its announced shutdown; Stripe is not an eligible default for a Bangladesh-registered merchant. No provider has been selected or approved. No merchant account, application, credential, sandbox/live transaction, production checkout or payment configuration is authorized by this assessment.
+**Current assessment:** Paddle is the international candidate to investigate first, subject to merchant onboarding and payout approval. For Bangladesh, bKash PRA is a low-setup-cost candidate worth confirming with bKash, but SaaS-category eligibility, API/webhook access, server-side verification, recurring billing and the BDT 500,000 monthly receive cap must be resolved; SSLCOMMERZ remains a paid hosted-gateway alternative whose setup fee conflicts with the current zero-cost activation constraint. Lemon Squeezy is removed because of its announced shutdown; Stripe is not an eligible default for a Bangladesh-registered merchant. No provider has been selected or approved. No merchant account, application, credential, sandbox/live transaction, production checkout or payment configuration is authorized by this assessment.
 
 ## Implementation sequence
 
