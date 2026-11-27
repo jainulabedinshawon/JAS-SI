@@ -158,8 +158,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         with self.assertRaises(GitHubCapabilityBrokerError):
             broker.resolve(
                 task_id=self.task_id,
-                principal_id="worker.staging.instance-1",
-                role="worker",
+                identity=self.identity,
                 lease_fence=7,
                 verifier_claim_token=self.claim_token,
             )
@@ -171,8 +170,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
         with self.assertRaises(GitHubCapabilityBrokerError):
             broker.resolve(
                 task_id=self.task_id,
-                principal_id="verifier.staging.instance-1",
-                role="verifier",
+                identity=self.verifier_identity,
                 lease_fence=7,
                 verifier_claim_token=self.claim_token,
             )
@@ -185,8 +183,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             )
             self.assertIsNone(broker.resolve(
                 task_id=self.task_id,
-                principal_id="worker.staging.instance-1",
-                role="worker",
+                identity=self.identity,
                 lease_fence=7,
             ))
 
@@ -201,8 +198,7 @@ class GitHubCapabilityBrokerTests(unittest.TestCase):
             with self.assertRaises(GitHubCapabilityBrokerError) as raised:
                 broker.resolve(
                     task_id=self.task_id,
-                    principal_id="worker.staging.instance-1",
-                    role="worker",
+                    identity=self.identity,
                     lease_fence=7,
                 )
         self.assertNotIn("secret", str(raised.exception))
