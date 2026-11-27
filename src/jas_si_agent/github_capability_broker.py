@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from jas_si_agent.github_capability_identity import WorkloadIdentity
+
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
 
@@ -53,15 +55,15 @@ class PostgresGitHubCapabilityBroker:
         self,
         *,
         task_id: UUID,
-        principal_id: str,
-        role: str,
+        identity: WorkloadIdentity,
         lease_fence: int | None = None,
         verifier_claim_token: UUID | None = None,
     ) -> ResolvedGitHubTaskCapability | None:
         if not isinstance(task_id, UUID):
             raise GitHubCapabilityBrokerError("Task identifier is invalid")
-        if not isinstance(principal_id, str) or not principal_id or len(principal_id) > 63:
+        if not isinstance(identity, WorkloadIdentity) or len(identity.principal_id) > 63:
             raise GitHubCapabilityBrokerError("Authenticated workload identity is invalid")
+        principal_id, role = identity.principal_id, identity.role
         if role == "worker":
             if (isinstance(lease_fence, bool) or not isinstance(lease_fence, int)
                     or lease_fence < 1 or verifier_claim_token is not None):
