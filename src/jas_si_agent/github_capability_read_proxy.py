@@ -232,7 +232,7 @@ class GitHubCapabilityReadProxy:
                 raise GitHubCapabilityBrokerError("GitHub returned invalid file integrity metadata")
             # Recompute Git's canonical blob object ID from the exact bytes.
             # A shape-valid SHA alone is not independent content-integrity evidence.
-            git_blob_header = f"blob {len(content)}\\0".encode("ascii")
+            git_blob_header = f"blob {len(content)}\0".encode("ascii")
             computed_blob_sha = hashlib.sha1(git_blob_header + content).hexdigest()
             if computed_blob_sha != blob_sha:
                 raise GitHubCapabilityBrokerError("GitHub file content failed blob integrity verification")
