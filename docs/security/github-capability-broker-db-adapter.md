@@ -95,3 +95,17 @@ This snapshot supersedes the preceding branch-head snapshot; older entries remai
 - Vercel Production deployment `dpl_8X3FLYpTRKw41qDE7Joo57brBozQ` is READY and points to Main SHA above.
 
 **Decision:** Keep PR #153 unmerged and Draft status unconfirmed (the issue payload omits the draft field). Do not claim complete merge-gate verification. Broker LOGIN/connection, mandatory-mTLS listener, repository-read proxy, Worker/Verifier runtime wiring, full E2E, and Production runtime verification remain **NOT VERIFIED**. No infrastructure, credentials, database grants, or Production settings were changed in this audit.
+
+
+## Dedicated ASGI mTLS listener implementation — 2026-11-28
+
+The branch now adds `jas_si_agent_capability_tls`, a separately invoked listener entry point using Anycorn 0.20.1. Anycorn implements the ASGI TLS extension consumed by the existing certificate middleware; Uvicorn's standard TLS mode is not used for capability identity transport.
+
+- Listener is configured with a server certificate/key and a dedicated client workload CA file.
+- TLS verification is explicitly `ssl.CERT_REQUIRED` with `VERIFY_X509_STRICT`; TLS 1.2+ is enforced by the server library.
+- No plaintext bind is configured. Host/port defaults are `0.0.0.0:8443` and can be overridden using `JAS_SI_CAPABILITY_TLS_BIND_HOST` / `JAS_SI_CAPABILITY_TLS_BIND_PORT`.
+- Certificate file paths are required and checked for readability before startup. The runtime dependency is installed as the optional `dev` extra for focused CI; it is not imported by the normal Vercel/API startup path.
+- The entry point loads `jas_si_agent.api:app` by default and can be changed with `JAS_SI_CAPABILITY_TLS_ASGI_APP`; no arbitrary app command or insecure fallback is offered.
+- Focused tests exercise strict listener configuration, missing-CA fail-closed startup, a loopback TLS handshake that observes the peer certificate in the ASGI TLS extension, and rejection of a client without a certificate.
+
+This is **IMPLEMENTED** on the existing PR branch. The newly added live socket tests are pending CI execution at the current branch head. It does not provision a service, create a Broker LOGIN, configure a production listener, register certificate pins, or expose a repository-read proxy. Deployment must use a private network/service endpoint and the existing independent certificate fingerprint registry. Runtime remains **NOT STAGING VERIFIED / NOT PRODUCTION VERIFIED** until deployed and exercised against the dedicated Broker database role and repository authorization path.
