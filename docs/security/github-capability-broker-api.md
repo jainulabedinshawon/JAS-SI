@@ -1,0 +1,6 @@
+# GitHub Capability Broker API
+The Broker runs as an isolated ASGI app behind the dedicated mTLS listener; the public API does not mount its routes. The listener loads only `jas_si_agent.github_capability_runtime:app`.
+Workload identity comes only from the TLS-verified peer certificate and exact SHA-256 pin registry. Requests carry a persisted task UUID plus exactly one role-specific proof (Worker lease fence or Verifier claim token); caller-supplied identity, tenant, installation, repository, commit or path is not authority.
+Every read re-resolves the task capability through the dedicated database login `jas_si_agent_broker_login`, using `sslmode=verify-full` and the NOLOGIN `jas_si_agent_capability_broker` role. Reads require exact repository, immutable commit SHA and exact-file allowlist.
+Only the Broker holds the GitHub App private key. It mints a short-lived, one-repository, read-only installation token and returns bounded content/integrity metadata, never credentials. Configure exactly one mounted key path or bounded base64 PEM input.
+The enable flag defaults false and is accepted only in preview with a dedicated DB URL, pinned workload identities and App credentials. No runtime service, credential, certificate or deployment is created by this code change.
