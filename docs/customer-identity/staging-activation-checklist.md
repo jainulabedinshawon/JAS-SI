@@ -1,19 +1,40 @@
 # JAS-SI Customer Onboarding — Staging Activation Checklist
 
-**Latest read-only live audit: 2026-11-27 (Main `c79fe635aadee07cb5aa35302394102cb64a74a1`).** This section supersedes the dated environment snapshots below; older snapshots remain as historical evidence.
+**Latest verified audit update: 2026-11-28.** This section supersedes earlier environment/deployment snapshots below; older snapshots remain historical evidence.
 
-## Latest live state (2026-11-27)
+## Latest verified state (2026-11-28)
 
-- Vercel Production deployment `dpl_Eb8r56vftwiF8EUbBZax3Te8VtdZ` is `READY` and its Git commit matches Main `c79fe635aadee07cb5aa35302394102cb64a74a1`.
-- The read-only Vercel environment inventory contains `JAS_SI_CUSTOMER_DATABASE_URL`, `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`, and `JAS_SI_CUSTOMER_TOKEN_PEPPER` with target `preview` and no `gitBranch` restriction. They are therefore Preview-wide rather than restricted to one named Preview branch. The audit did not decrypt any values. This scope is broader than the exact-branch restriction required by the staging procedure below; do not assume untrusted Preview builds are isolated. Review Vercel fork/deployment protection before using these secrets with any Preview build.
-- No `JAS_SI_CUSTOMER_SMTP_HOST`, `JAS_SI_CUSTOMER_SMTP_PORT`, `JAS_SI_CUSTOMER_SMTP_USERNAME`, `JAS_SI_CUSTOMER_SMTP_PASSWORD`, `JAS_SI_CUSTOMER_SMTP_SENDER`, or `JAS_SI_CUSTOMER_PUBLIC_URL` variable appears in the current project environment inventory.
-- Neon Staging contains the dedicated LOGIN principals `jas_si_customer_identity_login` and `jas_si_customer_key_login`, each separate from its corresponding NOLOGIN runtime role. A read-only role-scoped check confirmed each login can assume only its corresponding runtime role with `SET ROLE`; direct customer-table SELECT remains denied. This proves database role configuration only, not that the Vercel Preview application actually connects with these DSNs or completes a customer journey.
-- Neon Production contains the NOLOGIN customer runtime/owner roles but does not contain `jas_si_customer_identity_login` or `jas_si_customer_key_login`. The three customer-specific Vercel variables above are not targeted to Production.
-- The API code fails closed when the customer DSN/pepper is absent and verifies the effective `current_user`, `session_user`, role membership, and database routine boundary. The actual Preview DSN connection and email/session/API-key journey were not independently exercised in this audit.
-- Production route probes for `/health`, `/customer`, `/plans`, and `/openapi.json` could not be completed with the available inspection tools. Do not treat deployment `READY` or the absence of recent runtime error logs as route-health or customer-journey evidence.
-- No Vercel variables, Neon roles, database schemas, customer records, or Production settings were changed.
+- **Main and Production:** Main is `4f189f4aea7bafdc44bff2dab6f74955258a9002`. Vercel Production deployment `dpl_4eoK7gGmHkvHbDQtxGd39EHuGgda` is READY on that exact Main commit. Live `/health`, `/pricing`, and `/plans` each returned HTTP 200. `/health` reports API enabled but is a liveness check only; `/ready` currently returns HTTP 404, so no Agent Runtime readiness endpoint is exposed by Production.
+- **Commercial boundary:** Production `/plans` reports `payment_status=not_connected`. Free exposes 100 technical monthly units and is purchasable; Starter, Pro, and Enterprise remain non-purchasable. Paid commerce and payment verification are not live.
+- **PR #153 integration:** PR #153 was merged on 2026-11-28 at 03:30:56 UTC, producing Main commit `4f189f4aea7bafdc44bff2dab6f74955258a9002`. Its merged source includes the task-scoped GitHub capability Broker DB adapter, the dedicated Anycorn mTLS listener, and migration `20261216_agent_task_owner_tenant_select_scope.sql`. The listener source requires server certificate, private key, and client CA files; configures TLS-only binding with `CERT_REQUIRED` and `VERIFY_X509_STRICT`; and has no plaintext listener. This is implemented source, not evidence of a deployed Broker runtime.
+- **PR #153 CI evidence:** The exact PR head `9d7c643496eb7cde43d3a2c452fd449afedf735d` had 15 returned PR-triggered workflow runs completed successfully, including Broker Adapter Tests, Clean Migration Chain Replay, Agent Authorization Tests, Docker Container Verification, and Core Package Validation. The connected workflow query returns only its first page and PR-triggered runs; do not treat 15 returned runs as proof that every repository-required check was enumerated.
+- **Neon Staging:** Branch `jas-si-staging` (`br-wandering-bonus-b32u1xg2`) is Ready. Read-only catalog checks confirm the Broker, Worker, and Verifier dedicated LOGIN roles exist; each is `LOGIN`, `NOINHERIT`, non-superuser, and has no CREATEDB/CREATEROLE/BYPASSRLS. Each login has SET-only membership in its corresponding NOLOGIN capability role (`admin_option=false`, `inherit_option=false`, `set_option=true`). A live privilege query confirms `jas_si_agent_task_owner` has no table-wide SELECT on `jas_si_tenants` and can SELECT only `tenant_id` and `status`. This corrects the earlier Staging finding and supersedes the 2026-11-27 statement that the Broker LOGIN was absent.
+- **Neon Production:** Production branch `production` (`br-silent-moon-b3mwkv8u`) is Ready, but the inspected role catalog has no dedicated Broker/Worker/Verifier LOGIN roles and no `public.jas_si_agent_tasks` table. The Agent Broker/Worker/Verifier database runtime is therefore not deployed in Production.
+- **Neon network/branch safeguards:** Both Staging and Production branches currently report `protected=false`. Project settings show no IP allowlist entries, `protected_branches_only=false`, and `block_public_connections=false`. These are outstanding hardening items; no branch-protection or network setting was changed.
+- **Render:** Workspace service inventory remains empty (`[]`). No Broker, Worker, or Verifier service is deployed; no paid compute was created.
+- **Cloudflare:** The authorized account connection was verified. Its live inventory currently has zero zones, zero Worker scripts, zero Worker domains, and zero account mTLS certificates. Consequently there is no Cloudflare mTLS edge hostname or deployed Cron Worker. Cloudflare mTLS must not be represented as configured merely because account authorization is active.
+- **Vercel environment metadata:** The environment inventory was read with `decrypt=false`. The customer database, customer API-key database, customer token pepper, and GitHub webhook database variables are Preview-only and scoped to `feat/github-oauth-state-pkce-contract-v1`. No values were decrypted. No customer SMTP variables or dedicated Broker TLS runtime configuration were found in the inspected inventory. No environment values were changed.
+- **Customer activation:** Customer registration, email delivery, login/session creation, API-key issuance, and customer-data journeys were not executed. The customer portal must remain gated until SMTP and the complete authenticated staging lifecycle are independently verified.
+- **Documentation PR state:** This checklist is on PR #156, current head before this update `b840f33a87c25559ce7055b5f5f2dc19b6c19220`. Its branch is 13 commits ahead and 2 behind current Main, and it remains Draft. Seven returned PR-triggered workflows for that prior head were successful, but this is not a complete required-check inventory. Keep the PR Draft and do not merge until its base is aligned with current Main and the new exact-head checks pass.
+- **Safety:** This audit did not decrypt or change secrets, change Vercel environment values, apply a Production migration, alter Neon roles/grants/data, create Render services, deploy Cloudflare Workers, change payment configuration, or perform customer actions.
 
-This is a read-only infrastructure snapshot. Preview-wide customer secrets should not be considered safe for arbitrary branch builds until the deployment/fork trust boundary is confirmed and the variables are restricted to the intended trusted Preview branch. Production customer onboarding remains disabled.
+This is an operator handoff, not a declaration that customer onboarding or the Agent Runtime is live. Keep customer onboarding, private-repository execution, and Paid Plans gated until the dedicated runtime is deployed, the end-to-end mTLS Broker → GitHub read → independent Verifier path is proven in Staging, and all relevant customer/payment workflows are independently verified.
+
+## Historical snapshot (2026-11-27)
+
+- Current Main observed: `3922dc5a3f82b82da6d89e85b721fec9baa6a4ac`. Current Vercel Production deployment `dpl_8X3FLYpTRKw41qDE7Joo57brBozQ` is READY and Main-aligned. Production `/health`, `/pricing`, and `/plans` each returned HTTP 200. The health route is liveness only; it does not prove customer database or agent runtime readiness.
+- Trusted Preview deployment `dpl_4wqihcCG7kwPadEVddb86EawbR3G` is READY at commit `2cf4caca96508b7c79699ccd50410ec18bdca4b8` on `feat/github-oauth-state-pkce-contract-v1`. Preview `/health` and `/customer` returned HTTP 200. These probes do not prove registration, email delivery, session, database, or API-key journeys.
+- Vercel environment metadata was read with decryption disabled. `JAS_SI_CUSTOMER_DATABASE_URL`, `JAS_SI_CUSTOMER_API_KEY_DATABASE_URL`, `JAS_SI_CUSTOMER_TOKEN_PEPPER`, and `JAS_SI_GITHUB_WEBHOOK_DATABASE_URL` are Preview-only and restricted to branch `feat/github-oauth-state-pkce-contract-v1`. No secret values were decrypted or changed. This confirms the named-branch scope for these four variables only; it does not prove runtime use or the safety of other Preview variables.
+- No customer SMTP host, port, username, password, sender, or public URL variables appeared in the current project environment inventory. Customer email verification and sign-in delivery therefore remain NOT CONFIGURED / NOT VERIFIED.
+- The customer portal is served at Preview, but no registration, login, email, session, API-key creation, or customer-data mutation was performed. A protected authenticated customer API fetch could not be independently completed with the available inspection path; do not claim customer journey success.
+- PR #153 is Open/Draft at head `7a717c13dbd6e4679c43508ef83e79e656c34ab2`, 26 commits ahead and 0 behind current Main. Its exact-head CI has 18/18 returned checks successful, including PostgreSQL 16 clean migration replay and Broker authorization/replay. A read-only Staging privilege audit found `jas_si_agent_task_owner` had unnecessary table-wide SELECT on all six `jas_si_tenants` columns, while the resolver needs only `tenant_id` and `status`. PR #153 now contains a corrective migration that narrows this privilege and passed clean PostgreSQL 16 replay; **it has not been applied to Neon Staging or Production**. Staging still lacks `jas_si_agent_broker_login`, and no Broker service is deployed.
+- This PR #156 branch was last observed at `d156607cc4036e7860d012a7a2c35f03d26c6b1d`, 12 commits ahead and 1 behind current Main, with 9/9 exact-head checks successful. It remains Draft; its base is behind current Main and its documentation must not be treated as merge-ready until rechecked after this update.
+- Neon Staging and Production branches are Ready but unprotected. Staging task/evidence tables have RLS and FORCE RLS enabled; task and evidence row counts are zero. The task-owner broad SELECT finding above remains live until the corrective migration is separately authorized and applied. Production has no Agent runtime roles or task/evidence schema.
+- Render workspace `tea-dbpl9vmi0phs73cc9b0g` currently returns an empty service list. Worker, Verifier, and Broker are NOT DEPLOYED / NOT VERIFIED. No paid compute was created.
+- Production `/plans` reports payment status `not_connected`; Free is purchasable, while Starter, Pro, and Enterprise remain non-purchasable. No provider-integrated durable ledger, independent payment verification, reconciliation, refunds/disputes, or entitlement enforcement is established.
+- No Vercel environment value, Neon role/schema/grant/data, customer record, Production setting, Render service, payment setting, or live transaction was changed during this audit.
+
+This is an operator handoff, not a declaration that customer onboarding or the Agent Runtime is live. Keep customer onboarding and Paid Plans gated until authenticated database connectivity, SMTP delivery, complete customer lifecycle, tenant isolation, and independent staging verification are established.
 
 **Historical status (2026-11-14): onboarding code was merged and deployed; live customer activation was blocked by missing dedicated runtime credentials and SMTP configuration.**  
 This checklist is an operator handoff. It is not authorization to change Vercel, Neon, Production, payment settings, or customer data.
@@ -141,3 +162,170 @@ This checklist does not authorize:
 - Payment-provider activation, charges, refunds, or live paid entitlements.
 
 Those actions require a separate review and explicit approval. If a staging migration fails, stop, preserve logs/state, and use a reviewed recovery plan validated on a disposable database; do not improvise destructive rollback SQL.
+
+
+## Master directive live-audit correction — 2026-11-27
+
+This read-only audit snapshot supersedes conflicting earlier status statements. No secret values were decrypted.
+
+### Current infrastructure evidence
+
+- Main: `a561acf101137fa92e0fc50da4e06fc63edc0dda`.
+- Vercel Production deployment `dpl_Kr2gGNMt6qXbnPtR2Pjb6etwtNqv` is READY on that Main SHA.
+- Vercel Preview deployment `dpl_4wqihcCG7kwPadEVddb86EawbR3G` is READY on `feat/github-oauth-state-pkce-contract-v1`, SHA `2cf4caca96508b7c79699ccd50410ec18bdca4b8`. This proves deployment build, not runtime readiness.
+- Production and Preview runtime log queries for the latest 30 minutes returned no records; health remains unverified.
+- Preview customer database, customer API-key database, token pepper, and GitHub webhook database variables are Preview-only and branch-scoped to the inspected branch. Production-targeted customer DB/API-key DSNs and customer token pepper were not found. Secret values were not read.
+- Render service inventory is empty. No Worker, Verifier, Broker, or reconciler service is deployed.
+
+### GitHub PR state
+
+- PR #100: Open, Draft, Mergeable; head `2cf4caca96508b7c79699ccd50410ec18bdca4b8`, base branch `feat/github-installation-user-ownership-proof-v1`. It is 288 commits ahead / 0 behind its base at comparison time. Historical PR narrative is not live runtime evidence.
+- PR #153: Open, Draft, Mergeable; head `6a25b4758cd8192b6c5d5ec66bc7326f86c1e5c1`; 17 commits ahead / 2 behind Main at comparison time. Do not merge without dependency/rebase review and exact-head checks.
+- PR #156: Open, Draft, Mergeable; head `fa9049be9bc9c6dc777543529df75f674c735eef`. Seven exact-head workflow runs were independently retrieved in this audit and all completed successfully (Dependency Lock, Vercel Python 3.12 Compatibility, Core Package Validation, Post-Merge Security Verification, Docker Container Verification, Agent Authorization Tests, Security Event Persistence Verification). No merge was performed.
+- Main combined status reports Vercel success. PR #100 combined status reports Vercel success only; this is not equivalent to all workflow tests passing.
+
+### Neon read-only catalog
+
+Project `odd-violet-93299575`:
+- Staging `br-wandering-bonus-b32u1xg2`: 18 application tables, 7 with RLS disabled.
+- Production `br-silent-moon-b3mwkv8u`: 11 application tables, 7 with RLS disabled.
+- Staging has Worker and Verifier LOGIN principals and their separate NOLOGIN capability roles. Memberships are SET-only (`inherit_option=false`, `set_option=true`).
+- Staging GitHub webhook LOGIN is a member of `jas_si_runtime` with both inheritance and SET disabled; reconciler LOGIN has SET-only membership in its dedicated capability role.
+- No dedicated Broker LOGIN exists. Production has no Worker, Verifier, Broker, GitHub webhook, or reconciler LOGIN principals.
+- Staging RLS-disabled tables: `jas_si_api_rate_limits`, `jas_si_customer_accounts`, `jas_si_customer_auth_tokens`, `jas_si_customer_rate_limits`, `jas_si_customer_sessions`, `jas_si_github_oauth_attempts`, `jas_si_usage_events`.
+- Production RLS-disabled tables: `jas_si_api_key_provisioning_runs`, `jas_si_api_rate_limits`, `jas_si_customer_accounts`, `jas_si_customer_auth_tokens`, `jas_si_customer_rate_limits`, `jas_si_customer_sessions`, `jas_si_usage_events`.
+- Both branches report `protected=false`. RLS-disabled status is a hardening gap, not standalone proof of cross-tenant exposure. No role, grant, schema, policy, data, or credential was changed.
+
+### Billing and commercial status
+
+- Main `billing_core.py` is an in-memory domain/test foundation, not a durable production ledger.
+- Main `billing_catalog.py` keeps Starter, Pro, Enterprise non-purchasable; payment status is `not_connected`.
+- Neither Neon branch contains payment, ledger, subscription, refund/dispute, or entitlement tables.
+- Durable provider verification, append-only ledger, reconciliation, and entitlement enforcement are not established. Paid plans must remain non-purchasable.
+
+### Completion status
+
+- Vercel Preview build: READY; runtime database readiness: UNVERIFIED.
+- GitHub OAuth/webhook/installation lifecycle: NOT STAGING VERIFIED.
+- Worker/Verifier/Broker runtime: NOT DEPLOYED.
+- Tenant RLS hardening: INCOMPLETE.
+- Durable payment/billing: NOT IMPLEMENTED as an integrated system.
+- Paid Commercial Launch: BLOCKED.
+
+No Production operation, migration, credential change, paid resource, financial transaction, customer action, or PR merge was performed.
+
+
+## Follow-up database authorization review — 2026-11-27
+
+A second read-only pass inspected table ACLs, RLS policy catalog, function ACLs and selected SECURITY DEFINER function bodies on both Neon branches.
+
+### Customer table access boundary
+
+- The following customer-related tables have RLS disabled and no row policies in either branch: `jas_si_customer_accounts`, `jas_si_customer_auth_tokens`, `jas_si_customer_sessions`, `jas_si_customer_rate_limits`, `jas_si_api_rate_limits`, and `jas_si_usage_events`. Staging additionally has RLS disabled on `jas_si_github_oauth_attempts`; Production does not contain that table.
+- Despite RLS being disabled, the inspected application roles `jas_si_customer_runtime` and broad `jas_si_runtime` have no direct SELECT privilege on these customer tables. Customer Runtime also has no direct INSERT or UPDATE privilege on the inspected account/session/token tables.
+- Direct account, token and session table SELECT is granted to the NOLOGIN `jas_si_customer_identity_owner` capability role; that is not a customer-facing LOGIN identity. The customer rate-limit tables are owned by their NOLOGIN dedicated owner role. `neondb_owner` retains owner-level privileges.
+- The inspected customer-facing SECURITY DEFINER routines are owned by dedicated NOLOGIN owner roles, set `search_path=pg_catalog`, and are not executable by PUBLIC. The Customer Runtime capability role has EXECUTE on the intended session and customer identity routines, while API-key issuance/list/revocation routines are separately owned by `jas_si_customer_key_owner` and not executable by Customer Runtime in the catalog.
+- `customer_authenticate_session` validates a non-null 32-byte session digest, unrevoked/unexpired session, active account and active tenant. `customer_usage_events` and `customer_usage_summary` derive tenant identity from the authenticated session and constrain usage queries by that tenant. `customer_api_key_issue/list/revoke` similarly derive tenant identity from an active session before accessing API-key records.
+- These checks reduce the immediate direct-table exposure concern, but RLS remains a defense-in-depth gap and must not be dismissed. Future RLS enablement requires explicit per-owner policies and regression testing of every SECURITY DEFINER routine; enabling RLS without understanding function owners and FORCE RLS behavior could break legitimate flows or create accidental bypasses.
+
+### Runtime principal readiness
+
+- Staging has `jas_si_customer_runtime` as NOLOGIN, plus separate NOLOGIN identity/key/rate-limit owner roles. It does not have a dedicated customer-runtime LOGIN principal in the inspected role set.
+- Production likewise has only the NOLOGIN `jas_si_customer_runtime` capability role and NOLOGIN owner roles; no customer-runtime LOGIN principal was present.
+- Staging has GitHub webhook and reconciler LOGIN principals, both NOINHERIT and non-privileged; Production has neither.
+- The GitHub task capability Broker role is present in Staging as NOLOGIN; no Broker LOGIN is present. Production has neither the Broker capability role nor Broker LOGIN.
+
+### Migration-history limitation
+
+- No application migration/version ledger table was found in either Neon branch by read-only table inventory. This does not mean migrations were not applied; it means the current live database cannot independently prove the ordered migration history from a conventional migration ledger.
+- The live schema, role, grant and function catalogs are direct current-state evidence. CI migration replay is separate evidence and must not be presented as proof that the exact chain was applied to live Staging or Production.
+
+### Security assessment correction
+
+The earlier shorthand “seven RLS-disabled tables” remains factually correct, but must not be interpreted as evidence that ordinary application roles can directly read those tables. The catalog currently shows a restricted function-mediated access design. The remaining gap is defense-in-depth, missing customer-runtime LOGIN/configuration in Production, and absence of complete end-to-end runtime proof. No DDL, DML, grant, role, policy, secret, or migration was changed in this review.
+
+
+## Agent runtime dependency and PR readiness review — 2026-11-27
+
+A fresh GitHub read-only review checked PR #80 and its stacked runtime dependents #91–#93 against the current Main branch.
+
+### Durable Agent Task Store PR #80
+
+- PR #80 remains Open and Draft. Its current head is `1dd2d0cc2e854f18c414e39393629b65057854db`; its recorded base SHA is `9625905db7a8f9ffab151995e4b8a475b0de405a`.
+- Main is currently `a561acf101137fa92e0fc50da4e06fc63edc0dda`. The comparison reports a diverged history: PR #80 is 234 commits ahead and 44 commits behind Main, with the old SHA as merge base. GitHub currently reports the PR as not mergeable.
+- No PR-triggered workflow runs and no combined commit statuses were returned for the current PR #80 head. This is absence of CI evidence, not a passing result.
+- PR #80 contains durable task storage, worker and verifier lifecycle adapters, multiple migrations, API routes, Render worker/verifier declarations and integration tests. It is a substantial stacked implementation, not a small isolated change.
+- The migration replay workflow explicitly includes the future-dated `20261201_agent_task_verifier_inconclusive_lifecycle.sql`. The migration's retry-exhaustion-to-human-review behavior is aligned with fail-closed verification, but its date and inclusion order must be reviewed as part of canonical migration sequencing before any merge.
+- The PR's Render manifest declares Worker and Verifier services only; it does not establish that either service has been deployed or that a Broker runtime exists.
+
+### Stacked dependents
+
+- PR #91 targets `feat/durable-agent-task-store-v1` (PR #80's branch).
+- PR #92 targets PR #91's branch.
+- PR #93 targets PR #92's branch.
+- Each dependent is therefore blocked on reconciling and validating the root PR #80 against current Main. Their individual branch-level mergeability does not make them independently mergeable to Main.
+- Do not retarget or merge the dependents directly to Main, and do not treat their branch mergeability as evidence that the entire stack is ready.
+
+### Current decision
+
+PR #80 and #91–#93 remain unmerged and Draft. The next safe engineering action is a controlled reconciliation of the root task-store branch with current Main, followed by exact-head CI (including clean PostgreSQL migration replay and agent-task tests), security review of the complete diff, and renewed dependent-branch checks. No branch rebase/force-push, migration, database write, deployment, or PR merge was performed during this audit.
+
+
+## Continuation audit — live infrastructure and billing evidence (2026-11-27, evening Bangladesh time)
+
+This continuation refreshed repository, PR, deployment, Neon branch, and Render service evidence.
+
+### Repository and PR state
+
+- Main remains at `a561acf101137fa92e0fc50da4e06fc63edc0dda`; the latest repository commit search returned this SHA.
+- Main's combined status currently reports the Vercel check as successful. This is not a complete repository-wide CI matrix.
+- PR #156 is Open/Draft at `0c5154acaf52d43e64b9208fa7c3f17eec22108e`; all seven returned PR workflows completed successfully at that exact head.
+- PR #157 (bKash PRA SaaS exclusion) is Open/Draft, based on current Main, and reports mergeable. Its exact head is `d6be92827406f2bc9e7cf0621f9b23f4351dda13`; all seven returned PR workflows completed successfully at that exact head. The PR remains Draft and was not merged.
+- PR #80 remains Open/Draft and non-mergeable; head `1dd2d0cc2e854f18c414e39393629b65057854db`, base SHA `9625905db7a8f9ffab151995e4b8a475b0de405a`. The #91–#93 stacked dependency chain remains rooted on this branch. No merge/rebase/force-push was attempted.
+- PR #153 remains Draft; it is based on an older Broker prerequisite commit and is not evidence of an integrated or deployed Broker.
+
+### Deployment and database
+
+- Vercel production deployment is READY at Main SHA `a561acf101137fa92e0fc50da4e06fc63edc0dda`. This confirms deployment of that commit only; it does not establish Agent, customer-authenticated API, billing, or production end-to-end readiness.
+- Neon project `odd-violet-93299575` currently reports staging branch `br-wandering-bonus-b32u1xg2` READY and production branch `br-silent-moon-b3mwkv8u` READY. Neither branch is protected in the current branch metadata.
+- Read-only catalog counts returned 18 `jas_si_*` base tables in staging and 11 in production. Counts alone do not prove migration-chain consistency, RLS safety, runtime principal readiness, or payment readiness.
+- Render workspace `tea-dbpl9vmi0phs73cc9b0g` returned an empty service list. Worker, Verifier, and Broker remain NOT DEPLOYED / NOT VERIFIED.
+
+### Billing provider evidence
+
+- PR #157 records the owner-provided written bKash support decision: PRA is not the SaaS API collection route; evaluate only a Regular Merchant Account or officially approved gateway with SaaS acceptance and server-side verification confirmed.
+- No provider account, credentials, payment collection, paid service, or production checkout was activated.
+- Durable append-only payment ledger, verified provider events, reconciliation, refund/dispute lifecycle, and entitlement enforcement remain NOT IMPLEMENTED / NOT STAGING VERIFIED. Paid plans remain non-purchasable.
+
+### Execution outcome
+
+This audit was read-only except for this documentation update on the existing PR #156 branch. No production migration, database write, service creation, deployment trigger, secret operation, or PR merge was performed.
+
+
+## Exact-head CI and billing implementation inspection — 2026-11-27
+
+### Documentation branch verification
+
+The latest documentation branch head is `8cf32e16101dc837bcb5b5eaef477ce76febcb73`. A fresh GitHub workflow query now returns seven PR workflows, all completed successfully at that exact SHA:
+
+- Core Package Validation — success
+- Vercel Python 3.12 Compatibility — success
+- Agent Authorization Tests — success
+- Post-Merge Security Verification — success
+- Security Event Persistence Verification — success
+- Docker Container Verification — success
+- Dependency Lock Verification — success
+
+This is exact-head CI evidence for the documentation branch; it is not a merge or production verification.
+
+### Billing code-to-infrastructure status
+
+A current Main read of `src/jas_si_agent/billing_core.py` (blob SHA `87a6d9b2d8aa50732f8af18c6e75832389bed6c9`) confirms the module explicitly describes itself as an in-memory domain/test foundation, with no database, network, payment-provider, or credential handling.
+
+The file contains domain primitives for immutable order snapshots, payment/order amount-currency matching, allowed state transitions, and an in-memory credit ledger with idempotency support. Its own module/class documentation explicitly states that the in-memory ledger is not durable, not multi-process safe, and requires transactional PostgreSQL persistence, row-level concurrency control, durable audit, and tenant authorization for production.
+
+**Classification:** billing domain foundation is IMPLEMENTED in source and covered by existing CI/domain tests where applicable; a production payment adapter, durable financial ledger, provider event verification, reconciliation, refunds/disputes, and entitlement enforcement are NOT VERIFIED by this source file. No claim of integrated or staging-verified billing is made.
+
+### Runtime priority remains unchanged
+
+PR #80 remains the root durable-task integration blocker; its diverged/non-mergeable state prevents safe progression of stacked PRs #91–#93. Render still reports no services. No migration, deployment, payment account, credential, or financial operation was performed.
