@@ -36,8 +36,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "build>=1.0",
+]
+capability-runtime = [
     "anycorn==0.20.1",
-    "httpx==0.28.1",
 ]
 
 [project.scripts]
