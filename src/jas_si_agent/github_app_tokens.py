@@ -18,6 +18,8 @@ from typing import Any, Protocol
 from uuid import UUID
 
 import httpx
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from jas_si_agent.github_installations import (
     TenantGitHubInstallationCredential,
@@ -29,9 +31,10 @@ _GITHUB_API = "https://api.github.com"
 _API_VERSION = "2022-11-28"
 _REPOSITORY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _TOKEN_TTL_LIMIT = timedelta(hours=1, minutes=5)
+# The immutable commit/file reader uses only the GitHub Contents API.
+# GitHub supplies metadata:read implicitly for repository-scoped installation
+# tokens, so do not request unrelated Actions, Checks, PR, or Status scopes.
 _READ_ONLY_PERMISSIONS = {
-    # Repository content integrity reads require no Actions, Checks, PR, or
-    # Status API access. GitHub may additionally return implicit metadata:read.
     "contents": "read",
 }
 
@@ -119,11 +122,8 @@ def decode_github_app_private_key_b64(raw: str) -> bytes:
     return pem
 
 
-def _load_rsa_private_key(path: str | None, pem_bytes: bytes | None = None):
+def _load_rsa_private_key(path: str | None, pem_bytes: bytes | None = None) -> rsa.RSAPrivateKey:
     try:
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-
         pem = pem_bytes if pem_bytes is not None else Path(path).read_bytes()
         key = serialization.load_pem_private_key(pem, password=None)
     except Exception:
@@ -152,10 +152,7 @@ class GitHubAppInstallationTokenIssuer:
         self._clock = clock
 
     def _create_app_jwt(self) -> str:
-        key = _load_rsa_private_key(
-            self._settings.private_key_path,
-            self._settings.private_key_pem,
-        )
+        key = _load_rsa_private_key(self._settings.private_key_path, self._settings.private_key_pem)
         now = int(self._clock())
         header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
         payload = _b64url(json.dumps(
@@ -163,9 +160,6 @@ class GitHubAppInstallationTokenIssuer:
             separators=(",", ":"),
         ).encode())
         signing_input = f"{header}.{payload}".encode("ascii")
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
-
         signature = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
         return f"{header}.{payload}.{_b64url(signature)}"
 
@@ -261,7 +255,6 @@ class TenantGitHubInstallationBindingResolver(Protocol):
         """Resolve an already verified installation/repository binding."""
 
 
-
 class PostgresTenantGitHubInstallationBindingResolver:
     """Resolve only active verified bindings through the DB-owned routine.
 
@@ -312,11 +305,7 @@ class PostgresTenantGitHubInstallationBindingResolver:
 
 
 def build_github_app_tenant_credential_provider(
-    *,
-    database_dsn: str,
-    app_id: int,
-    private_key_path: str | None = None,
-    private_key_pem: bytes | None = None,
+    *, database_dsn: str, app_id: int, private_key_path: str
 ) -> "GitHubAppTenantCredentialProvider":
     """Build a host-local provider from injected, non-user-controlled config."""
     resolver = PostgresTenantGitHubInstallationBindingResolver(database_dsn)
@@ -324,13 +313,13 @@ def build_github_app_tenant_credential_provider(
         GitHubAppTokenSettings(
             app_id=app_id,
             private_key_path=private_key_path,
-            private_key_pem=private_key_pem,
         )
     )
     return GitHubAppTenantCredentialProvider(
         binding_resolver=resolver,
         token_issuer=issuer,
     )
+
 
 
 class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
@@ -395,10 +384,10 @@ class GitHubAppTenantCredentialProvider(TenantGitHubInstallationProvider):
 __all__ = [
     "GitHubAppInstallationTokenIssuer",
     "GitHubAppTenantCredentialProvider",
-    "PostgresTenantGitHubInstallationBindingResolver",
-    "build_github_app_tenant_credential_provider",
     "TenantGitHubInstallationBinding",
     "TenantGitHubInstallationBindingResolver",
+    "PostgresTenantGitHubInstallationBindingResolver",
+    "build_github_app_tenant_credential_provider",
     "GitHubAppTokenError",
     "GitHubAppTokenSettings",
     "IssuedGitHubInstallationToken",
