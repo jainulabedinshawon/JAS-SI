@@ -11,9 +11,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import anyio
-import httpx
-from anycorn import serve
+try:
+    import anyio
+    import httpx
+    from anycorn import serve
+except ImportError:  # Optional listener dependency is installed only by capability-runtime CI.
+    anyio = httpx = serve = None
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -36,6 +39,11 @@ def _issue_certificate(ca_key, ca_cert, common_name, usage, *, san=None, is_ca=F
         .not_valid_after(now + timedelta(hours=2))
         .add_extension(x509.BasicConstraints(ca=is_ca, path_length=1 if is_ca else None), critical=True)
     )
+    if ca_cert:
+        builder = builder.add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+            critical=False,
+        )
     if san:
         builder = builder.add_extension(x509.SubjectAlternativeName(san), critical=False)
     if usage:
@@ -56,6 +64,7 @@ def _write_cert(path: Path, cert) -> None:
     path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
 
+@unittest.skipIf(serve is None, "optional capability-runtime (Anycorn) dependency is not installed")
 class CapabilityTlsListenerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -72,6 +81,7 @@ class CapabilityTlsListenerTests(unittest.TestCase):
             .not_valid_before(now - timedelta(minutes=2))
             .not_valid_after(now + timedelta(days=2))
             .add_extension(x509.BasicConstraints(ca=True, path_length=1), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(self.ca_key.public_key()), critical=False)
             .add_extension(x509.KeyUsage(
                 digital_signature=True, content_commitment=False, key_encipherment=False,
                 data_encipherment=False, key_agreement=False, key_cert_sign=True,
