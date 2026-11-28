@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -223,8 +224,18 @@ class GitHubCapabilityReadProxy:
             if len(content) > self._max_content_bytes:
                 raise GitHubCapabilityBrokerError("GitHub file exceeds the configured read limit")
             blob_sha = payload.get("sha")
-            if not isinstance(blob_sha, str) or len(blob_sha) != 40:
+            if (
+                not isinstance(blob_sha, str)
+                or len(blob_sha) != 40
+                or any(char not in "0123456789abcdef" for char in blob_sha)
+            ):
                 raise GitHubCapabilityBrokerError("GitHub returned invalid file integrity metadata")
+            # Recompute Git's canonical blob object ID from the exact bytes.
+            # A shape-valid SHA alone is not independent content-integrity evidence.
+            git_blob_header = f"blob {len(content)}\\0".encode("ascii")
+            computed_blob_sha = hashlib.sha1(git_blob_header + content).hexdigest()
+            if computed_blob_sha != blob_sha:
+                raise GitHubCapabilityBrokerError("GitHub file content failed blob integrity verification")
             return {
                 "repository": capability.repository_full_name,
                 "commit_sha": capability.commit_sha,
