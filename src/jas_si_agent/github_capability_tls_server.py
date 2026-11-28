@@ -38,7 +38,7 @@ def build_config() -> Any:
 
     paths = {name: _required_file(name) for name in _REQUIRED_FILES}
     host = os.environ.get("JAS_SI_CAPABILITY_TLS_BIND_HOST", "0.0.0.0").strip()
-    if not host or any(ch in host for ch in "/\\r\\n"):
+    if not host or any(ch in host for ch in "/\r\n"):
         raise RuntimeError("Capability TLS bind host is invalid")
     raw_port = os.environ.get("JAS_SI_CAPABILITY_TLS_BIND_PORT", "8443").strip()
     try:
