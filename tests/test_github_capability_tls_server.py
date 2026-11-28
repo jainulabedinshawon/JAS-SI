@@ -106,7 +106,7 @@ class CapabilityTlsListenerTests(unittest.TestCase):
             "JAS_SI_CAPABILITY_TLS_SERVER_KEY": str(self.server_key_path),
             "JAS_SI_CAPABILITY_TLS_CLIENT_CA": str(self.ca_path),
             "JAS_SI_CAPABILITY_TLS_BIND_HOST": "127.0.0.1",
-            "JAS_SI_CAPABILITY_TLS_BIND_PORT": "0",
+            "JAS_SI_CAPABILITY_TLS_BIND_PORT": "18443",
         }
 
     def test_config_requires_client_certificate_and_strict_chain(self):
