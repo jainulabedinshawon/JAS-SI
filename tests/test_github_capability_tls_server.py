@@ -184,5 +184,27 @@ class CapabilityTlsListenerTests(unittest.TestCase):
         anyio.run(test_server)
 
 
+    def test_dns_bind_host_is_accepted(self):
+        env = self._environment()
+        env["JAS_SI_CAPABILITY_TLS_BIND_HOST"] = "broker.internal"
+        with patch.dict(os.environ, env, clear=False):
+            config = build_config()
+        self.assertEqual(config.bind, ["broker.internal:18443"])
+
+    def test_bind_host_rejects_path_and_embedded_line_breaks(self):
+        invalid_hosts = (
+            "broker/internal",
+            "broker" + chr(92) + "internal",
+            "broker" + chr(10) + "internal",
+            "broker" + chr(13) + "internal",
+        )
+        for invalid_host in invalid_hosts:
+            env = self._environment()
+            env["JAS_SI_CAPABILITY_TLS_BIND_HOST"] = invalid_host
+            with self.subTest(host=repr(invalid_host)), patch.dict(os.environ, env, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "bind host is invalid"):
+                    build_config()
+
+
 if __name__ == "__main__":
     unittest.main()
