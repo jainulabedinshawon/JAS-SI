@@ -57,12 +57,14 @@ class GitHubCapabilityReadProxyTests(unittest.TestCase):
             access_token="ghs-test-secret",
         )
         self.http = Mock()
+        content = b"print('ok')"
+        expected_blob_sha = hashlib.sha1(f"blob {len(content)}\\0".encode("ascii") + content).hexdigest()
         self.payload = {
             "type": "file",
             "path": "src/allowed.py",
             "encoding": "base64",
-            "content": base64.b64encode(b"print('ok')").decode("ascii"),
-            "sha": "b" * 40,
+            "content": base64.b64encode(content).decode("ascii"),
+            "sha": expected_blob_sha,
         }
         self.response = _StreamingResponse(
             __import__("json").dumps(self.payload).encode("utf-8")
@@ -148,6 +150,19 @@ class GitHubCapabilityReadProxyTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(result["content_base64"]), b"print('ok')")
         self.assertNotIn("access_token", result)
         self.assertNotIn("ghs-test-secret", repr(result))
+
+    def test_rejects_content_whose_git_blob_hash_does_not_match(self):
+        self.payload["sha"] = "b" * 40
+        self.http.stream.return_value = _StreamingResponse(
+            json.dumps(self.payload).encode("utf-8")
+        )
+        with self.assertRaisesRegex(GitHubCapabilityBrokerError, "blob integrity"):
+            self.proxy.read_file(
+                capability=self.capability,
+                repository="owner/private-repo",
+                commit_sha="a" * 40,
+                path="src/allowed.py",
+            )
 
     def test_rejects_unlisted_path_before_token_issuance(self):
         with self.assertRaises(GitHubCapabilityBrokerError):
