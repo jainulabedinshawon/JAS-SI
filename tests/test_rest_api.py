@@ -151,6 +151,29 @@ class TestJASSIRestAPI(unittest.TestCase):
         self.assertNotIn("api_key", response.json())
         self.assertNotIn(TEST_API_KEY, response.text)
 
+    def test_readiness_is_public_and_does_not_claim_agent_runtime_ready(self):
+        with patch.object(api.app.state, "startup_ready", True):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["component"], "api")
+        self.assertEqual(response.json()["status"], "ready")
+        self.assertEqual(response.json()["agent_runtime"], "not_verified")
+        self.assertNotIn(TEST_API_KEY, response.text)
+
+    def test_readiness_fails_closed_before_startup_checks(self):
+        with patch.object(api.app.state, "startup_ready", False):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["agent_runtime"], "not_verified")
+
+    def test_readiness_fails_closed_when_api_disabled(self):
+        with patch.object(api.app.state, "startup_ready", True), patch.object(
+            api, "settings", replace(api.settings, api_enabled=False)
+        ):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+
     def test_security_headers_are_present(self):
         response = self.client.get("/health")
         expected_headers = {

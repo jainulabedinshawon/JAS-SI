@@ -124,6 +124,7 @@ app.state.security_event_store = JsonlSecurityEventStore(
 )
 # Task submissions remain fail-closed until a Worker host is independently ready.
 app.state.agent_task_submission_enabled = False
+app.state.startup_ready = False
 
 
 @app.on_event("startup")
@@ -131,6 +132,7 @@ def initialize_security_event_store() -> None:
     """Require verified PostgreSQL audit and API-key registries in deployed environments."""
 
     if settings.environment not in {"preview", "production"}:
+        app.state.startup_ready = True
         return
 
     if not settings.api_enabled:
@@ -196,6 +198,7 @@ def initialize_security_event_store() -> None:
     app.state.security_event_store = store
     app.state.usage_meter = usage_meter
     app.state.api_rate_limiter = api_rate_limiter
+    app.state.startup_ready = True
 
 def get_security_event_store(request: Request) -> SecurityEventStore:
     """Return the storage backend configured for this application."""
@@ -1447,6 +1450,28 @@ def health() -> dict:
         "status": "ok",
         "api_enabled": settings.api_enabled,
     }
+
+
+@app.get("/ready")
+def readiness() -> JSONResponse:
+    """Report API startup readiness separately from Agent Runtime readiness."""
+    if not settings.api_enabled or not getattr(app.state, "startup_ready", False):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "component": "api",
+                "status": "not_ready",
+                "agent_runtime": "not_verified",
+            },
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "component": "api",
+            "status": "ready",
+            "agent_runtime": "not_verified",
+        },
+    )
 
 
 @app.get("/v1/usage", dependencies=[Depends(_require_api_key)])
