@@ -30,6 +30,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install minimal adapter dependency
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,capability-runtime]"
       - name: Run isolated Broker adapter and workload identity tests
         run: python -m pytest tests/test_github_capability_broker_adapter.py tests/test_github_capability_identity.py tests/test_github_capability_tls_server.py -q
