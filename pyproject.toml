@@ -36,11 +36,14 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "build>=1.0",
+    "anycorn==0.20.1",
+    "httpx==0.28.1",
 ]
 
 [project.scripts]
 jas-si-agent-worker = "jas_si_agent.agent_task_worker_supervisor:main"
 jas-si-agent-verifier = "jas_si_agent.agent_task_verifier_supervisor:main"
+jas-si-agent-capability-tls = "jas_si_agent.github_capability_tls_server:main"
 
 [project.urls]
 Homepage = "https://github.com/jainulabedinshawon/JAS-SI"
