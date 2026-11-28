@@ -1,5 +1,6 @@
 from __future__ import annotations
-import sys, unittest
+import os, sys, unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -53,6 +54,18 @@ class BrokerRuntimeTests(unittest.TestCase):
             missing=client.post("/internal/github/capabilities/read",json={"task_id":str(uuid4()),"repository":"owner/private-repo","commit_sha":"a"*40,"path":"src/main.py"})
             forged=client.post("/internal/github/capabilities/resolve",json={"task_id":str(uuid4()),"lease_fence":1,"principal_id":"attacker","role":"worker"})
         self.assertEqual(missing.status_code,422); self.assertEqual(forged.status_code,422)
+    def test_tls_listener_defaults_to_isolated_broker_app(self):
+        from jas_si_agent.github_capability_tls_server import load_application
+        with patch.dict(os.environ, {}, clear=True):
+            application = load_application()
+        self.assertEqual(application.title, "JAS-SI GitHub Capability Broker")
+
+    def test_tls_listener_rejects_public_api_override(self):
+        from jas_si_agent.github_capability_tls_server import load_application
+        with patch.dict(os.environ, {"JAS_SI_CAPABILITY_TLS_ASGI_APP": "jas_si_agent.api:app"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "isolated Broker"):
+                load_application()
+
     def test_disabled_and_production_modes_are_not_found(self):
         for config in (settings(False),settings(True,"production")):
             app=create_github_capability_app(config)
