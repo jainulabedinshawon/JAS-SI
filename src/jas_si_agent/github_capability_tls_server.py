@@ -65,11 +65,14 @@ def build_config() -> Any:
 def load_application() -> Any:
     """Load the configured ASGI app; never accept an arbitrary CLI argument."""
     target = os.environ.get(
-        "JAS_SI_CAPABILITY_TLS_ASGI_APP", "jas_si_agent.api:app"
+        "JAS_SI_CAPABILITY_TLS_ASGI_APP", "jas_si_agent.github_capability_runtime:app"
     ).strip()
     module_name, separator, attribute = target.partition(":")
-    if not separator or not module_name or not attribute or ":" in attribute:
-        raise RuntimeError("Capability TLS ASGI app must use module:attribute form")
+    if (
+        not separator or not module_name or not attribute or ":" in attribute
+        or target != "jas_si_agent.github_capability_runtime:app"
+    ):
+        raise RuntimeError("Capability TLS listener may load only the isolated Broker ASGI app")
     try:
         application = getattr(importlib.import_module(module_name), attribute)
     except (ImportError, AttributeError):

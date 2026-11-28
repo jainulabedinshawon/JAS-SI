@@ -189,6 +189,11 @@ class Settings:
     customer_smtp_sender: Optional[str] = None
     customer_public_base_url: str = "https://jas-si.vercel.app"
     github_capability_workload_identities: Optional[CertificateWorkloadIdentityRegistry] = field(default=None, repr=False)
+    github_capability_broker_database_url: Optional[str] = field(default=None, repr=False)
+    github_capability_broker_enabled: bool = False
+    github_capability_app_id: Optional[int] = None
+    github_capability_app_private_key_path: Optional[str] = field(default=None, repr=False)
+    github_capability_app_private_key_pem: Optional[bytes] = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -218,6 +223,40 @@ class Settings:
         hmac_secret = _read_optional_hmac_secret()
         provider_id = _read_optional_provider_id()
         github_capability_workload_identities = _read_github_capability_workload_identities()
+
+        github_capability_broker_database_url = os.getenv("JAS_SI_GITHUB_CAPABILITY_BROKER_DATABASE_URL") or None
+        github_capability_broker_enabled = _read_bool("JAS_SI_GITHUB_CAPABILITY_BROKER_ENABLED", False)
+        raw_capability_app_id = os.getenv("JAS_SI_GITHUB_CAPABILITY_APP_ID") or os.getenv("JAS_SI_GITHUB_APP_ID")
+        try:
+            github_capability_app_id = int(raw_capability_app_id) if raw_capability_app_id else None
+        except (TypeError, ValueError):
+            raise ValueError("GitHub Capability App ID must be a positive integer") from None
+        if github_capability_app_id is not None and github_capability_app_id <= 0:
+            raise ValueError("GitHub Capability App ID must be a positive integer")
+        github_capability_app_private_key_path = os.getenv("JAS_SI_GITHUB_CAPABILITY_APP_PRIVATE_KEY_PATH") or None
+        raw_capability_key_b64 = os.getenv("JAS_SI_GITHUB_CAPABILITY_APP_PRIVATE_KEY_B64") or os.getenv("JAS_SI_GITHUB_APP_PRIVATE_KEY_B64")
+        github_capability_app_private_key_pem = None
+        if raw_capability_key_b64:
+            from jas_si_agent.github_app_tokens import decode_github_app_private_key_b64
+            github_capability_app_private_key_pem = decode_github_app_private_key_b64(raw_capability_key_b64)
+        if github_capability_app_private_key_path and github_capability_app_private_key_pem:
+            raise ValueError("Configure exactly one GitHub Capability App private-key source")
+        if github_capability_broker_enabled:
+            if environment != "preview":
+                raise ValueError("GitHub Capability Broker may be enabled only in preview")
+            if not github_capability_broker_database_url:
+                raise ValueError("GitHub Capability Broker database URL is required")
+            try:
+                from psycopg.conninfo import conninfo_to_dict
+                broker_dsn_options = conninfo_to_dict(github_capability_broker_database_url)
+            except Exception:
+                raise ValueError("GitHub Capability Broker database URL is invalid") from None
+            if broker_dsn_options.get("sslmode") != "verify-full":
+                raise ValueError("GitHub Capability Broker database URL must require sslmode=verify-full")
+            if github_capability_workload_identities is None:
+                raise ValueError("Pinned GitHub Capability workload identities are required")
+            if not github_capability_app_id or not (github_capability_app_private_key_path or github_capability_app_private_key_pem):
+                raise ValueError("Dedicated GitHub Capability App credentials are required")
 
         if (hmac_secret is None) != (provider_id is None):
             raise ValueError(
@@ -271,4 +310,9 @@ class Settings:
                 "JAS_SI_CUSTOMER_PUBLIC_URL", "https://jas-si.vercel.app"
             ).strip(),
             github_capability_workload_identities=github_capability_workload_identities,
+            github_capability_broker_database_url=github_capability_broker_database_url,
+            github_capability_broker_enabled=github_capability_broker_enabled,
+            github_capability_app_id=github_capability_app_id,
+            github_capability_app_private_key_path=github_capability_app_private_key_path,
+            github_capability_app_private_key_pem=github_capability_app_private_key_pem,
         )

@@ -46,15 +46,27 @@ class GitHubAppTokenError(RuntimeError):
 @dataclass(frozen=True)
 class GitHubAppTokenSettings:
     app_id: int
-    private_key_path: str
+    private_key_path: str | None = None
+    private_key_pem: bytes | None = field(default=None, repr=False)
     api_base_url: str = _GITHUB_API
     timeout_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         if isinstance(self.app_id, bool) or not isinstance(self.app_id, int) or self.app_id <= 0:
             raise ValueError("GitHub App ID must be a positive integer")
-        if not isinstance(self.private_key_path, str) or not self.private_key_path.strip():
-            raise ValueError("GitHub App private key path is required")
+        if (self.private_key_path is None) == (self.private_key_pem is None):
+            raise ValueError("Configure exactly one GitHub App private-key source")
+        if self.private_key_path is not None and (
+            not isinstance(self.private_key_path, str) or not self.private_key_path.strip()
+        ):
+            raise ValueError("GitHub App private key path is invalid")
+        if self.private_key_pem is not None and (
+            not isinstance(self.private_key_pem, bytes)
+            or len(self.private_key_pem) > 18000
+            or not self.private_key_pem.startswith(b"-----BEGIN ")
+            or b"PRIVATE KEY-----" not in self.private_key_pem[:80]
+        ):
+            raise ValueError("GitHub App private key PEM is invalid")
         if self.api_base_url != _GITHUB_API:
             raise ValueError("GitHub API base URL must use the official HTTPS endpoint")
         if (
@@ -93,9 +105,26 @@ def _b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def _load_rsa_private_key(path: str) -> rsa.RSAPrivateKey:
+def decode_github_app_private_key_b64(raw: str) -> bytes:
+    """Decode a bounded base64 PEM value without exposing secret material."""
+    if not isinstance(raw, str) or not raw or len(raw) > 24000:
+        raise GitHubAppTokenError("GitHub App private key configuration is invalid")
     try:
-        pem = Path(path).read_bytes()
+        pem = base64.b64decode(raw, validate=True)
+    except Exception:
+        raise GitHubAppTokenError("GitHub App private key configuration is invalid") from None
+    if (
+        len(pem) > 18000
+        or not pem.startswith(b"-----BEGIN ")
+        or b"PRIVATE KEY-----" not in pem[:80]
+    ):
+        raise GitHubAppTokenError("GitHub App private key configuration is invalid")
+    return pem
+
+
+def _load_rsa_private_key(path: str | None, pem_bytes: bytes | None = None) -> rsa.RSAPrivateKey:
+    try:
+        pem = pem_bytes if pem_bytes is not None else Path(path).read_bytes()
         key = serialization.load_pem_private_key(pem, password=None)
     except Exception:
         raise GitHubAppTokenError("GitHub App private key could not be loaded") from None
@@ -123,7 +152,7 @@ class GitHubAppInstallationTokenIssuer:
         self._clock = clock
 
     def _create_app_jwt(self) -> str:
-        key = _load_rsa_private_key(self._settings.private_key_path)
+        key = _load_rsa_private_key(self._settings.private_key_path, self._settings.private_key_pem)
         now = int(self._clock())
         header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
         payload = _b64url(json.dumps(
@@ -362,4 +391,5 @@ __all__ = [
     "GitHubAppTokenError",
     "GitHubAppTokenSettings",
     "IssuedGitHubInstallationToken",
+    "decode_github_app_private_key_b64",
 ]
