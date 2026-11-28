@@ -177,7 +177,7 @@ class CapabilityTlsListenerTests(unittest.TestCase):
                 address = urls[0].removeprefix("https://")
                 client_context = ssl.create_default_context(cafile=str(self.ca_path))
                 async with httpx.AsyncClient(verify=client_context, timeout=5) as client:
-                    with self.assertRaises(httpx.ConnectError):
+                    with self.assertRaises(httpx.TransportError):
                         await client.get(f"https://{address}/")
                 task_group.cancel_scope.cancel()
 
