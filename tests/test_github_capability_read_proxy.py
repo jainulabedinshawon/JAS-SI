@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -58,7 +59,7 @@ class GitHubCapabilityReadProxyTests(unittest.TestCase):
         )
         self.http = Mock()
         content = b"print('ok')"
-        expected_blob_sha = hashlib.sha1(f"blob {len(content)}\\0".encode("ascii") + content).hexdigest()
+        expected_blob_sha = hashlib.sha1(f"blob {len(content)}\0".encode("ascii") + content).hexdigest()
         self.payload = {
             "type": "file",
             "path": "src/allowed.py",
