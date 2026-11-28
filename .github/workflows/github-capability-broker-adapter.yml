@@ -3,6 +3,7 @@ name: GitHub Capability Broker Adapter Tests
 on:
   pull_request:
     paths:
+      - "pyproject.toml"
       - "src/jas_si_agent/github_capability_broker.py"
       - "src/jas_si_agent/github_capability_identity.py"
       - "src/jas_si_agent/github_capability_tls_server.py"
@@ -18,18 +19,50 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: jas-si-capability-broker-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   broker-adapter-unit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
-      - name: Install minimal adapter dependency
-        run: python -m pip install -e ".[dev,capability-runtime]"
+          cache: ""
+      - name: Install pinned lock generator
+        run: |
+          python -m pip install --upgrade "pip==26.3"
+          python -m pip install "pip-tools==7.7.0"
+      - name: Generate complete hash-locked project and capability runtime
+        run: |
+          pip-compile \
+            --resolver=backtracking \
+            --generate-hashes \
+            --all-build-deps \
+            --extra=dev \
+            --extra=capability-runtime \
+            --output-file=.capability-runtime.lock.txt \
+            pyproject.toml
+      - name: Install only hash-verified locked dependencies
+        run: |
+          python -m pip install \
+            --require-hashes \
+            -r .capability-runtime.lock.txt
+      - name: Install project without resolving additional dependencies
+        run: |
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Run isolated Broker adapter and workload identity tests
-        run: python -m pytest tests/test_github_capability_broker_adapter.py tests/test_github_capability_identity.py tests/test_github_capability_tls_server.py -q
+        run: |
+          python -m pytest \
+            tests/test_github_capability_broker_adapter.py \
+            tests/test_github_capability_identity.py \
+            tests/test_github_capability_tls_server.py \
+            -q
