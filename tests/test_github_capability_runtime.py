@@ -10,7 +10,7 @@ from jas_si_agent import api as api_module
 from jas_si_agent.github_capability_identity import WorkloadIdentity
 from jas_si_agent.github_capability_runtime import create_github_capability_app, require_enabled_authenticated_workload
 class Capability:
-    tenant_id=uuid4(); installation_id=12345; repository_full_name="owner/private-repo"
+    task_id=uuid4(); tenant_id=uuid4(); installation_id=12345; repository_full_name="owner/private-repo"
     capability_role="worker"; commit_sha="a"*40; repository_paths=["src/main.py"]
     from datetime import datetime, timezone
     expires_at=datetime(2030,1,1,tzinfo=timezone.utc)
